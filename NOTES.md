@@ -158,6 +158,18 @@ project is and how to run it; this file says what we found and why things are th
   to write to removable volumes).
 - The watchdog is disabled in `main.cpp` until uploads with it running are proven (or it is stopped by a
   longer timeout / the app hands over cleanly before DFU).
+- **Found later the same day:** it happened again with the watchdog off. A serial logger (`logger.py`, left
+  running since the device soak at 17:44) held `/dev/cu.usbmodem*` and reopened it within 0.2 s after every
+  reset, so it read the bootloader's DFU replies and the upload starved ("No data received", "Device not
+  configured"). Short transfers sometimes got through. After killing it, one more upload failed (the board
+  was still in the bootloader from the earlier failure) and the next one worked. So the logger is the
+  confirmed cause; the watchdog is not proven guilty or innocent.
+- Prevention: flash with `scripts/flash.sh`. It refuses while any process holds the port (and names it),
+  retries up to 3 times, and only reports success on "Device programmed.". Never leave serial monitors or
+  loggers running in the background.
+- Partial refresh (only changed native lines are sent): on the compass page with a 3x replay,
+  174-192 of 240 lines change per frame (in portrait a native line is a screen column, and the dial
+  spans almost all of them), so the panel write drops from 53 ms to about 37-41 ms. A small gain.
 - First on-device stack margin: `loopstack=2356` bytes free on the compass page (target >= 1024).
 
 ## Watchdog (wired in, then DISABLED: see above)

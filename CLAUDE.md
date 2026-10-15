@@ -47,7 +47,7 @@ right is worse than no data.
     firmware/emu/build.sh                 # emulator: all tests (sanitizers on) + screen PNGs in emu/out/
     firmware/emu/build.sh replay <lines> <outdir> [--hz 3 --inject --mix live.txt --thermal]
     cd firmware && ../.venv/bin/pio run              # device build
-    cd firmware && ../.venv/bin/pio run -t upload    # flash over USB (board must be on USB)
+    scripts/flash.sh                      # flash over USB: checks the port is free, verifies "Device programmed."
 
 Before every commit: the emulator tests pass and the device build succeeds. Look at the rendered PNGs
 after any view change.
@@ -57,6 +57,9 @@ Line files for replays: `python host/make_lines.py igc <file.igc> --start S --se
 
 ## Working with the device
 
+- **Never leave a serial reader running in the background.** The bootloader uses the same USB serial
+  port for uploads; a forgotten logger starved the upload and left the board stuck in the bootloader.
+  Read the status for a fixed number of seconds, then close the port. Flash only with `scripts/flash.sh`.
 - Serial status (115200, only printed when a terminal is attached): `st ...` (data, timing), `dev ...`
   (saved/connected tracer), `raw ...` (last line received), `cmp ...` (compass sensors).
 - `python host/igc_replay.py <igc> --start 4185 --speed 3 --page thermal` replays a real flight.
