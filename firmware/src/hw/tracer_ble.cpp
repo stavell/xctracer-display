@@ -1,23 +1,14 @@
 #include "hw/tracer_ble.h"
+#include "core/devmatch.h"
 
 static TracerBle* self = nullptr;
 
-static bool glob(const char* p, const char* s) {
-  while (*p) {
-    if (*p == '*') {
-      while (*p == '*') p++;
-      if (!*p) return true;
-      for (; *s; s++) if (glob(p, s)) return true;
-      return false;
-    }
-    if (!*s) return false;
-    if (*p != '?' && tolower(*p) != tolower(*s)) return false;
-    p++; s++;
-  }
-  return !*s;
+static DevAddr toDev(const ble_gap_addr_t& a) {
+  DevAddr d;
+  memcpy(d.addr, a.addr, 6);
+  d.type = a.addr_type;
+  return d;
 }
-
-static bool sameAddr(const ble_gap_addr_t& a, const ble_gap_addr_t& b) { return memcmp(a.addr, b.addr, 6) == 0; }
 
 void TracerBle::begin() {
   self = this;
@@ -30,53 +21,43 @@ void TracerBle::begin() {
   Bluefruit.Scanner.restartOnDisconnect(false);
   Bluefruit.Scanner.useActiveScan(true);   // device names often live in the scan response
   link_ = cfg_.hasSaved() ? ViewModel::LINK_SEARCHING : ViewModel::LINK_NONE;
-  if (cfg_.hasSaved()) startScan(false);
+  if (cfg_.hasSaved()) startScan(SCAN_LOW, 0);
 }
 
-void TracerBle::startScan(bool fast) {
+// Loop context only (the scanner is never touched from a callback except resume()).
+void TracerBle::startScan(ScanMode m, uint32_t now) {
   Bluefruit.Scanner.stop();
-  if (fast) Bluefruit.Scanner.setInterval(160, 120);
-  else Bluefruit.Scanner.setInterval(1600, 80);   // low duty while looking for the saved vario
+  switch (m) {
+    case SCAN_FAST_RECONNECT:   // just lost the vario: full duty for a while
+      Bluefruit.Scanner.setInterval(160, 160);
+      fastUntil_ = now + FAST_RECONNECT_MS;
+      break;
+    case SCAN_LIST:
+      Bluefruit.Scanner.setInterval(160, 120);
+      break;
+    default:
+      m = SCAN_LOW;
+      Bluefruit.Scanner.setInterval(1600, 80);   // low duty while looking for the saved vario
+      break;
+  }
+  scanMode_ = m;
   Bluefruit.Scanner.start(0);
 }
 
-void TracerBle::onScan(ble_gap_evt_adv_report_t* r) { if (self) self->handleScan(r); }
-
-void TracerBle::handleScan(ble_gap_evt_adv_report_t* r) {
-  char name[24] = "";
+// Callback context: parse the name, queue the report, keep the scanner going.
+void TracerBle::onScan(ble_gap_evt_adv_report_t* r) {
+  if (!self) return;
+  ScanReport rep;
+  memset(rep.name, 0, sizeof rep.name);
   uint8_t n = Bluefruit.Scanner.parseReportByType(r, BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME,
-                                                  (uint8_t*)name, sizeof(name) - 1);
+                                                  (uint8_t*)rep.name, sizeof(rep.name) - 1);
   if (!n) n = Bluefruit.Scanner.parseReportByType(r, BLE_GAP_AD_TYPE_SHORT_LOCAL_NAME,
-                                                  (uint8_t*)name, sizeof(name) - 1);
-  name[n] = 0;
-  if (!n) { Bluefruit.Scanner.resume(); return; }
-
-  if (!listMode_) {   // auto mode: connect to the saved device only, by address or by name
-    // Match the saved address. Matching by name is only a fallback for devices whose address changes
-    // (private addresses): with a static address two units sharing a name must not be mixed up.
-    bool privateAddr = cfg_.addr().addr_type == BLE_GAP_ADDR_TYPE_RANDOM_PRIVATE_RESOLVABLE ||
-                       cfg_.addr().addr_type == BLE_GAP_ADDR_TYPE_RANDOM_PRIVATE_NON_RESOLVABLE;
-    if (cfg_.hasSaved() && link_ == ViewModel::LINK_SEARCHING &&
-        (sameAddr(r->peer_addr, cfg_.addr()) || (privateAddr && strcmp(name, cfg_.name()) == 0))) {
-      cfg_.updateAddr(r->peer_addr);   // keep the newest address
-      connAddr_ = r->peer_addr;
-      haveConnAddr_ = true;
-      link_ = ViewModel::LINK_CONNECTING;
-      Bluefruit.Central.connect(r);
-      return;
-    }
-    Bluefruit.Scanner.resume();
-    return;
-  }
-  if (!glob(cfg_.filter(), name)) { Bluefruit.Scanner.resume(); return; }
-  int idx = -1;
-  for (int i = 0; i < nItems_; i++) if (sameAddr(items_[i].addr, r->peer_addr)) idx = i;
-  if (idx < 0 && nItems_ < MAX_ITEMS) idx = nItems_++;
-  if (idx >= 0) {
-    strncpy(items_[idx].name, name, sizeof items_[idx].name - 1);
-    items_[idx].name[sizeof items_[idx].name - 1] = 0;
-    items_[idx].addr = r->peer_addr;
-    items_[idx].rssi = r->rssi;
+                                                  (uint8_t*)rep.name, sizeof(rep.name) - 1);
+  rep.name[n] = 0;
+  if (n) {
+    rep.addr = r->peer_addr;
+    rep.rssi = r->rssi;
+    self->reports_.push(rep);   // full: drop, the next advertisement repeats it
   }
   Bluefruit.Scanner.resume();
 }
@@ -86,17 +67,18 @@ void TracerBle::onConnect(uint16_t h) {
   self->conn_ = h;
   self->lineLen_ = 0;
   if (!self->svc_.discover(h) || !self->chr_.discover() || !self->chr_.enableNotify()) {
+    self->link_ = self->cfg_.hasSaved() ? ViewModel::LINK_SEARCHING : ViewModel::LINK_NONE;
     Bluefruit.disconnect(h);   // not a vario: no 0xFFE0 / 0xFFE1
     return;
   }
   self->link_ = ViewModel::LINK_CONNECTED;
 }
 
+// Callback context: state only. update() demotes the link and restarts the scan.
 void TracerBle::onDisconnect(uint16_t, uint8_t) {
   if (!self) return;
   self->conn_ = BLE_CONN_HANDLE_INVALID;
-  self->link_ = self->cfg_.hasSaved() ? ViewModel::LINK_SEARCHING : ViewModel::LINK_NONE;
-  if (self->cfg_.hasSaved() && !self->listMode_) self->startScan(false);
+  self->rescan_ = true;
 }
 
 void TracerBle::onNotify(BLEClientCharacteristic*, uint8_t* data, uint16_t len) {
@@ -109,9 +91,10 @@ void TracerBle::handleNotify(const uint8_t* data, uint16_t len) {
     char c = (char)data[i];
     if (c == '\n' || c == '\r') {
       if (lineLen_ > 0) {
-        lineBuf_[lineLen_] = 0;
-        uint8_t nh = (head_ + 1) % RING;
-        if (nh != tail_) { memcpy(ring_[head_], lineBuf_, lineLen_ + 1); head_ = nh; }   // full: drop
+        LineMsg m;
+        memcpy(m.s, lineBuf_, lineLen_);
+        m.s[lineLen_] = 0;
+        lines_.push(m);   // full: drop
       }
       lineLen_ = 0;
     } else if (lineLen_ < LINE - 1) {
@@ -123,42 +106,99 @@ void TracerBle::handleNotify(const uint8_t* data, uint16_t len) {
 }
 
 bool TracerBle::popLine(char* buf, size_t n) {
-  if (tail_ == head_) return false;
-  strncpy(buf, ring_[tail_], n - 1);
+  LineMsg m;
+  if (!lines_.pop(m)) return false;
+  strncpy(buf, m.s, n - 1);
   buf[n - 1] = 0;
-  tail_ = (tail_ + 1) % RING;
   return true;
 }
 
+void TracerBle::handleReport(const ScanReport& r, uint32_t now) {
+  if (listMode_) {
+    if (!globMatch(cfg_.filter(), r.name)) return;
+    int idx = -1;
+    for (int i = 0; i < nItems_; i++) if (sameAddr(toDev(items_[i].addr), toDev(r.addr))) idx = i;
+    if (idx < 0 && nItems_ < MAX_ITEMS) idx = nItems_++;
+    if (idx >= 0) {
+      strncpy(items_[idx].name, r.name, sizeof items_[idx].name - 1);
+      items_[idx].name[sizeof items_[idx].name - 1] = 0;
+      items_[idx].addr = r.addr;
+      items_[idx].rssi = r.rssi;
+    }
+    return;
+  }
+  if (link_ != ViewModel::LINK_SEARCHING) return;
+  if (!shouldAutoConnect(cfg_.hasSaved(), toDev(cfg_.addr()), cfg_.name(), toDev(r.addr), r.name)) return;
+  Bluefruit.Scanner.stop();
+  cfg_.updateAddr(r.addr);   // keep the newest address
+  connAddr_ = r.addr;
+  haveConnAddr_ = true;
+  link_ = ViewModel::LINK_CONNECTING;
+  connectingSince_ = now;
+  ble_gap_addr_t a = r.addr;
+  if (!Bluefruit.Central.connect(&a)) {
+    link_ = ViewModel::LINK_SEARCHING;
+    startScan(SCAN_LOW, now);
+  }
+}
+
 void TracerBle::update(uint32_t now) {
+  lastNow_ = now;
+  if (rescan_.exchange(false)) {
+    if (link_ == ViewModel::LINK_CONNECTED)
+      link_ = cfg_.hasSaved() ? ViewModel::LINK_SEARCHING : ViewModel::LINK_NONE;
+    // CONNECTING here means the disconnect belongs to a link we replaced: leave the new attempt alone.
+    if (link_ == ViewModel::LINK_SEARCHING && !listMode_) startScan(SCAN_FAST_RECONNECT, now);
+  }
+
+  ScanReport rep;
+  while (reports_.pop(rep)) handleReport(rep, now);
+
   if (link_ == ViewModel::LINK_CONNECTING) {
     if (!connectingSince_) connectingSince_ = now;
     if (now - connectingSince_ > 8000) {
       connectingSince_ = 0;
       link_ = cfg_.hasSaved() ? ViewModel::LINK_SEARCHING : ViewModel::LINK_NONE;
-      if (!listMode_) startScan(false);
+      if (!listMode_) startScan(SCAN_FAST_RECONNECT, now);
     }
   } else {
     connectingSince_ = 0;
   }
+
+  if (scanMode_ == SCAN_FAST_RECONNECT && (int32_t)(now - fastUntil_) >= 0 && !listMode_ &&
+      link_ == ViewModel::LINK_SEARCHING)
+    startScan(SCAN_LOW, now);
 }
 
-void TracerBle::listOpen() { nItems_ = 0; listMode_ = true; startScan(true); }
+void TracerBle::listOpen() {
+  nItems_ = 0;
+  listMode_ = true;
+  startScan(SCAN_LIST, lastNow_);
+}
 
 void TracerBle::listClose() {
   listMode_ = false;
-  if (link_ == ViewModel::LINK_CONNECTED || link_ == ViewModel::LINK_CONNECTING) { Bluefruit.Scanner.stop(); return; }
-  if (cfg_.hasSaved()) { link_ = ViewModel::LINK_SEARCHING; startScan(false); }
-  else Bluefruit.Scanner.stop();
+  if (link_ == ViewModel::LINK_CONNECTED || link_ == ViewModel::LINK_CONNECTING) {
+    Bluefruit.Scanner.stop();
+    scanMode_ = SCAN_OFF;
+    return;
+  }
+  if (cfg_.hasSaved()) { link_ = ViewModel::LINK_SEARCHING; startScan(SCAN_LOW, lastNow_); }
+  else { Bluefruit.Scanner.stop(); scanMode_ = SCAN_OFF; }
+}
+
+void TracerBle::sortedItems(Item* out) const {   // strongest signal first
+  int8_t rssi[MAX_ITEMS];
+  int order[MAX_ITEMS];
+  for (int i = 0; i < nItems_; i++) rssi[i] = items_[i].rssi;
+  orderByRssi(rssi, nItems_, order);
+  for (int i = 0; i < nItems_; i++) out[i] = items_[order[i]];
 }
 
 bool TracerBle::listItem(int i, ListItem& out) {
   if (i < 0 || i >= nItems_) return false;
-  Item sorted[MAX_ITEMS];                      // strongest signal first
-  memcpy(sorted, items_, sizeof(Item) * nItems_);
-  for (int a = 0; a < nItems_; a++)
-    for (int b = a + 1; b < nItems_; b++)
-      if (sorted[b].rssi > sorted[a].rssi) { Item t = sorted[a]; sorted[a] = sorted[b]; sorted[b] = t; }
+  Item sorted[MAX_ITEMS];
+  sortedItems(sorted);
   strncpy(out.name, sorted[i].name, sizeof out.name - 1);
   out.name[sizeof out.name - 1] = 0;
   out.rssi = sorted[i].rssi;
@@ -169,21 +209,20 @@ bool TracerBle::listItem(int i, ListItem& out) {
 bool TracerBle::listConnect(int i) {
   if (i < 0 || i >= nItems_) return false;
   Item sorted[MAX_ITEMS];
-  memcpy(sorted, items_, sizeof(Item) * nItems_);
-  for (int a = 0; a < nItems_; a++)
-    for (int b = a + 1; b < nItems_; b++)
-      if (sorted[b].rssi > sorted[a].rssi) { Item t = sorted[a]; sorted[a] = sorted[b]; sorted[b] = t; }
+  sortedItems(sorted);
   Item it = sorted[i];
   connAddr_ = it.addr;
   haveConnAddr_ = true;
   Bluefruit.Scanner.stop();
+  scanMode_ = SCAN_OFF;
   listMode_ = false;
   if (conn_ != BLE_CONN_HANDLE_INVALID) Bluefruit.disconnect(conn_);
   cfg_.saveDevice(it.name, it.addr);
   link_ = ViewModel::LINK_CONNECTING;
+  connectingSince_ = lastNow_;
   if (!Bluefruit.Central.connect(&it.addr)) {
     link_ = ViewModel::LINK_SEARCHING;
-    startScan(false);
+    startScan(SCAN_LOW, lastNow_);
     return false;
   }
   return true;

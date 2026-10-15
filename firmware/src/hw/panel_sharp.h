@@ -14,6 +14,7 @@ class SharpPanel : public IPanel {
   void present() override;
   void invalidate() override { dirty_ = true; }
   void refresh() override;
+  void showRaw(const uint8_t* frame) override;
   void stopVcom();
   uint32_t refreshUs() const { return refreshUs_; }     // duration of the last SPI refresh, for diagnostics
 

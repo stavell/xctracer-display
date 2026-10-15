@@ -21,6 +21,8 @@ class MockPanel : public IPanel {
   }
   void invalidate() override { dirty_ = true; }
   void refresh() override { memcpy(snap_, disp_.getBuffer(), sizeof snap_); dirty_ = false; refreshes++; }
+  void showRaw(const uint8_t* frame) override { memcpy(disp_.getBuffer(), frame, sizeof snap_); refresh(); }
+  int rawPixel(int x, int y) { return (disp_.getBuffer()[(y * 400 + x) / 8] >> (x & 7)) & 1; }   // native layout, 1 = white
   void dump(const char* path) { disp_.dumpPgm(path); }
   int refreshes = 0;
  private:

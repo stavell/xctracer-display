@@ -32,6 +32,11 @@ void SharpPanel::refresh() {
   dirty_ = false;
 }
 
+void SharpPanel::showRaw(const uint8_t* frame) {
+  memcpy(display_.getBuffer(), frame, BUF_LEN);
+  refresh();
+}
+
 void SharpPanel::stopVcom() {
   vcom_.stop();
   digitalWrite(PIN_DISP_EXTCOMIN, LOW);
