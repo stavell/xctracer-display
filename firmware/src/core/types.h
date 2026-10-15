@@ -3,6 +3,12 @@
 #include <math.h>
 #include <stdint.h>
 
+// NaN marks missing data everywhere; with -ffast-math / -ffinite-math-only every isfinite() check is
+// compiled away. Refuse such builds.
+#if defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__
+#error "built with finite-math-only (-Ofast / -ffast-math): NaN checks would be removed"
+#endif
+
 // One decoded $XCTRC line from the vario.
 struct Sample {
   bool fix = false;                 // GPS fix (the tracer sends lat = lon = 0 without one)

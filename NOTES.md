@@ -207,3 +207,16 @@ project is and how to run it; this file says what we found and why things are th
 6. The four front buttons are still unwired; only the user switch is used.
 7. Glide ratio shows `--` when not sinking; decide whether another value would be better.
 8. Check how close thermal markers look at wide zoom (labels are skipped when they would collide).
+
+## Fast math removed every NaN check on the device (2026-10-15)
+
+- The Adafruit nRF52 core compiles with `-Ofast`, which implies `-ffast-math` / `-ffinite-math-only`:
+  GCC assumes NaN never occurs and folds `isfinite()` / `isnan()` to constants. Every NaN guard in the
+  firmware (fnum's `--`, the arrow guard, the parser's fix checks from the fuzzing) was dead code on the
+  device; the emulator (no `-Ofast`) never saw it. Found when the new heading smoother stayed at NaN.
+- Fix: `build_unflags = -Ofast`, `-O2` in `platformio.ini`; `core/types.h` refuses to compile when
+  `__FINITE_MATH_ONLY__` is set, so it cannot come back silently.
+- Magnetometer is now always on (all pages), so it has a settled heading when the GPS track drops out.
+- Panel SPI: 2 MHz -> 4 MHz (full refresh 53 -> 27 ms) -> 8 MHz (about 14 ms full, 2-9 ms partial).
+  8 MHz is beyond Adafruit's default; recheck for artefacts when cold. Compass-page tick with the
+  dial animating: 60-80 ms (was 108 ms).

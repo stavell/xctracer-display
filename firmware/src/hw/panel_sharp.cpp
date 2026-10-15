@@ -7,7 +7,7 @@
 static const size_t BUF_LEN = 400 * 240 / 8;
 // More changed lines than this: the full refresh is as good and keeps the common path simple.
 static const int FULL_REFRESH_LINES = 200;
-static const uint32_t SPI_HZ = 4000000;   // panel SPI clock (library default 2 MHz)
+static const uint32_t SPI_HZ = 8000000;   // panel SPI clock (library default 2 MHz)
 
 static void vcomToggle(TimerHandle_t) { digitalToggle(PIN_DISP_EXTCOMIN); }
 

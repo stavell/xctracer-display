@@ -793,24 +793,23 @@ static void test_app_heading() {
   r.laptop.inject(line("XCTRC,2026,8,16,10,38,24,0,43.252650,26.927967,1387.00,1.00,12.5,0.1,,,,967.62,85"));
   run(200);
   CHECK(app.buildViewModel(now).headingSrc == HDG_MAG);
-  // moving: the GPS track takes over and the sensors power down
+  // moving: the GPS track takes over; the magnetometer keeps running
   r.laptop.inject(line("XCTRC,2026,8,16,10,38,25,0,43.252650,26.927967,1387.00,30.00,250.0,0.1,,,,967.62,85"));
   run(2500);                                   // the dial glides there
   CHECK(app.buildViewModel(now).headingSrc == HDG_GPS);
   NEAR(fabsf(angDiff(app.buildViewModel(now).heading, 250)), 0, 0.01);
-  CHECK(!app.compassOn()); CHECK(!r.compass.enabled);
+  CHECK(app.compassOn()); CHECK(r.compass.enabled);
   // data goes stale: back to the compass
   run(4000);
   CHECK(app.compassOn());
   CHECK(app.buildViewModel(now).headingSrc == HDG_MAG);
-  // the thermal page needs no magnetometer
+  // every page keeps the magnetometer on
   { Command pc; pc.type = Command::PAGE; pc.value = 1; r.laptop.cmds.push_back(pc); }
   run(200);
-  CHECK(!app.compassOn());
-  // the wind profile page needs none either; the home page does (arrow on the ground)
+  CHECK(app.compassOn());
   { Command pc; pc.type = Command::PAGE; pc.value = 2; r.laptop.cmds.push_back(pc); }
   run(200);
-  CHECK(!app.compassOn());
+  CHECK(app.compassOn());
   { Command pc; pc.type = Command::PAGE; pc.value = 3; r.laptop.cmds.push_back(pc); }
   run(200);
   CHECK(app.compassOn());

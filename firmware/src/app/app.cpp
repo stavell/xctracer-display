@@ -93,17 +93,16 @@ void App::finishCalibration(bool keep) {
   redraw_ = true;
 }
 
-// Feed the heading selector from both sources and power the magnetometer only when it is needed.
+// Feed the heading selector from both sources. The magnetometer always runs (a fraction of a mA), so it
+// has a settled heading the moment the GPS track drops out and its reading is always in the status line.
 void App::updateHeading(uint32_t now) {
   const Sample& s = flight_.last();
   bool fresh = flight_.hasData() && haveSample_ && now - lastSampleMs_ < cfg_.freshMs;
   heading_.feedGps(fresh && s.fix, s.speedKmh, s.course);
 
-  bool want = calibrating_ || ((page_ == ViewModel::PAGE_COMPASS || page_ == ViewModel::PAGE_HOME) && heading_.wantsMagnetometer());
-  if (want != compassOn_) {
-    compassOn_ = want;
-    compassHw_.enable(want);
-    if (!want && !calibrating_) compass_.reset();
+  if (!compassOn_) {
+    compassOn_ = true;
+    compassHw_.enable(true);
   }
   Vec3 a, m;
   if (compassOn_ && compassHw_.read(a, m)) compass_.update(a, m);
