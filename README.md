@@ -94,8 +94,13 @@ characteristic `0xFFE1` (3 Hz, checksummed):
 
 lat = lon = 0 means no GPS fix. Speed is assumed km/h (unverified until a fix is available).
 
-- Screens (short press cycles): Standard, Simple, Thermal (the Maxx II layouts). The thermal
-  screen shows automatically while circling and switches back 16 s after straight flight.
+- One portrait screen (240x400, `DISPLAY_ROTATION` in `pins.h`: 1 or 3 flips it 180 degrees),
+  in order of importance: GPS speed + glide ratio, altitude + vertical speed, heading-up compass
+  with the wind arrow (up = tailwind, down = headwind) plus wind speed, "from" direction and
+  head/tail component, thin vertical vario down the right edge, time of day in the header.
+- Wind: least-squares circle fit of ground-velocity vectors over the last 30 s while turning
+  (needs about 200 degrees of heading change; radius = airspeed must be 14-72 km/h), smoothed
+  over ~8 s, kept on screen afterwards with its age.
 - Hold ~1 s: device list. Hold 3 s: power off (banner at 1.5 s). Hold 1 s at boot to power on.
 - Every float shown goes through `fnum()` in `ui.cpp`: non-finite values print `--`.
 - The laptop can still draw frames (`host/dashboard.py`); the vario UI resumes 10 s after the
@@ -107,3 +112,16 @@ lat = lon = 0 means no GPS fix. Speed is assumed km/h (unverified until a fix is
 The standalone sensor dashboard (environment, compass with calibration, motion, light and
 gestures, sound) was removed from the firmware. It is kept under the git tag
 `sensor-dashboard`: `git checkout sensor-dashboard`.
+
+## Previewing the UI without the device
+
+`firmware/preview/build.sh` compiles the real `src/ui.cpp` on the PC against the real
+Adafruit_GFX and a mock display, with canned flight data, and renders PNGs into
+`firmware/preview/out/` (live, tail, head, big numbers, no fix, status, device list).
+`ROT=0 ./build.sh` renders landscape. Use it before flashing any layout change.
+
+## IGC replay
+
+`host/igc_replay.py flight.igc --find` lists the strongest climbs; `--start SECONDS` replays
+from there in real time as injected `$XCTRC` lines (vario derived from pressure altitude,
+speed and course from positions). `host/wind_check.py` runs the wind estimator offline.

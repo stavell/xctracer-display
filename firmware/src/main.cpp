@@ -54,11 +54,13 @@ static void onCmdWrite(uint16_t, BLECharacteristic*, uint8_t* d, uint16_t len) {
   switch (d[0]) {
     case CMD_CLEAR:
       lastHostDrawMs = millis();
+      display.setRotation(0);   // host frames are 400x240 landscape
       display.fillRect(0, 0, W, H, WHITE);
       blit.open = false;
       break;
     case CMD_BLIT:
       lastHostDrawMs = millis();
+      display.setRotation(0);   // host frames are 400x240 landscape
       if (len < 9) return;
       blit.x = d[1] | (d[2] << 8);
       blit.y = d[3] | (d[4] << 8);
@@ -126,6 +128,7 @@ static void sleepNow() {
 }
 
 static void powerOff() {
+  display.setRotation(DISPLAY_ROTATION);
   uiMessage("Powering off");
   if (connHandle != BLE_CONN_HANDLE_INVALID) {
     Bluefruit.disconnect(connHandle);
@@ -167,7 +170,7 @@ void setup() {
   vcomTimer.start();
 
   display.begin();
-  display.setRotation(0);
+  display.setRotation(DISPLAY_ROTATION);
   uiBegin(&display);
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
@@ -202,7 +205,7 @@ void loop() {
   bool local = localActive();
   if (local != wasLocal) {
     wasLocal = local;
-    if (local) { uiInvalidate(); lastDraw = 0; }
+    if (local) { display.setRotation(DISPLAY_ROTATION); uiInvalidate(); lastDraw = 0; }
   }
 
   if (filterPending) {

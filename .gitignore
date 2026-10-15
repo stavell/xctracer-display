@@ -2,3 +2,4 @@
 .pio/
 __pycache__/
 .DS_Store
+firmware/preview/out/
