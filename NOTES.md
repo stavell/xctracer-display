@@ -144,7 +144,23 @@ project is and how to run it; this file says what we found and why things are th
 - Soak on the real 3 h flight, 3 runs: 9.1 virtual hours, 0 heap allocations inside `App::tick()`, every
   buffer within its limit, 0 bad lines, worst tick 10 ms on the PC with sanitizers.
 
-## Watchdog (wired in, NOT yet verified on the device)
+## Upload failure and recovery (2026-10-15)
+
+- After the temperature-profile build, every full upload died about a third of the way ("Timed out waiting
+  for acknowledgement" / "port not open") and the board stayed in the bootloader. **PlatformIO still printed
+  SUCCESS**: only "Device programmed." in the output means the upload worked.
+- Two suspects, not separated: (1) the 8 s watchdog survives the jump into the bootloader and resets it during
+  a ~20 s transfer; (2) the bootloader's UF2 USB drive was wedged (listing and force-unmounting it hung), which
+  starves the serial DFU. A 53 KB rescue image always uploaded (about 5 s); full images did not.
+- What fixed it: unplug USB **and** the battery for 10 s, plug USB back without pressing RESET, upload at once.
+- Recovery kit: a tiny rescue firmware (Serial only) uploads in a few seconds even when full uploads fail;
+  `firmware.uf2` dragged onto `FTHR840BOOT` in Finder also bypasses serial DFU (Terminal may lack permission
+  to write to removable volumes).
+- The watchdog is disabled in `main.cpp` until uploads with it running are proven (or it is stopped by a
+  longer timeout / the app hands over cleanly before DFU).
+- First on-device stack margin: `loopstack=2356` bytes free on the compass page (target >= 1024).
+
+## Watchdog (wired in, then DISABLED: see above)
 
 - 8 s nRF52 WDT, started right after the power-on gate, fed every loop iteration and inside the power-off
   waits. Once started it cannot be stopped and it survives soft resets; the Adafruit bootloader feeds a

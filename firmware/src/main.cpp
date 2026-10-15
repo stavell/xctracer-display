@@ -35,7 +35,9 @@ static App app(panel, button, battery, tracer, laptop, config, compassHw, thermo
 
 void setup() {
   PowerNrf::gateOnWake(PIN_BUTTON1, 1000);   // before anything else: a quick tap goes back to sleep
-  watchdog::start(8000);                     // a hung loop resets the board instead of freezing the screen
+  // Watchdog disabled: a running WDT survives the jump into the bootloader and reset it in the middle of
+  // a serial DFU upload (seen 2026-10-15). Re-enable only together with a fix for uploads (see NOTES.md).
+  // watchdog::start(8000);
   Serial.begin(115200);
   button.begin();
   config.begin();

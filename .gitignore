@@ -5,3 +5,4 @@ __pycache__/
 firmware/preview/out/
 .claude/worktrees/
 .venv
+*.uf2
