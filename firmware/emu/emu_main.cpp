@@ -65,14 +65,16 @@ static ViewModel* thermalVm(int kind) {
   const double D2R = 0.017453292519943295;
   double x = 0, y = 0, hdg = 40;
   const double wx = 12 / 3.6 * sin(270 * D2R), wy = 12 / 3.6 * cos(270 * D2R);
-  int total = kind == 0 ? 110 : 170;
+  int total = kind == 0 ? 110 : kind == 1 ? 170 : 150;
+  const int c0 = kind == 2 ? 0 : 20, c1 = kind == 2 ? 150 : 110;   // kind 2: 2.5 min in the lift, the early circles are memory
   for (int i = 0; i < total; i++) {
-    bool circling = i >= 20 && i < 110;
+    bool circling = i >= c0 && i < c1;
     double vsp = circling ? 2.6 - 0.9 * ((i / 6) % 2) : -1.1;
     if (circling) hdg += 18;
     double ax = (circling ? 30 : 38) / 3.6 * sin(hdg * D2R), ay = (circling ? 30 : 38) / 3.6 * cos(hdg * D2R);
     double gx = ax + wx, gy = ay + wy;
     x += gx; y += gy;
+    if (kind == 2) { x -= 0.25; y += 0.2; }   // the unit slides across the air mass: older circles sit apart from new ones
     Sample s;
     s.fix = true; s.lat = 43 + y / 111320.0; s.lon = 26 + x / (111320.0 * cos(43 * D2R));
     s.speedKmh = (float)(hypot(gx, gy) * 3.6); s.course = (float)fmod(atan2(gx, gy) / D2R + 360, 360);
@@ -119,14 +121,15 @@ static void renderGray(const std::string& out, int rot) {
 
 static int cmdShots(const std::string& out, int rot) {
   struct Sc { const char* name; };
-  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "mag", "calibrate",
+  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag", "calibrate",
                          "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
   for (const char* n : names) {
     if (!strncmp(n, "thermal", 7)) {
-      ViewModel* tv = thermalVm(strcmp(n, "thermal_lost") == 0 ? 1 : 0);
+      ViewModel* tv = thermalVm(strcmp(n, "thermal_lost") == 0 ? 1 : strcmp(n, "thermal_memory") == 0 ? 2 : 0);
       MockPanel tp;
       tp.setRotation(rot);
-      drawLive(tp.gfx(), *tv, 0);
+      Bitmap1 tbm = tp.bitmap();
+      drawLive(tp.gfx(), *tv, 0, &tbm);
       tp.dump((out + "/" + n + ".pgm").c_str());
       continue;
     }

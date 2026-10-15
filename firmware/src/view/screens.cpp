@@ -103,6 +103,33 @@ static void header(const ViewModel& vm, const char* title = nullptr) {
   d->fillRect(W - 38, 8, (26 * pct) / 100, 9, WHT);
 }
 
+// Two shades, one meaning each everywhere: LIGHT for faces, zones and backgrounds, MID for older or
+// secondary data. Text, numbers, arrows and the newest trail are never drawn on them.
+static const int LIGHT = 13, MID = 8;
+
+// Dithered pixel: one table lookup, for grey lines and dots (rects and spans use the byte-wise paths).
+static inline void greyPx(const Bitmap1& bm, int x, int y, int level) {
+  static uint8_t thr[64];
+  static bool init = false;
+  if (!init) {
+    for (int i = 0; i < 64; i++) thr[i] = (uint8_t)bayer8(i & 7, i >> 3);
+    init = true;
+  }
+  bm.pixel(x, y, thr[(y & 7) * 8 + (x & 7)] < 4 * level ? DRAW_SET : DRAW_CLEAR);
+}
+
+// Segment of w x w grey squares, like thickLine does in black.
+static void greyLine(const Bitmap1& bm, int x0, int y0, int x1, int y1, int w, int level) {
+  int dx = x1 - x0, dy = y1 - y0;
+  int steps = abs(dx) > abs(dy) ? abs(dx) : abs(dy);
+  if (steps < 1) steps = 1;
+  for (int i = 0; i <= steps; i++) {
+    int x = x0 + (int)lroundf((float)dx * i / steps), y = y0 + (int)lroundf((float)dy * i / steps);
+    for (int j = 0; j < w; j++)
+      for (int k = 0; k < w; k++) greyPx(bm, x + k, y + j, level);
+  }
+}
+
 // ---- VARIO -------------------------------------------------------------------
 static float barPos(float v) {   // -1..1, fine resolution near zero
   if (!isfinite(v)) return 0;
@@ -114,7 +141,7 @@ static float barPos(float v) {   // -1..1, fine resolution near zero
 
 // Thin vertical vario along the left edge: instant value filled from the centre, tick marks
 // and a small block for the averaged value on its right side.
-static void thinVario(int x, int w, float v, float avg) {
+static void thinVario(const Bitmap1* bm, int x, int w, float v, float avg) {
   const int top = HDR + 4, bot = H - 4;
   const int cy = (top + bot) / 2, half = (bot - top) / 2;
   d->drawRect(x, top, w, bot - top, BLK);
@@ -126,6 +153,7 @@ static void thinVario(int x, int w, float v, float avg) {
   if (isfinite(v)) {
     int y = cy - (int)(half * barPos(v));
     if (v >= 0) d->fillRect(x + 2, y, w - 4, cy - y + 1, BLK);
+    else if (bm) fillRect(*bm, x + 2, cy + 1, w - 4, y - cy, Gray(MID));   // sink: grey, climb stays black
     else d->fillRect(x + 2, cy, w - 4, y - cy + 1, BLK);
   }
   int ya = cy - (int)(half * barPos(avg));
@@ -147,7 +175,7 @@ static void compassDial(int cx, int cy, int R, float heading, HeadingSource src)
   d->drawCircle(cx, cy, R, BLK);
   d->drawCircle(cx, cy, R - 1, BLK);
   d->fillTriangle(cx - 8, cy - R - 4, cx + 8, cy - R - 4, cx, cy - R + 11, BLK);   // direction of travel
-  const int rl = R - 24;   // label radius
+  const int rl = R - 26;   // label radius, clear of the grey ring (R-1 .. R-12)
   for (int a = 0; a < 360; a += 10) {
     if (a % 45 == 0) continue;   // letters sit there
     float th = (a - course) * PI_F / 180.0f;
@@ -211,13 +239,21 @@ static void cell(int x, int y, int w, const char* title, const char* value);
 
 // Light grey ring (outer radius R, inner Ri) under the dial's ticks. Dithered, so it goes in before
 // any GFX drawing; the letters and the heading sit on the white inside.
-static void greyRing(const Bitmap1& bm, int cx, int cy, int R, int Ri, int level) {
+// Ri = 0 makes it a disc. Clipped to the box (cl0, ct, cl1, cb) so a disc cannot spill over a frame.
+static void greyRing(const Bitmap1& bm, int cx, int cy, int R, int Ri, int level,
+                     int cl0 = -9999, int ct = -9999, int cl1 = 9999, int cb = 9999) {
+  auto span = [&](int x0, int x1, int y) {
+    if (y < ct || y > cb) return;
+    if (x0 < cl0) x0 = cl0;
+    if (x1 > cl1) x1 = cl1;
+    if (x0 <= x1) hline(bm, x0, x1, y, Gray(level));
+  };
   for (int dy = -R; dy <= R; dy++) {
     int ho = (int)sqrtf((float)(R * R - dy * dy));
-    if (abs(dy) >= Ri) { hspan(bm, cx - ho, cy + dy, 2 * ho + 1, Gray(level)); continue; }
+    if (abs(dy) >= Ri) { span(cx - ho, cx + ho, cy + dy); continue; }
     int hi = (int)sqrtf((float)(Ri * Ri - dy * dy));
-    hspan(bm, cx - ho, cy + dy, ho - hi, Gray(level));
-    hspan(bm, cx + hi + 1, cy + dy, ho - hi, Gray(level));
+    span(cx - ho, cx - hi - 1, cy + dy);
+    span(cx + hi + 1, cx + ho, cy + dy);
   }
 }
 
@@ -235,7 +271,7 @@ static void drawStandalone(const ViewModel& vm, const Bitmap1* bm) {
   else snprintf(top, sizeof top, "%s  filter: %.10s", title, vm.filter);
 
   if (bm) {
-    greyRing(*bm, cx, cy, R - 1, R - 14, 13);
+    greyRing(*bm, cx, cy, R - 1, R - 12, LIGHT);
   }
   text(cx, 42, top, F9, AC);
   compassDial(cx, cy, R, vm.heading, vm.headingSrc);
@@ -295,7 +331,7 @@ static float gMr[ViewModel::MARKS_MAX], gMu[ViewModel::MARKS_MAX];
 // for the thermals you remember, each with its average climb. The newest marker, the thermal you last
 // worked, also gets an arrow at the frame edge with the distance when it is off the map, and the zoom
 // stays wide enough to show it. Fixed zoom levels, so the picture does not breathe.
-static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) {
+static void drawThermalMap(const ViewModel& vm, const Bitmap1* bm, int mx, int my, int mw, int mh) {
   d->drawRect(mx, my, mw, mh, BLK);
   const int n = vm.trailCount;
   if (n < 2) { text(mx + mw / 2, my + mh / 2 + 6, "no GPS track", F12B, AC); return; }
@@ -335,28 +371,46 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
   float s = zoom[7];
   for (float z : zoom) if (z <= smax) { s = z; break; }
 
-  // trail, oldest first, clipped to the frame; anything older than 90 s is dashed
-  PROF_BEGIN(P_TRAIL);
-  dashPhase = 0;
-  const float cx0 = mx + 4, cy0 = my + 4, cx1 = mx + mw - 4, cy1 = my + mh - 4;
-  for (int i = 1; i < n; i++) {
-    float x0 = ox + gRR[i - 1] * s, y0 = oy - gUU[i - 1] * s, x1 = ox + gRR[i] * s, y1 = oy - gUU[i] * s;
-    if (!clipSeg(x0, y0, x1, y1, cx0, cy0, cx1, cy1)) continue;
-    thickLine((int)lroundf(x0), (int)lroundf(y0), (int)lroundf(x1), (int)lroundf(y1),
-              climbWidth(vm.trail[i].vario), (n - 1 - i) > 90);
-  }
-
-  PROF_END(P_TRAIL);
-  PROF_BEGIN(P_MARKS);
-  // remembered thermals: a fixed-size ring (no fill, the trail stays visible), the newest one heavier
-  char lb[16];
+  // Grey first (it overwrites whatever is under it), then everything black on top. Remembered thermals
+  // get a LIGHT disc, bigger for a stronger climb; the older track is MID grey, 2 px or more.
   static int gSx[ViewModel::MARKS_MAX], gSy[ViewModel::MARKS_MAX];
   static bool gIn[ViewModel::MARKS_MAX];
   for (int i = nm - 1; i >= 0; i--) {
+    gSx[i] = (int)lroundf(ox + gMr[i] * s);
+    gSy[i] = (int)lroundf(oy - gMu[i] * s);
+    gIn[i] = gSx[i] > mx + 14 && gSx[i] < mx + mw - 14 && gSy[i] > my + 14 && gSy[i] < my + mh - 14;
+    if (bm && gIn[i]) {
+      float cl = isfinite(vm.marks[i].avgClimb) ? fminf(fmaxf(vm.marks[i].avgClimb, 0.0f), 4.0f) : 0.0f;
+      int rg = (i == 0 ? 12 : 9) + (int)lroundf(2.5f * cl);
+      greyRing(*bm, gSx[i], gSy[i], rg, 0, LIGHT, mx + 2, my + 2, mx + mw - 3, my + mh - 3);
+    }
+  }
+
+  // trail, oldest first, clipped to the frame; anything older than 90 s is the memory
+  PROF_BEGIN(P_TRAIL);
+  dashPhase = 0;
+  const float cx0 = mx + 4, cy0 = my + 4, cx1 = mx + mw - 4, cy1 = my + mh - 4;
+  for (int pass = bm ? 0 : 1; pass < 2; pass++)
+    for (int i = 1; i < n; i++) {
+      const bool old = (n - 1 - i) > 90;
+      if (bm && old != (pass == 0)) continue;
+      float x0 = ox + gRR[i - 1] * s, y0 = oy - gUU[i - 1] * s, x1 = ox + gRR[i] * s, y1 = oy - gUU[i] * s;
+      if (!clipSeg(x0, y0, x1, y1, cx0, cy0, cx1, cy1)) continue;
+      const int ax = (int)lroundf(x0), ay = (int)lroundf(y0), bx = (int)lroundf(x1), by = (int)lroundf(y1);
+      if (bm && old) {
+        int cw = climbWidth(vm.trail[i].vario);
+        greyLine(*bm, ax, ay, bx, by, cw < 2 ? 2 : cw, MID);
+      } else {
+        thickLine(ax, ay, bx, by, climbWidth(vm.trail[i].vario), old);
+      }
+    }
+
+  PROF_END(P_TRAIL);
+  PROF_BEGIN(P_MARKS);
+  // remembered thermals: a fixed-size ring (the grey disc is already down), the newest one heavier
+  char lb[16];
+  for (int i = nm - 1; i >= 0; i--) {
     float tx = ox + gMr[i] * s, ty = oy - gMu[i] * s;
-    gSx[i] = (int)lroundf(tx);
-    gSy[i] = (int)lroundf(ty);
-    gIn[i] = tx > mx + 14 && tx < mx + mw - 14 && ty > my + 14 && ty < my + mh - 14;
     if (gIn[i]) {
       int rad = i == 0 ? 10 : 7;
       d->drawCircle(gSx[i], gSy[i], rad, BLK);
@@ -410,19 +464,21 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
   // north marker (top-left) and wind arrow (top-right), both in the map's frame
   float nth = -hdg;                                              // screen direction of north
   int nax = mx + 28, nay = my + 30;
+  d->fillRect(mx + 4, my + 4, 46, 50, WHT);                     // white patch: no grey trail behind the N
   drawArrow(nax, nay, nth, 11);
   textMid(nax + (int)lroundf(21 * sinf(nth)), nay - (int)lroundf(21 * cosf(nth)), "N", F9);
+  if (vm.wind.valid) d->fillRect(mx + mw - 42, my + 6, 38, 36, WHT);
   if (vm.wind.valid) drawArrow(mx + mw - 22, my + 24, vm.wind.toDeg * PI_F / 180.0f - hdg, 14);
 
   static const int bars[] = {10, 20, 50, 100, 200, 500};
-  int bm = bars[0];
-  for (int bsel : bars) if (bsel * s >= 30 && bsel * s <= 90) { bm = bsel; break; }
-  int bl = (int)lroundf(bm * s), by = my + mh - 8;
+  int barM = bars[0];
+  for (int bsel : bars) if (bsel * s >= 30 && bsel * s <= 90) { barM = bsel; break; }
+  int bl = (int)lroundf(barM * s), by = my + mh - 8;
   d->fillRect(mx + 5, by - 19, bl + 6, 25, WHT);                 // keep the scale bar readable over the trail
   d->drawFastHLine(mx + 8, by, bl, BLK);
   d->drawFastVLine(mx + 8, by - 3, 7, BLK);
   d->drawFastVLine(mx + 8 + bl, by - 3, 7, BLK);
-  snprintf(lb, sizeof lb, "%d m", bm);
+  snprintf(lb, sizeof lb, "%d m", barM);
   text(mx + 8, by - 7, lb, F9);
 }
 
@@ -434,7 +490,7 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
 // With temperatures, a column on the right traces them on the same altitude scale (3 px thick where
 // the air warms with height, an inversion), the lapse rate sits in a header strip above it and its
 // scale below. Without any temperature the page is laid out exactly as before.
-static void drawWindProfile(const ViewModel& vm, int mx, int my, int mw, int mh) {
+static void drawWindProfile(const ViewModel& vm, const Bitmap1* bm, int mx, int my, int mw, int mh) {
   d->drawRect(mx, my, mw, mh, BLK);
   const int n = vm.profileCount;
   if (n < 1) {
@@ -478,6 +534,19 @@ static void drawWindProfile(const ViewModel& vm, int mx, int my, int mw, int mh)
     text(mx + 38, y + 5, fnum(b, sizeof b, (float)k, "%.0f"), F9, AR);
   }
   d->drawFastVLine(mx + 50, y0, rows * rh, BLK);
+
+  // An inversion layer is a LIGHT band across the temperature column, behind the thick trace. Grey goes
+  // down first; the trace (no text) is drawn over it.
+  if (bm && haveT) {
+    int pband = -10;
+    for (int i = 0; i < n; i++) {
+      int band = WindProfile::bandOf(vm.profile[i].altM);
+      if (band < lo || band > hi || !isfinite(vm.profile[i].tempC)) continue;
+      if (band == pband + 1 && inversionAt(vm.profile, n, i))
+        fillRect(*bm, mx + mw - 88, y0 + (hi - band) * rh + rh / 2, 80, rh, Gray(LIGHT));
+      pband = band;
+    }
+  }
 
   // current altitude: line first, so the row text can sit on a white patch over it
   if (haveAlt) {
@@ -606,7 +675,7 @@ static void cell(int x, int y, int w, const char* title, const char* value) {
   text(x + 4, y + 58, value, F24B);
 }
 
-static void drawLiveBody(const ViewModel& vm) {
+static void drawLiveBody(const ViewModel& vm, const Bitmap1* bm) {
   const Sample& v = vm.s;
   char b[24];
   const int barX = 3, barW = 9;              // thin vario on the left edge
@@ -617,7 +686,7 @@ static void drawLiveBody(const ViewModel& vm) {
   float spd = isfinite(v.speedKmh) ? v.speedKmh : 0;
   float crs = isfinite(vm.heading) ? vm.heading : 0;
   PROF_BEGIN(P_VARIO);
-  thinVario(barX, barW, v.vario, vm.avgVario);
+  thinVario(bm, barX, barW, v.vario, vm.avgVario);
   PROF_END(P_VARIO);
   PROF_BEGIN(P_CELLS);
   cell(cx0, row1, cellW, v.fix ? "GPS km/h" : "NO FIX", fnum(b, sizeof b, spd, "%.0f"));
@@ -632,11 +701,11 @@ static void drawLiveBody(const ViewModel& vm) {
   const int pageH = H - 6 - 25 - 5 - (gridEnd + 2);
   if (vm.page == ViewModel::PAGE_THERMAL) {
     PROF_BEGIN(P_THERMAL);
-    drawThermalMap(vm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+    drawThermalMap(vm, bm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
     PROF_END(P_THERMAL);
   } else if (vm.page == ViewModel::PAGE_PROFILE) {
     PROF_BEGIN(P_WPROFILE);
-    drawWindProfile(vm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+    drawWindProfile(vm, bm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
     PROF_END(P_WPROFILE);
   } else if (vm.page == ViewModel::PAGE_HOME) {
     PROF_BEGIN(P_HOME);
@@ -644,6 +713,7 @@ static void drawLiveBody(const ViewModel& vm) {
     PROF_END(P_HOME);
   } else {
     PROF_BEGIN(P_DIAL);
+    if (bm) greyRing(*bm, cx, cy, R - 1, R - 12, LIGHT);   // before any GFX call: it overwrites what is under it
     compassDial(cx, cy, R, vm.heading, vm.headingSrc);
     PROF_END(P_DIAL);
     if (vm.headingSrc == HDG_GPS) {
@@ -689,7 +759,7 @@ void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitma
   PROF_BEGIN(P_HEADER);
   header(vm);
   PROF_END(P_HEADER);
-  if (vm.fresh) drawLiveBody(vm);
+  if (vm.fresh) drawLiveBody(vm, bm);
   else drawStandalone(vm, bm);
   powerBanner(heldMs);
   PROF_END(P_LIVE);
