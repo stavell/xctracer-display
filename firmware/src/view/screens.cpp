@@ -222,41 +222,57 @@ static void thickLine(int x0, int y0, int x1, int y1, int w) {
 
 static int climbWidth(float v) { return v < 0.2f ? 1 : (v < 1.0f ? 2 : (v < 2.5f ? 3 : 4)); }
 
-// Thermal assistant: north-up map of the last 60 s in the air-mass frame (wind-compensated), thicker
-// where you were climbing. Zoom steps through fixed levels so the picture does not breathe.
+// Thermal assistant: map of the last 60 s in the air-mass frame (wind-compensated), thicker where you
+// were climbing. Heading-up by default: you stay at a fixed point and your direction of travel is up.
+// The zoom steps through fixed levels so the picture does not breathe.
 static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) {
   d->drawRect(mx, my, mw, mh, BLK);
   const int n = vm.trailCount;
   if (n < 2) { text(mx + mw / 2, my + mh / 2 + 6, "no GPS track", F12B, AC); return; }
 
-  float minx = 1e9f, maxx = -1e9f, miny = 1e9f, maxy = -1e9f;
-  for (int i = 0; i < n; i++) {
-    minx = fminf(minx, vm.trail[i].x); maxx = fmaxf(maxx, vm.trail[i].x);
-    miny = fminf(miny, vm.trail[i].y); maxy = fmaxf(maxy, vm.trail[i].y);
+  // direction of travel in the air frame: the last ~3 s of the trace (GPS course if barely moving)
+  float hdg = 0;
+  if (vm.mapHeadingUp) {
+    const AirPoint& a = vm.trail[n >= 4 ? n - 4 : 0];
+    float dx = vm.trail[n - 1].x - a.x, dy = vm.trail[n - 1].y - a.y;
+    if (hypotf(dx, dy) > 3.0f) hdg = atan2f(dx, dy);
+    else if (isfinite(vm.s.course)) hdg = vm.s.course * PI_F / 180.0f;
   }
-  float rx = fmaxf(maxx - minx, 20.0f), ry = fmaxf(maxy - miny, 20.0f);
+  const float ct = cosf(hdg), st = sinf(hdg);
+  const int ox = mx + mw / 2, oy = my + mh / 2;                 // you, in the centre
+
+  // screen offsets in metres: r to the right, u up
+  float rr[ViewModel::TRAIL_MAX], uu[ViewModel::TRAIL_MAX];
+  float smax = 1e9f;
+  const int margin = 14;
+  for (int i = 0; i < n; i++) {
+    rr[i] = vm.trail[i].x * ct - vm.trail[i].y * st;
+    uu[i] = vm.trail[i].y * ct + vm.trail[i].x * st;
+    if (fabsf(rr[i]) > 1) smax = fminf(smax, (mw / 2 - margin) / fabsf(rr[i]));
+    if (uu[i] > 1) smax = fminf(smax, (oy - my - margin) / uu[i]);
+    if (uu[i] < -1) smax = fminf(smax, (my + mh - oy - margin) / -uu[i]);
+  }
   static const float zoom[] = {2.2f, 1.6f, 1.1f, 0.7f, 0.45f, 0.28f, 0.18f, 0.11f};
   float s = zoom[7];
-  for (float z : zoom) if (rx * z <= mw - 30 && ry * z <= mh - 30) { s = z; break; }
-  float cxm = (minx + maxx) / 2, cym = (miny + maxy) / 2;       // centre the map on the trace
-  const int ox = mx + mw / 2, oy = my + mh / 2;
-  auto px = [&](const AirPoint& p) { return ox + (int)lroundf((p.x - cxm) * s); };
-  auto py = [&](const AirPoint& p) { return oy - (int)lroundf((p.y - cym) * s); };
+  for (float z : zoom) if (z <= smax) { s = z; break; }
+  auto px = [&](int i) { return ox + (int)lroundf(rr[i] * s); };
+  auto py = [&](int i) { return oy - (int)lroundf(uu[i] * s); };
 
-  for (int i = 1; i < n; i++)
-    thickLine(px(vm.trail[i - 1]), py(vm.trail[i - 1]), px(vm.trail[i]), py(vm.trail[i]), climbWidth(vm.trail[i].vario));
-  const AirPoint& now = vm.trail[n - 1];                         // where you are: ring with a dot
-  d->fillCircle(px(now), py(now), 6, BLK);
-  d->fillCircle(px(now), py(now), 3, WHT);
-  d->fillCircle(px(now), py(now), 1, BLK);
+  for (int i = 1; i < n; i++) thickLine(px(i - 1), py(i - 1), px(i), py(i), climbWidth(vm.trail[i].vario));
+  // you: a small arrow pointing up (or the ring marker for a north-up map)
+  d->fillTriangle(ox, oy - 9, ox - 6, oy + 6, ox + 6, oy + 6, BLK);
+  d->fillTriangle(ox, oy - 3, ox - 2, oy + 3, ox + 2, oy + 3, WHT);
 
-  // north marker, absolute wind arrow, scale bar
-  d->fillTriangle(mx + 14, my + 5, mx + 8, my + 15, mx + 20, my + 15, BLK);
-  text(mx + 14, my + 32, "N", F9, AC);
-  if (vm.wind.valid) drawArrow(mx + mw - 22, my + 24, vm.wind.toDeg * PI_F / 180.0f, 14);
+  // north marker (top-left) and wind arrow (top-right), both in the map's frame
+  float nth = -hdg;                                              // screen direction of north
+  int nax = mx + 28, nay = my + 30;                              // far enough in that the label stays inside
+  drawArrow(nax, nay, nth, 11);
+  textMid(nax + (int)lroundf(21 * sinf(nth)), nay - (int)lroundf(21 * cosf(nth)), "N", F9);
+  if (vm.wind.valid) drawArrow(mx + mw - 22, my + 24, vm.wind.toDeg * PI_F / 180.0f - hdg, 14);
+
   static const int bars[] = {10, 20, 50, 100, 200, 500};
   int bm = bars[0];
-  for (int b : bars) if (b * s >= 30 && b * s <= 90) { bm = b; break; }
+  for (int bsel : bars) if (bsel * s >= 30 && bsel * s <= 90) { bm = bsel; break; }
   int bl = (int)lroundf(bm * s), by = my + mh - 8;
   d->drawFastHLine(mx + 8, by, bl, BLK);
   d->drawFastVLine(mx + 8, by - 3, 7, BLK);

@@ -23,6 +23,7 @@ struct ViewModel {
   static const int TRAIL_MAX = 60;
   AirPoint trail[TRAIL_MAX];      // wind-compensated track, filled for the thermal page
   int trailCount = 0;
+  bool mapHeadingUp = true;       // thermal map: your direction of travel is up (false = north is up)
 };
 
 struct ListItem {
