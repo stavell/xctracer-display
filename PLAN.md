@@ -27,6 +27,13 @@ with a real failure mode, **L** = hygiene.
 Known open items that need the hardware or the user, not code review: compass axis mapping, GPS speed
 unit with a real fix, magnetic declination, power measurement, `DISPLAY_ROTATION`, DISP/EXTMODE wiring.
 
+## Status
+
+- A, B, C: done, reviewed and merged. Review found one race agent A missed (a stale disconnect could demote
+  a freshly made link after picking a new tracer from the list); fixed in the merge.
+- Watchdog: wired in, device verification pending (see NOTES.md).
+- D: in progress.
+
 ## Work packages
 
 Three independent packages, each on its own branch in its own worktree, touching disjoint files.

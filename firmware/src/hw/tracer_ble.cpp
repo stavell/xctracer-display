@@ -64,6 +64,9 @@ void TracerBle::onScan(ble_gap_evt_adv_report_t* r) {
 
 void TracerBle::onConnect(uint16_t h) {
   if (!self) return;
+  // A new link supersedes a disconnect the loop has not processed yet (e.g. the old link dropped when a
+  // new tracer was picked from the list): without this, update() would demote the fresh link.
+  self->rescan_ = false;
   self->conn_ = h;
   self->lineLen_ = 0;
   if (!self->svc_.discover(h) || !self->chr_.discover() || !self->chr_.enableNotify()) {
@@ -75,8 +78,8 @@ void TracerBle::onConnect(uint16_t h) {
 }
 
 // Callback context: state only. update() demotes the link and restarts the scan.
-void TracerBle::onDisconnect(uint16_t, uint8_t) {
-  if (!self) return;
+void TracerBle::onDisconnect(uint16_t h, uint8_t) {
+  if (!self || h != self->conn_) return;   // not the current link
   self->conn_ = BLE_CONN_HANDLE_INVALID;
   self->rescan_ = true;
 }
