@@ -84,6 +84,18 @@ project is and how to run it; this file says what we found and why things are th
 - The preview is only as good as the stubs: it uses the real Adafruit_GFX and fonts, but not the real SPI
   or timing. Timing was measured on the device through the serial status line (`tick=`, `refresh=`).
 
+## Maths load (estimate, not yet measured on the device)
+
+- The Cortex-M4F has a single-precision FPU; `double` is software (about 10-30x slower). `double` is used in
+  the wind fit, the thermal finder and memory, the flight model's lat/lon arithmetic and the parser's `atof`.
+  Everything drawn is `float`.
+- Estimated data-path cost: about 10 ms per second of flight (wind fit about 5 ms only while turning, parsing
+  about 1 ms, air trail plus thermal finder 1-3 ms), roughly 1% of the CPU, against about one third for
+  drawing and the SPI refresh (measured). The maths is not the bottleneck.
+- `lat`/`lon` must stay `double` (a float resolves only about 0.4 m at these coordinates).
+- The serial status line can report `parse=`, `windfit=` and `viewmodel=` timings (only when a terminal is
+  attached). They were added but not yet read on the device: the board was not on USB at the time.
+
 ## Power (not measured)
 
 - The board has no current sensor and the nRF52840 has no current ADC. Battery voltage on A6 is read for the
