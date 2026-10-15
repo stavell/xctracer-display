@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "core/types.h"
+#include "gfx/bitmap1.h"
 #include "view/viewmodel.h"
 
 enum ButtonEvent { BTN_NONE, BTN_SHORT, BTN_LONG, BTN_HOLD };
@@ -13,6 +14,7 @@ class IPanel {
  public:
   virtual ~IPanel() {}
   virtual Adafruit_GFX& gfx() = 0;
+  virtual Bitmap1 bitmap() = 0;     // the native buffer (400x240, stride 50) with the current rotation: for dithered grey
   virtual void setRotation(uint8_t r) = 0;
   virtual void clear() = 0;         // fast white fill of the whole canvas (never fillRect: it is per-pixel and slow)
   virtual void present() = 0;       // refresh the panel only if the picture changed
@@ -93,7 +95,7 @@ class ICompass {
 class IThermo {
  public:
   virtual ~IThermo() {}
-  virtual bool read(float& tempC) = 0;               // true when a new, finite reading is available
+  virtual bool read(float& tempC, float& rhPct) = 0;   // true when a new reading is available; both values finite
 };
 
 class IPower {

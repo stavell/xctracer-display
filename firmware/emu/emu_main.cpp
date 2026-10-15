@@ -120,7 +120,7 @@ static void renderGray(const std::string& out, int rot) {
 static int cmdShots(const std::string& out, int rot) {
   struct Sc { const char* name; };
   const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "mag", "calibrate",
-                         "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional"};
+                         "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
   for (const char* n : names) {
     if (!strncmp(n, "thermal", 7)) {
       ViewModel* tv = thermalVm(strcmp(n, "thermal_lost") == 0 ? 1 : 0);
@@ -150,6 +150,11 @@ static int cmdShots(const std::string& out, int rot) {
     if (s == "mag") { vm.s.fix = false; vm.s.speedKmh = NAN; vm.s.course = NAN; vm.glide = NAN; vm.wind.valid = false; vm.heading = 123; vm.headingSrc = HDG_MAG; }
     if (s == "calibrate") { vm.calibrating = true; vm.calSpan[0] = 61; vm.calSpan[1] = 33; vm.calSpan[2] = 12; vm.fieldUt = 47; }
     if (s == "status") vm.fresh = false;
+    if (s.rfind("standalone", 0) == 0) {
+      vm.fresh = false; vm.link = ViewModel::LINK_SEARCHING;
+      vm.heading = 123; vm.headingSrc = HDG_MAG; vm.ambientC = 21.4f; vm.humidityPct = 48;
+      if (s == "standalone_nodata") { vm.heading = NAN; vm.headingSrc = HDG_NONE; vm.ambientC = NAN; vm.humidityPct = NAN; }
+    }
     if (s.rfind("profile", 0) == 0) {
       vm.page = ViewModel::PAGE_PROFILE;
       vm.s.alt = 1530;
@@ -199,7 +204,8 @@ static int cmdShots(const std::string& out, int rot) {
     } else if (s == "calibrate") {
       drawCalibrate(p.gfx(), vm, 0);
     } else {
-      drawLive(p.gfx(), vm, 0);
+      Bitmap1 bm = p.bitmap();
+      drawLive(p.gfx(), vm, 0, &bm);
     }
     p.dump((out + "/" + s + ".pgm").c_str());
   }

@@ -13,6 +13,8 @@ class MockPanel : public IPanel {
  public:
   MockPanel() : disp_(nullptr, 0, 400, 240, 0) { memset(snap_, 0xAA, sizeof snap_); }
   Adafruit_GFX& gfx() override { return disp_; }
+  // same buffer the shots are rendered from (stub layout: row stride 50 bytes, LSB leftmost)
+  Bitmap1 bitmap() override { return Bitmap1{disp_.getBuffer(), 400, 240, 50, disp_.getRotation()}; }
   void setRotation(uint8_t r) override { disp_.setRotation(r); }
   void clear() override { disp_.clearDisplay(); }
   void present() override {
@@ -153,14 +155,15 @@ class MockCompass : public ICompass {
 
 class MockThermo : public IThermo {
  public:
-  bool read(float& t) override {
+  bool read(float& t, float& rh) override {
     if (!present || !fresh) return false;
     fresh = false;
     t = tempC;
+    rh = rhPct;
     return true;
   }
-  void set(float t) { tempC = t; fresh = true; }   // a new reading becomes available
-  float tempC = 15;
+  void set(float t, float rh = 50) { tempC = t; rhPct = rh; fresh = true; }   // a new reading becomes available
+  float tempC = 15, rhPct = 50;
   bool present = true, fresh = false;
 };
 

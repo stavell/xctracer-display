@@ -1,5 +1,6 @@
 #include "view/screens.h"
 #include "view/prof.h"
+#include "gfx/gray.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -206,22 +207,51 @@ static void windCorner(int cx, int cy, int R, float course, const Wind& w) {
   drawArrow(ax, ay, (psi + 180.0f) * PI_F / 180.0f, 17);   // points the way the wind blows
 }
 
-static void drawStatus(const ViewModel& vm) {
+static void cell(int x, int y, int w, const char* title, const char* value);
+
+// Light grey ring (outer radius R, inner Ri) under the dial's ticks. Dithered, so it goes in before
+// any GFX drawing; the letters and the heading sit on the white inside.
+static void greyRing(const Bitmap1& bm, int cx, int cy, int R, int Ri, int level) {
+  for (int dy = -R; dy <= R; dy++) {
+    int ho = (int)sqrtf((float)(R * R - dy * dy));
+    if (abs(dy) >= Ri) { hspan(bm, cx - ho, cy + dy, 2 * ho + 1, Gray(level)); continue; }
+    int hi = (int)sqrtf((float)(Ri * Ri - dy * dy));
+    hspan(bm, cx - ho, cy + dy, ho - hi, Gray(level));
+    hspan(bm, cx + hi + 1, cy + dy, ho - hi, Gray(level));
+  }
+}
+
+// No vario data: a standalone compass. Top line = link state and device, then the big dial, then
+// ambient temperature and humidity. bm (optional) takes the dithered grey; text never sits on it.
+static void drawStandalone(const ViewModel& vm, const Bitmap1* bm) {
+  const int cx = W / 2, R = 104, cy = 170, cellW = 114, cellY = 304, cellH = 64;
+  char top[48], b[24];
   const char* title = vm.link == ViewModel::LINK_CONNECTED ? "CONNECTED"
                       : vm.link == ViewModel::LINK_CONNECTING ? "CONNECTING"
                       : vm.link == ViewModel::LINK_SEARCHING ? "SEARCHING" : "NO VARIO";
-  int cx = W / 2;
-  text(cx, 130, title, F18B, AC);
-  char b[48];
-  if (vm.hasSaved) snprintf(b, sizeof b, "%.18s", vm.device);
-  else snprintf(b, sizeof b, "filter: %.12s", vm.filter);
-  text(cx, 162, b, F12B, AC);
-  if (vm.link == ViewModel::LINK_CONNECTED) {
-    text(cx, 200, "waiting for data...", F9, AC);
-    snprintf(b, sizeof b, "%lu ok, %lu bad", (unsigned long)vm.linesOk, (unsigned long)vm.linesBad);
-    text(cx, 220, b, F9, AC);
+  if (vm.link == ViewModel::LINK_CONNECTED) snprintf(top, sizeof top, "%s  waiting for data", title);
+  else if (vm.link == ViewModel::LINK_NONE) snprintf(top, sizeof top, "%s  hold: choose device", title);
+  else if (vm.hasSaved) snprintf(top, sizeof top, "%s  %.14s", title, vm.device);
+  else snprintf(top, sizeof top, "%s  filter: %.10s", title, vm.filter);
+
+  if (bm) {
+    greyRing(*bm, cx, cy, R - 1, R - 14, 13);
   }
-  text(cx, H - 12, "hold: choose device", F9, AC);
+  text(cx, 42, top, F9, AC);
+  compassDial(cx, cy, R, vm.heading, vm.headingSrc);
+
+  cell(4, cellY, cellW, "TEMP", fnum(b, sizeof b, vm.ambientC, "%.1f"));
+  int tw = textW("TEMP", F9);
+  d->drawCircle(4 + 5 + tw + 6, cellY + 6, 2, WHT);                       // F9 has no degree sign
+  text(4 + 5 + tw + 10, cellY + 14, "C", F9, AL, WHT);
+  cell(4 + cellW + 4, cellY, cellW, "HUMIDITY %", fnum(b, sizeof b, vm.humidityPct, "%.0f"));
+
+  if (vm.link == ViewModel::LINK_CONNECTED) {
+    snprintf(b, sizeof b, "%lu ok, %lu bad", (unsigned long)vm.linesOk, (unsigned long)vm.linesBad);
+    text(cx, H - 12, b, F9, AC);
+  } else if (vm.link != ViewModel::LINK_NONE) {
+    text(cx, H - 12, "hold: choose device", F9, AC);
+  }
 }
 
 static int dashPhase = 0;
@@ -653,14 +683,14 @@ static void powerBanner(uint32_t heldMs) {
   hbar(bx + 14, by + 38, bw - 28, 18, (heldMs - 1500) / 1500.0f);
 }
 
-void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs) {
+void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm) {
   begin(g);
   PROF_BEGIN(P_LIVE);
   PROF_BEGIN(P_HEADER);
   header(vm);
   PROF_END(P_HEADER);
   if (vm.fresh) drawLiveBody(vm);
-  else drawStatus(vm);
+  else drawStandalone(vm, bm);
   powerBanner(heldMs);
   PROF_END(P_LIVE);
 }

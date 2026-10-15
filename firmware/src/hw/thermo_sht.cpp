@@ -13,13 +13,15 @@ bool ThermoSht::begin() {
 }
 
 // A single-shot measurement blocks for about 15 ms; every 2 s that is cheap enough for the loop.
-bool ThermoSht::read(float& tempC) {
+bool ThermoSht::read(float& tempC, float& rhPct) {
   if (!have_) return false;
   uint32_t now = millis();
   if (now - last_ < PERIOD_MS) return false;
   last_ = now;
-  float t = sht.readTemperature();
-  if (!isfinite(t)) return false;
+  float t = NAN, rh = NAN;
+  if (!sht.readBoth(&t, &rh)) return false;       // one measurement gives both values
+  if (!isfinite(t) || !isfinite(rh)) return false;
   tempC = t;
+  rhPct = rh;
   return true;
 }

@@ -96,9 +96,13 @@ void App::finishCalibration(bool keep) {
 
 // Feed the heading selector from both sources. The magnetometer always runs (a fraction of a mA), so it
 // has a settled heading the moment the GPS track drops out and its reading is always in the status line.
+bool App::hasData(uint32_t now) const {
+  return flight_.hasData() && haveSample_ && now - lastSampleMs_ < cfg_.freshMs;
+}
+
 void App::updateHeading(uint32_t now) {
   const Sample& s = flight_.last();
-  bool fresh = flight_.hasData() && haveSample_ && now - lastSampleMs_ < cfg_.freshMs;
+  bool fresh = hasData(now);
   heading_.feedGps(fresh && s.fix, s.speedKmh, s.course);
 
   if (!compassOn_) {
@@ -121,7 +125,7 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   vm.filter[sizeof vm.filter - 1] = 0;
   vm.linesOk = linesOk_;
   vm.linesBad = linesBad_;
-  vm.fresh = flight_.hasData() && haveSample_ && now - lastSampleMs_ < cfg_.freshMs;
+  vm.fresh = hasData(now);
   vm.sim = simOn_;
   vm.s = flight_.last();
   vm.avgVario = flight_.avgVario();
@@ -141,6 +145,9 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   compass_.calibrationSpan(vm.calSpan);
   vm.fieldUt = compass_.fieldUt();
   vm.page = page_;
+  bool ambientFresh = haveAmbient_ && now - ambientMs_ <= 10000;   // the sensor reports every 2 s
+  vm.ambientC = ambientFresh ? ambientC_ : NAN;
+  vm.humidityPct = ambientFresh ? ambientRh_ : NAN;
   vm.trailCount = 0;
   vm.markCount = 0;
   if (page_ == ViewModel::PAGE_THERMAL) {
@@ -182,7 +189,8 @@ void App::drawLiveScreen(uint32_t now, uint32_t held) {
   PROF_BEGIN(P_CLEAR);
   panel_.clear();
   PROF_END(P_CLEAR);
-  drawLive(panel_.gfx(), buildViewModel(now), held);
+  Bitmap1 bm = panel_.bitmap();
+  drawLive(panel_.gfx(), buildViewModel(now), held, &bm);
   PROF_BEGIN(P_PRESENT);
   panel_.present();
   PROF_END(P_PRESENT);
@@ -223,8 +231,11 @@ void App::tick(uint32_t now) {
   while (tracer_.popLine(line, sizeof line)) {
     if (!injecting(now)) ingestLine(line, now);
   }
-  float tc;
-  if (thermo_.read(tc)) flight_.feedTemperature(tc);
+  float tc, rh;
+  if (thermo_.read(tc, rh)) {
+    flight_.feedTemperature(tc);
+    ambientC_ = tc; ambientRh_ = rh; ambientMs_ = now; haveAmbient_ = true;
+  }
   laptop_.service(now);
   updateHeading(now);
 
@@ -277,6 +288,7 @@ void App::tick(uint32_t now) {
     uint32_t every = held >= ButtonFsm::ARM_MS ? 150 : cfg_.drawEveryMs;
     uint32_t anim = page_ == ViewModel::PAGE_THERMAL ? cfg_.animThermalEveryMs
                   : (page_ == ViewModel::PAGE_COMPASS || page_ == ViewModel::PAGE_HOME) ? cfg_.animEveryMs : every;
+    if (!hasData(now)) anim = cfg_.animEveryMs;      // the standalone compass glides on every page
     if (!smooth_.settled() && anim < every) every = anim;
     if (!listOpen_ && (redraw_ || now - lastDraw_ >= every)) {
       lastDraw_ = now;

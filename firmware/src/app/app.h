@@ -49,6 +49,7 @@ class App {
   void startCalibration();
   void finishCalibration(bool keep);
   void updateHeading(uint32_t now);
+  bool hasData(uint32_t now) const;   // a valid sample arrived recently
   void drawCalibrateScreen(uint32_t now, uint32_t held);
   void drawLiveScreen(uint32_t now, uint32_t held);
   void drawListScreen(uint32_t now, uint32_t held);
@@ -76,6 +77,9 @@ class App {
   bool compassOn_ = false;
   HeadingSelector heading_;          // GPS track or magnetic compass, whichever applies
   HeadingSmoother smooth_;           // what the dial shows; advanced once per tick, never when drawing
+  float ambientC_ = NAN, ambientRh_ = NAN;   // latest thermometer reading and when it came
+  uint32_t ambientMs_ = 0;
+  bool haveAmbient_ = false;
   bool calibrating_ = false;
   ViewModel vm_;
   ViewModel::Page page_ = ViewModel::PAGE_COMPASS;

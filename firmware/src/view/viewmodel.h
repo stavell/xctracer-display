@@ -47,6 +47,10 @@ struct ViewModel {
   float homeArrival = NAN;         // metres above home on arrival (NaN: unknown)
   bool homeReachable = false;
 
+  // ambient air, NaN without a reading or when the last one is older than 10 s
+  float ambientC = NAN;
+  float humidityPct = NAN;
+
   // heading for the compass dial: the GPS track when there is one, else the magnetometer, else none
   HeadingSource headingSrc = HDG_NONE;
   float heading = NAN;

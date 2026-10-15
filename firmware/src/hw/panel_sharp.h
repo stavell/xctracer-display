@@ -10,6 +10,7 @@ class SharpPanel : public IPanel {
   SharpPanel();
   void begin();
   Adafruit_GFX& gfx() override { return display_; }
+  Bitmap1 bitmap() override { return display_.bm(); }
   void setRotation(uint8_t r) override { display_.setRotation(r); }
   void clear() override { display_.clearDisplayBuffer(); }
   void present() override;

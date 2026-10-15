@@ -29,8 +29,9 @@ class FastSharp : public Adafruit_SharpMem {
   void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t c) override { fr(x, y, w, h, c); }
   void fillScreen(uint16_t c) override { fr(0, 0, width(), height(), c); }
 
+ Bitmap1 bm() { return Bitmap1{getBuffer(), 400, 240, 50, getRotation()}; }
+
  private:
-  Bitmap1 bm() { return Bitmap1{getBuffer(), 400, 240, 50, getRotation()}; }
   static DrawMode mode(uint16_t c) { return c ? DRAW_SET : DRAW_CLEAR; }
   void hl(int16_t x, int16_t y, int16_t w, uint16_t c) {
     int lo, hi; gfxRange(x, w, lo, hi);

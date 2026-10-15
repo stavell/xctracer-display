@@ -467,6 +467,52 @@ static void test_app_temperature() {
   CHECK(app2.flight().profile().query(pb, 60, app2.flight().clockMs()) == 0);
 }
 
+static void test_ambient() {
+  puts("ambient temperature and humidity in the view model");
+  Rig r;
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+  app.begin(0);
+  uint32_t now = 0;
+  auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
+  run(500);
+  CHECK(std::isnan(app.buildViewModel(now).ambientC) && std::isnan(app.buildViewModel(now).humidityPct));
+  r.thermo.set(21.4f, 48);
+  run(20);
+  { const ViewModel& vm = app.buildViewModel(now); NEAR(vm.ambientC, 21.4, 1e-4); NEAR(vm.humidityPct, 48, 1e-4); }
+  run(9000);
+  CHECK(!std::isnan(app.buildViewModel(now).ambientC));
+  run(2000);                                       // the last reading is now older than 10 s
+  CHECK(std::isnan(app.buildViewModel(now).ambientC) && std::isnan(app.buildViewModel(now).humidityPct));
+  r.thermo.set(5, 90);
+  run(20);
+  NEAR(app.buildViewModel(now).humidityPct, 90, 1e-4);
+}
+
+static void test_standalone_cadence() {
+  puts("standalone compass redraws at the animation cadence");
+  Rig r;
+  r.compass.psi = 100;
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+  app.begin(0);
+  uint32_t now = 0;
+  auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
+  auto presentsIn = [&](uint32_t ms) { int b = r.panel.presents; run(ms); return r.panel.presents - b; };
+  run(4000);
+  CHECK(!app.buildViewModel(now).fresh);
+  int idle = presentsIn(1000);
+  CHECK(idle >= 2 && idle <= 4);
+  // on a page that normally uses the slow cadence
+  { Command pc; pc.type = Command::PAGE; pc.value = 2; r.laptop.cmds.push_back(pc); }
+  run(100);
+  r.compass.psi = 190;
+  run(40);
+  CHECK(app.buildViewModel(now).heading < 189);
+  CHECK(presentsIn(600) >= 8);                     // 50 ms gives 12, 150 ms only 4
+  run(4000);
+  int after = presentsIn(1000);
+  CHECK(after >= 2 && after <= 4);
+}
+
 static void test_home() {
   puts("home");
   HomePoint h; h.valid = true; h.lat = 43.0; h.lon = 26.0; h.alt = 500;
@@ -1329,6 +1375,8 @@ int main() {
   test_app();
   test_app_heading();
   test_app_anim_cadence();
+  test_ambient();
+  test_standalone_cadence();
   test_fuzz_parser();
   test_fuzz_app();
   test_known_bug_nonfinite_position();
