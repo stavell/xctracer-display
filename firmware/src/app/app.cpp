@@ -108,6 +108,7 @@ void App::updateHeading(uint32_t now) {
   Vec3 a, m;
   if (compassOn_ && compassHw_.read(a, m)) compass_.update(a, m);
   heading_.feedMag(compassOn_ && compass_.valid(), compass_.heading());
+  smooth_.update(heading_.current().deg, now);   // once per tick: buildViewModel only reads it
 }
 
 const ViewModel& App::buildViewModel(uint32_t now) {
@@ -133,7 +134,7 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   }
   vm.localBattPct = battery_.percent();
   Heading h = heading_.current();
-  vm.heading = h.deg;
+  vm.heading = smooth_.value();
   vm.headingSrc = h.src;
   vm.calibrating = calibrating_;
   vm.calValid = compass_.calibration().valid;
@@ -270,6 +271,9 @@ void App::tick(uint32_t now) {
       redraw_ = true;
     }
     uint32_t every = held >= ButtonFsm::ARM_MS ? 150 : cfg_.drawEveryMs;
+    uint32_t anim = page_ == ViewModel::PAGE_THERMAL ? cfg_.animThermalEveryMs
+                  : (page_ == ViewModel::PAGE_COMPASS || page_ == ViewModel::PAGE_HOME) ? cfg_.animEveryMs : every;
+    if (!smooth_.settled() && anim < every) every = anim;
     if (!listOpen_ && (redraw_ || now - lastDraw_ >= every)) {
       lastDraw_ = now;
       redraw_ = false;

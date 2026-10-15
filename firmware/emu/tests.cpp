@@ -12,6 +12,7 @@
 #include <string.h>
 #include "core/windprofile.h"
 #include "core/heading.h"
+#include "core/heading_smoother.h"
 #include "core/sim.h"
 #include "core/spsc_ring.h"
 #include "protocol.h"
@@ -794,7 +795,7 @@ static void test_app_heading() {
   CHECK(app.buildViewModel(now).headingSrc == HDG_MAG);
   // moving: the GPS track takes over and the sensors power down
   r.laptop.inject(line("XCTRC,2026,8,16,10,38,25,0,43.252650,26.927967,1387.00,30.00,250.0,0.1,,,,967.62,85"));
-  run(200);
+  run(2500);                                   // the dial glides there
   CHECK(app.buildViewModel(now).headingSrc == HDG_GPS);
   NEAR(fabsf(angDiff(app.buildViewModel(now).heading, 250)), 0, 0.01);
   CHECK(!app.compassOn()); CHECK(!r.compass.enabled);
@@ -833,7 +834,7 @@ static void test_app_heading() {
   run(100);
   CHECK(!app.calibrating()); CHECK(r.settings.hasCal); CHECK(r.settings.saves == 1);
   r.compass.psi = 200; r.compass.pitch = 0; r.compass.roll = 0;
-  run(400);
+  run(2500);
   NEAR(fabsf(angDiff(app.buildViewModel(now).heading, 200)), 0, 4.0);
   { Rig r2; r2.settings = r.settings; r2.compass = r.compass; r2.compass.enabled = false;
     App app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.thermo, r2.power);
@@ -1125,6 +1126,107 @@ static void test_show_raw() {
   CHECK(p.rawPixel(10, 5) == 1);
 }
 
+static void test_heading_smoother() {
+  puts("heading smoother");
+  // 350 -> 10 goes through 0
+  { HeadingSmoother h; uint32_t t = 0;
+    h.update(350, t);
+    bool ok = true; float prev = 350;
+    for (int i = 0; i < 100; i++) {
+      t += 10; float v = h.update(10, t);
+      if (!(v >= 345 || v <= 15)) ok = false;
+      if (v > 15 && v < prev) ok = false;         // never turns back the long way
+      prev = v;
+    }
+    CHECK(ok); CHECK(h.value() == 10.0f && h.settled()); }
+  // 10 -> 350 the short way too
+  { HeadingSmoother h; uint32_t t = 0;
+    h.update(10, t);
+    bool ok = true;
+    for (int i = 0; i < 100; i++) { t += 10; float v = h.update(350, t); if (!(v >= 345 || v <= 15)) ok = false; }
+    CHECK(ok); CHECK(h.value() == 350.0f); }
+  // frame-rate independence
+  { HeadingSmoother a, b; a.update(0, 0); b.update(0, 0);
+    float va = 0, vb = 0;
+    for (uint32_t t = 10; t <= 600; t += 10) va = a.update(90, t);
+    for (uint32_t t = 150; t <= 600; t += 150) vb = b.update(90, t);
+    NEAR(va, vb, 0.5); CHECK(va > 70 && va < 90); }
+  // first value snaps; NaN gives NaN and the next value snaps again
+  { HeadingSmoother h; CHECK(h.settled());
+    NEAR(h.update(123, 1000), 123, 1e-6); CHECK(h.settled());
+    CHECK(!isfinite(h.update(NAN, 1010))); CHECK(h.settled());
+    NEAR(h.update(300, 1020), 300, 1e-6); }
+  // a long gap snaps, a short one does not
+  { HeadingSmoother h; h.update(0, 0);
+    float v = h.update(90, 250); CHECK(v > 40 && v < 90 && !h.settled());
+    NEAR(h.update(180, 250 + 2001), 180, 1e-6);
+    v = h.update(270, 2251 + 300); CHECK(v < 270 && v > 180); }
+  // settles within about 2 s, exactly on the target
+  { HeadingSmoother h; h.update(0, 0);
+    uint32_t t = 0; float v = 0;
+    while (t < 2000) { t += 10; v = h.update(137.3f, t); }
+    CHECK(h.settled()); CHECK(v == 137.3f); }
+  // tau is configurable
+  { HeadingSmoother fast(50), slow(1000); fast.update(0, 0); slow.update(0, 0);
+    CHECK(fast.update(90, 100) > slow.update(90, 100)); }
+  // output always in [0, 360)
+  { HeadingSmoother h; uint32_t t = 0; bool ok = true;
+    float targets[] = {-720.5f, -1e-9f, 360, 359.9999f, 725, -0.0f, 1e6f, 180};
+    for (float tg : targets) for (int i = 0; i < 60; i++) { t += 40; float v = h.update(tg, t); if (!(v >= 0 && v < 360)) ok = false; }
+    CHECK(ok); }
+}
+
+static void test_app_anim_cadence() {
+  puts("app heading animation cadence");
+  Rig r;
+  r.compass.psi = 100;
+  AppConfig cfg;
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power, cfg);
+  app.begin(0);
+  uint32_t now = 0;
+  auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
+  auto presentsIn = [&](uint32_t ms) { int b = r.panel.presents; run(ms); return r.panel.presents - b; };
+  run(4000);
+  int idle = presentsIn(1000);                    // settled: the normal cadence, about 3 per second
+  CHECK(idle >= 2 && idle <= 4);
+  // a 90 degree step: redraws at animEveryMs while it glides
+  r.compass.psi = 190;
+  run(40);
+  CHECK(app.buildViewModel(now).heading < 189);   // still on the way, not jumped
+  int anim = presentsIn(600);
+  CHECK(anim >= 3);                                // 150 ms would give 4, 333 ms only 2
+  run(4000);
+  NEAR(fabsf(angDiff(app.buildViewModel(now).heading, 190)), 0, 2.0);
+  int after = presentsIn(1000);                    // back to the normal cadence
+  CHECK(after >= 2 && after <= 4);
+  // building the view model repeatedly does not advance the animation
+  r.compass.psi = 280;
+  run(40);
+  float a = app.buildViewModel(now).heading;
+  float b = app.buildViewModel(now + 100).heading;
+  float c = app.buildViewModel(now + 500).heading;
+  CHECK(a == b && b == c);
+
+  // thermal page (no magnetometer there: the GPS track drives it): animThermalEveryMs while gliding
+  { Command pc; pc.type = Command::PAGE; pc.value = 1; r.laptop.cmds.push_back(pc); }
+  int sec = 0;
+  auto gps = [&](int course) {
+    char b[160];
+    snprintf(b, sizeof b, "XCTRC,2026,8,16,10,38,%d,0,43.252650,26.927967,1387.00,30.00,%d.0,0.1,,,,967.62,85", sec++, course);
+    r.laptop.inject(line(b));
+  };
+  gps(100); run(300); gps(100); run(300);
+  for (int k = 0; k < 8; k++) { gps(100); run(300); }       // settled on 100
+  gps(190);
+  run(60);
+  CHECK(app.buildViewModel(now).heading < 189);
+  int th = presentsIn(600);
+  CHECK(th >= 3);                                  // 200 ms gives 3, 333 ms only 2
+  for (int k = 0; k < 6; k++) { gps(190); run(300); }
+  int thAfter = presentsIn(1000);
+  CHECK(thAfter >= 2 && thAfter <= 4);
+}
+
 #include "robust_tests.h"
 
 int main() {
@@ -1147,9 +1249,11 @@ int main() {
   test_thermal_memory();
   test_compass();
   test_heading_selector();
+  test_heading_smoother();
   test_button();
   test_app();
   test_app_heading();
+  test_app_anim_cadence();
   test_fuzz_parser();
   test_fuzz_app();
   test_known_bug_nonfinite_position();

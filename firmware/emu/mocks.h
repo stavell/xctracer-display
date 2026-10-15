@@ -16,6 +16,7 @@ class MockPanel : public IPanel {
   void setRotation(uint8_t r) override { disp_.setRotation(r); }
   void clear() override { disp_.clearDisplay(); }
   void present() override {
+    presents++;
     if (!dirty_ && memcmp(disp_.getBuffer(), snap_, sizeof snap_) == 0) return;
     refresh();
   }
@@ -25,6 +26,7 @@ class MockPanel : public IPanel {
   int rawPixel(int x, int y) { return (disp_.getBuffer()[(y * 400 + x) / 8] >> (x & 7)) & 1; }   // native layout, 1 = white
   void dump(const char* path) { disp_.dumpPgm(path); }
   int refreshes = 0;
+  int presents = 0;        // every present() call, changed screen or not
  private:
   Adafruit_SharpMem disp_;
   uint8_t snap_[400 * 240 / 8];

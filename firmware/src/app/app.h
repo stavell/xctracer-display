@@ -3,6 +3,7 @@
 #include "core/compass.h"
 #include "core/flight.h"
 #include "core/heading.h"
+#include "core/heading_smoother.h"
 #include "core/sim.h"
 #include "view/viewmodel.h"
 
@@ -11,6 +12,8 @@ struct AppConfig {
   uint32_t hostGraceMs = 10000;      // laptop frames keep the screen this long after the last draw command
   uint32_t freshMs = 3000;           // data older than this counts as no data
   uint32_t drawEveryMs = 333;        // live screen redraw cadence (3 Hz, the tracer's data rate)
+  uint32_t animEveryMs = 150;        // redraw cadence while the dial is still gliding (compass, home)
+  uint32_t animThermalEveryMs = 200; // same on the thermal page (its map costs about the same to draw)
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
   float gpsHeadingOnKmh = 4.0f;      // GPS track counts as a heading above this speed ...
   float gpsHeadingOffKmh = 2.5f;     // ... and stops counting below this one (hysteresis)
@@ -72,6 +75,7 @@ class App {
   Compass compass_;
   bool compassOn_ = false;
   HeadingSelector heading_;          // GPS track or magnetic compass, whichever applies
+  HeadingSmoother smooth_;           // what the dial shows; advanced once per tick, never when drawing
   bool calibrating_ = false;
   ViewModel vm_;
   ViewModel::Page page_ = ViewModel::PAGE_COMPASS;
