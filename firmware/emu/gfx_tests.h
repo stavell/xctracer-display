@@ -4,6 +4,7 @@
 // all buffers are exactly sized heap vectors, so an out-of-bounds write aborts the run.
 #include <vector>
 #include "gfx/bitmap1.h"
+#include "gfx/gray.h"
 #include "hw/fast_sharp.h"
 
 namespace gt {
@@ -300,11 +301,142 @@ static void testScreensIdentical() {
   }
 }
 
+// ---- ordered-dither grey ----
+static const uint8_t BAYER[8][8] = {
+  {0, 32, 8, 40, 2, 34, 10, 42},   {48, 16, 56, 24, 50, 18, 58, 26}, {12, 44, 4, 36, 14, 46, 6, 38},
+  {60, 28, 52, 20, 62, 30, 54, 22}, {3, 35, 11, 43, 1, 33, 9, 41},   {51, 19, 59, 27, 49, 17, 57, 25},
+  {15, 47, 7, 39, 13, 45, 5, 37},  {63, 31, 55, 23, 61, 29, 53, 21}};
+
+static bool refWhite(int level, int x, int y) { return BAYER[y & 7][x & 7] < 4 * level; }
+static void refGrayRect(const Bitmap1& b, int x0, int y0, int x1, int y1, int level) {
+  int lw = (b.rotation & 1) ? b.h : b.w, lh = (b.rotation & 1) ? b.w : b.h;
+  for (int y = (y0 < 0 ? 0 : y0); y <= y1 && y < lh; y++)
+    for (int x = (x0 < 0 ? 0 : x0); x <= x1 && x < lw; x++)
+      refSet(b, x, y, refWhite(level, x, y) ? DRAW_SET : DRAW_CLEAR);
+}
+
+static void testGray() {
+  puts("gray dither");
+  for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) CHECK(bayer8(x, y) == BAYER[y][x]);
+  Rng r{2024};
+  int bad = 0, badCount = 0, badAnchor = 0, badEnds = 0;
+  // exact densities, ends equal CLEAR / SET, all rotations
+  for (int rot = 0; rot < 4; rot++) {
+    Img a(r, 64, 48, 1, rot);
+    for (int level = 0; level <= 16; level++) {
+      a.b.fill(DRAW_CLEAR);
+      fillRect(a.b, 0, 0, a.b.width(), a.b.height(), Gray(level));
+      for (int by = 0; by + 8 <= a.b.height(); by += 8)
+        for (int bx = 0; bx + 8 <= a.b.width(); bx += 8) {
+          int n = 0;
+          for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) n += a.b.getPixel(bx + x, by + y);
+          if (n != 4 * level) badCount++;
+        }
+    }
+    CHECK(true);
+  }
+  CHECK(badCount == 0);
+  for (int it = 0; it < 600; it++) {
+    Img a(r, r.range(1, 70), r.range(1, 50), r.range(0, 2), r.range(0, 3));
+    Img b(a), c(a);
+    int lw = a.b.width(), lh = a.b.height();
+    fillRect(a.b, -5, -5, lw + 10, lh + 10, Gray(0));
+    b.b.fill(DRAW_CLEAR);
+    if (a.v != b.v) badEnds++;
+    fillRect(a.b, -5, -5, lw + 10, lh + 10, Gray(16));
+    b.b.fill(DRAW_SET);
+    if (a.v != b.v) badEnds++;
+    // anchoring: a sub-rectangle at any origin shows the same pixels as the full-screen grey
+    int level = r.range(1, 15);
+    Img full(r, a.b.w, a.b.h, 0, a.b.rotation), part(full);
+    fillRect(full.b, 0, 0, lw, lh, Gray(level));
+    int x = r.range(0, lw - 1), y = r.range(0, lh - 1), w = r.range(1, lw), h = r.range(1, lh);
+    fillRect(part.b, x, y, w, h, Gray(level));
+    for (int j = y; j < y + h && j < lh; j++)
+      for (int i = x; i < x + w && i < lw; i++)
+        if (part.b.getPixel(i, j) != full.b.getPixel(i, j)) badAnchor++;
+  }
+  CHECK(badEnds == 0);
+  CHECK(badAnchor == 0);
+  // spans and rects against the per-pixel model: clipping, byte edges, all rotations
+  int n = 0;
+  for (int it = 0; it < 6000; it++) {
+    Img a(r, r.range(1, 70), r.range(1, 50), r.range(0, 3), r.range(0, 3));
+    Img b(a);
+    int lw = a.b.width(), lh = a.b.height();
+    for (int k = 0; k < 6; k++) {
+      int level = r.range(0, 16);
+      int x0 = rc(r, lw), x1 = rc(r, lw), y0 = rc(r, lh), y1 = rc(r, lh), len = r.range(-3, 40);
+      switch (r.range(0, 4)) {
+        case 0: hline(a.b, x0, x1, y0, Gray(level)); refGrayRect(b.b, x0, y0, x1, y0, level); break;
+        case 1: vline(a.b, x0, y0, y1, Gray(level)); refGrayRect(b.b, x0, y0, x0, y1, level); break;
+        case 2: rectIncl(a.b, x0, y0, x1, y1, Gray(level)); refGrayRect(b.b, x0, y0, x1, y1, level); break;
+        case 3: hspan(a.b, x0, y0, len, Gray(level)); refGrayRect(b.b, x0, y0, x0 + len - 1, y0, level); break;
+        default: vspan(a.b, x0, y0, len, Gray(level)); refGrayRect(b.b, x0, y0, x0, y0 + len - 1, level); break;
+      }
+      n++;
+      if (a.v != b.v) { bad++; break; }
+    }
+  }
+  CHECK(bad == 0);
+  CHECK(n > 20000);
+}
+
+struct Img4 {
+  std::vector<uint8_t> v;
+  Gray4 g;
+  Img4(Rng& r, int w, int h, int extra) {
+    int stride = (w + 1) / 2 + extra;
+    v.assign((size_t)stride * h, 0);
+    randomize(v.data(), v.size(), r);
+    g = Gray4{v.data(), (int16_t)w, (int16_t)h, (uint16_t)stride};
+  }
+  int at(int x, int y) const { uint8_t b = v[(size_t)y * g.stride + x / 2]; return (x & 1) ? (b & 15) : (b >> 4); }
+};
+
+static void testBlitGray() {
+  puts("blitGray vs per-pixel reference");
+  Rng r{555};
+  int bad = 0, transparentSeen = 0;
+  for (int it = 0; it < 8000; it++) {
+    Img d(r, r.range(1, 80), r.range(1, 40), r.range(0, 3), r.range(0, 2) == 0 ? r.range(0, 3) : 0);
+    Img d2(d);
+    Img4 s(r, r.range(1, 40), r.range(1, 30), r.range(0, 2));
+    int x = r.range(-20, d.b.width() + 20), y = r.range(-20, d.b.height() + 20);
+    int sx = r.range(-8, s.g.w + 8), sy = r.range(-8, s.g.h + 8), w = r.range(-2, 60), h = r.range(-2, 40);
+    int tr = r.range(0, 2) == 0 ? -1 : r.range(0, 15);
+    blitGray(d.b, x, y, s.g, sx, sy, w, h, tr);
+    for (int j = 0; j < h; j++)
+      for (int i = 0; i < w; i++) {
+        int px = sx + i, py = sy + j;
+        if (px < 0 || py < 0 || px >= s.g.w || py >= s.g.h) continue;
+        int nib = s.at(px, py);
+        if (nib == tr) { transparentSeen++; continue; }
+        int level = (nib * 16 + 7) / 15;
+        refSet(d2.b, x + i, y + j, refWhite(level, x + i, y + j) ? DRAW_SET : DRAW_CLEAR);
+      }
+    if (d.v != d2.v) { bad++; if (bad < 4) printf("  blitGray mismatch it %d\n", it); }
+  }
+  CHECK(bad == 0);
+  CHECK(transparentSeen > 1000);
+  // nibble 0 is black and 15 is white; a transparent pixel leaves the destination alone
+  uint8_t px[1] = {0xF0};                       // left pixel 15, right pixel 0
+  Gray4 g{px, 2, 1, 1};
+  uint8_t buf[1] = {0x55};
+  Bitmap1 b{buf, 8, 1, 1, 0};
+  blitGray(b, 0, 0, g, 0, 0, 2, 1, 0);
+  CHECK(b.getPixel(0, 0) == 1 && b.getPixel(1, 0) == ((0x55 >> 1) & 1));
+  blitGray(b, 0, 0, g, 0, 0, 2, 1, -1);
+  CHECK(b.getPixel(0, 0) == 1 && b.getPixel(1, 0) == 0);
+}
+
 static void run(int& totalOps) {
   setvbuf(stdout, nullptr, _IOLBF, 0);
   testBitmapOps();
   testBitmapFillRect();
   testBlit();
+  testGray();
+  testBlitGray();
   testFastSharpEdges();
   testFastSharpRandom(totalOps);
   testScreensIdentical();

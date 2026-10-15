@@ -37,6 +37,8 @@
 #include "mocks.h"
 #include "view/screens.h"
 #include "soak.h"
+#include "gfx/gray.h"
+#include "hw/fast_sharp.h"
 
 static void watchdog(int) {
   fputs("WATCHDOG: the emulator is stuck (infinite loop?)\n", stderr);
@@ -85,6 +87,34 @@ static ViewModel* thermalVm(int kind) {
   vm.trailCount = fm.airTrail(vm.trail, ViewModel::TRAIL_MAX);
   vm.markCount = fm.thermals(vm.marks, ViewModel::MARKS_MAX);
   return &vm;
+}
+
+// gray.png: a 17-step grey ramp, two touching half-grey rectangles (no seam), and a dithered gradient disc
+// drawn with blitGray over a grey backdrop (nibble 0 is transparent).
+static void renderGray(const std::string& out, int rot) {
+  static FastSharp disp(nullptr, 0, 400, 240, 0);
+  disp.setRotation((uint8_t)rot);
+  disp.clearDisplay();
+  Bitmap1 bm{disp.getBuffer(), 400, 240, 50, (uint8_t)rot};
+  for (int i = 0; i <= 16; i++) fillRect(bm, 10 + i * 12, 10, 12, 40, Gray(i));
+  bm.rectIncl(9, 9, 9 + 17 * 12 + 1, 9, DRAW_CLEAR);
+  bm.rectIncl(9, 51, 9 + 17 * 12 + 1, 51, DRAW_CLEAR);
+  fillRect(bm, 11, 62, 90, 24, Gray(8));
+  fillRect(bm, 101, 62, 90, 24, Gray(8));
+  fillRect(bm, 11, 90, 180, 6, Gray(3));
+  static uint8_t disc[64 * 32];
+  for (int y = 0; y < 64; y++)
+    for (int x = 0; x < 64; x++) {
+      float d = sqrtf((x - 31.5f) * (x - 31.5f) + (y - 31.5f) * (y - 31.5f)) / 31.5f;
+      int v = d > 1 ? 0 : 1 + (int)(14 * (1 - d));
+      uint8_t& b = disc[y * 32 + x / 2];
+      b = (x & 1) ? (uint8_t)((b & 0xF0) | v) : (uint8_t)((b & 0x0F) | (v << 4));
+    }
+  fillRect(bm, 10, 110, 190, 100, Gray(4));
+  Gray4 g{disc, 64, 64, 32};
+  blitGray(bm, 20, 125, g, 0, 0, 64, 64, 0);
+  blitGray(bm, 120, 125, g, 0, 0, 64, 64, -1);     // opaque: the corners come out dithered as well
+  disp.dumpPgm((out + "/gray.pgm").c_str());
 }
 
 static int cmdShots(const std::string& out, int rot) {
@@ -173,6 +203,7 @@ static int cmdShots(const std::string& out, int rot) {
     }
     p.dump((out + "/" + s + ".pgm").c_str());
   }
+  renderGray(out, rot);
   printf("rendered %zu scenarios into %s\n", sizeof names / sizeof names[0], out.c_str());
   return 0;
 }

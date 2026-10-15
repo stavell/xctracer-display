@@ -26,6 +26,7 @@
 // Modes: DRAW_SET writes white, DRAW_CLEAR black, DRAW_INVERT flips (XOR). DRAW_COPY is for blit
 // (destination = source pixel); anywhere else it acts as DRAW_SET.
 // Coordinates are int so sums like x + w never overflow; widths and heights <= 0 draw nothing.
+#include <stddef.h>
 #include <stdint.h>
 
 enum DrawMode : uint8_t { DRAW_SET, DRAW_CLEAR, DRAW_INVERT, DRAW_COPY };
@@ -60,7 +61,9 @@ struct Bitmap1 {
   static void blit(const Bitmap1& dst, int x, int y, const Bitmap1& src, int sx, int sy, int w, int h,
                    DrawMode m, BlitKey key = KEY_NONE, const Bitmap1* mask = nullptr);
 
- private:
+  // Native coordinates of a logical pixel (no clipping).
   void toNative(int x, int y, int& nx, int& ny) const;
+
+ private:
   void nativeRect(int nx0, int ny0, int nx1, int ny1, DrawMode m) const;
 };
