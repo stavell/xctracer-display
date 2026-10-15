@@ -75,7 +75,7 @@ static int cmdSoak(int argc, char** argv, std::vector<std::string> (*readLines)(
   auto expect = [&](bool ok, const char* what) { if (!ok) { failures++; printf("  FAIL %s\n", what); } };
 
   static Rig r;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power);
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
   app.begin(0);
   Rng rng(seed);
   printf("soak: %zu lines (%s), %d runs, seed %llu\n", L.size(), file.empty() ? "synthetic FlightSim flight" : file.c_str(), runs, (unsigned long long)seed);

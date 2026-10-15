@@ -10,6 +10,7 @@
 #include "hw/laptop_ble.h"
 #include "hw/panel_sharp.h"
 #include "hw/power_nrf.h"
+#include "hw/thermo_sht.h"
 #include "hw/tracer_ble.h"
 #include "hw/watchdog.h"
 #include "pins.h"
@@ -20,6 +21,7 @@ static SharpPanel panel;
 static ButtonGpio button(PIN_BUTTON1);
 static BatteryAdc battery;
 static CompassLis compassHw;
+static ThermoSht thermo;
 static TracerBle tracer(config);
 static LaptopBle laptop(panel);
 static PowerNrf power(panel, laptop, tracer, PIN_BUTTON1);
@@ -29,7 +31,7 @@ static AppConfig appConfig() {
   c.rotation = DISPLAY_ROTATION;
   return c;
 }
-static App app(panel, button, battery, tracer, laptop, config, compassHw, power, appConfig());
+static App app(panel, button, battery, tracer, laptop, config, compassHw, thermo, power, appConfig());
 
 void setup() {
   PowerNrf::gateOnWake(PIN_BUTTON1, 1000);   // before anything else: a quick tap goes back to sleep
@@ -38,7 +40,8 @@ void setup() {
   button.begin();
   config.begin();
   panel.begin();
-  compassHw.begin();
+  compassHw.begin();                          // starts Wire
+  thermo.begin();                             // SHT30 on the same bus
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
   Bluefruit.begin(1, 1);                      // one link to the laptop, one to the vario

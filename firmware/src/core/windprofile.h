@@ -1,15 +1,18 @@
 #pragma once
 #include "core/types.h"
 
-// Wind by altitude: 100 m bands from 0 to 6000 m, each holding a smoothed wind vector. Fed with the
-// wind estimate while flying, so a climb through different air layers fills the table. Pure, fixed
-// storage, no allocation.
+// Wind and temperature by altitude: 100 m bands from 0 to 6000 m, each holding a smoothed wind vector
+// and a smoothed temperature. Fed with the wind estimate and the thermometer while flying, so a climb
+// through different air layers fills the table. A band can have either one without the other. Pure,
+// fixed storage, no allocation.
 struct ProfileBand {
   float altM;        // centre of the band
-  float speedKmh;
-  float toDeg;       // direction the wind blows TOWARD, 0 = north
-  uint32_t ageS;     // seconds since the band was last updated
-  int samples;
+  float speedKmh;    // NaN when the band has no (fresh) wind
+  float toDeg;       // direction the wind blows TOWARD, 0 = north; NaN without wind
+  uint32_t ageS;     // seconds since the wind was last updated (the temperature's age without wind)
+  int samples;       // wind samples
+  float tempC;       // NaN when the band has no (fresh) temperature
+  int tempSamples;
 };
 
 class WindProfile {
@@ -21,7 +24,9 @@ class WindProfile {
   void reset();
   // Altitudes below 0 go to band 0, above the top to the top band. Non-finite input is ignored.
   void add(float altM, float windEastMs, float windNorthMs, uint32_t clockMs);
-  // Bands updated within the last hour, lowest first. Returns how many were written (<= maxN).
+  // Temperature in the band at this altitude; non-finite input is ignored.
+  void addTemp(float altM, float tempC, uint32_t clockMs);
+  // Bands with wind or temperature updated within the last hour, lowest first. Returns how many were written (<= maxN).
   int query(ProfileBand* out, int maxN, uint32_t nowMs) const;
   static int bandOf(float altM);
 
@@ -30,6 +35,17 @@ class WindProfile {
     float e = 0, n = 0;
     uint16_t count = 0;
     uint32_t last = 0;
+    float t = 0;
+    uint16_t tCount = 0;
+    uint32_t tLast = 0;
   };
   Band b_[BANDS];
 };
+
+// Average lapse rate in degC per 100 m: least-squares slope of temperature against altitude over the
+// bands that have a temperature. NaN with fewer than 3 such bands or less than 200 m between the
+// lowest and the highest.
+float lapseRate(const ProfileBand* b, int n);
+// True when band i has a temperature that is more than 0.2 degC above the band 100 m below it
+// (that band must be in the list and have a temperature): warmer air above cooler air.
+bool inversionAt(const ProfileBand* b, int n, int i);

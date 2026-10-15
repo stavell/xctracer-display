@@ -149,6 +149,19 @@ class MockCompass : public ICompass {
   double hardIron[3] = {0, 0, 0};
 };
 
+class MockThermo : public IThermo {
+ public:
+  bool read(float& t) override {
+    if (!present || !fresh) return false;
+    fresh = false;
+    t = tempC;
+    return true;
+  }
+  void set(float t) { tempC = t; fresh = true; }   // a new reading becomes available
+  float tempC = 15;
+  bool present = true, fresh = false;
+};
+
 class MockPower : public IPower {
  public:
   void shutdown() override { off = true; }
@@ -164,5 +177,6 @@ struct Rig {
   MockLaptop laptop;
   MockSettings settings;
   MockCompass compass;
+  MockThermo thermo;
   MockPower power;
 };

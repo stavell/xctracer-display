@@ -90,7 +90,7 @@ static ViewModel* thermalVm(int kind) {
 static int cmdShots(const std::string& out, int rot) {
   struct Sc { const char* name; };
   const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "mag", "calibrate",
-                         "profile", "profile_short", "profile_empty", "home", "home_unreachable", "home_provisional"};
+                         "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional"};
   for (const char* n : names) {
     if (!strncmp(n, "thermal", 7)) {
       ViewModel* tv = thermalVm(strcmp(n, "thermal_lost") == 0 ? 1 : 0);
@@ -133,11 +133,20 @@ static int cmdShots(const std::string& out, int rot) {
       const float (*src)[4] = s == "profile_short" ? shortR : full;
       int cnt = s == "profile_short" ? 4 : 15;
       if (s == "profile_empty") cnt = 0;
+      const bool temps = s == "profile_temp" || s == "profile_inversion" || s == "profile_temp_only";
       if (s == "profile_short") vm.s.alt = 1500;
       vm.profileAlt = vm.s.alt;
       for (int i = 0; i < cnt; i++) {
         vm.profile[i].altM = src[i][0]; vm.profile[i].speedKmh = src[i][1]; vm.profile[i].toDeg = src[i][2];
         vm.profile[i].ageS = (uint32_t)src[i][3]; vm.profile[i].samples = 20;
+        vm.profile[i].tempC = NAN; vm.profile[i].tempSamples = 0;
+        if (temps) {            // 18 C at 950 m, -0.65 C per 100 m; the inversion adds 2 C from 1550 m up
+          float t = 18.0f - 0.65f * (src[i][0] - 950) / 100.0f;
+          if (s == "profile_inversion" && src[i][0] > 1500 && src[i][0] < 1700) t += 2.0f * (src[i][0] - 1500) / 200.0f;
+          else if (s == "profile_inversion" && src[i][0] >= 1700) t += 2.0f;
+          vm.profile[i].tempC = t; vm.profile[i].tempSamples = 12;
+        }
+        if (s == "profile_temp_only") { vm.profile[i].speedKmh = NAN; vm.profile[i].toDeg = NAN; vm.profile[i].samples = 0; }
       }
       vm.profileCount = cnt;
     }
@@ -191,7 +200,7 @@ static int cmdReplay(int argc, char** argv) {
   Rig r;
   AppConfig cfg;
   cfg.rotation = rot;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power, cfg);
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power, cfg);
   app.begin(0);
   if (startPage > 0 && startPage < ViewModel::PAGE_COUNT) { Command pc; pc.type = Command::PAGE; pc.value = startPage; r.laptop.cmds.push_back(pc); }
 

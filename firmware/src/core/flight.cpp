@@ -30,6 +30,9 @@ void FlightModel::reset() {
   ekfAt_ = 0;
   mem_.reset();
   profile_.reset();
+  tempC_ = NAN;
+  tempAt_ = 0;
+  haveTemp_ = false;
   home_ = HomePoint();
   homeFixed_ = false;
 }
@@ -92,6 +95,7 @@ void FlightModel::tick() {
   ekf_.step((now - ekfAt_) / 1000.0f, cur_.fix, cur_.speedKmh, cur_.course);
   ekfAt_ = now;
   updateProfile();
+  updateTemperature();
   updateThermals();
 }
 
@@ -103,6 +107,20 @@ void FlightModel::updateProfile() {
   Wind w = circleWind();
   double th = w.toDeg / R2D, ms = w.speedKmh / 3.6;
   profile_.add(cur_.alt, (float)(ms * sin(th)), (float)(ms * cos(th)), clock_);
+}
+
+void FlightModel::feedTemperature(float tempC) {
+  if (!isfinite(tempC)) return;
+  tempC_ = tempC;
+  tempAt_ = clock_;
+  haveTemp_ = true;
+}
+
+// Once per data second: the latest reading, if it is fresh (the thermometer reports every 2 s), goes
+// into the band at the current altitude.
+void FlightModel::updateTemperature() {
+  if (!haveTemp_ || clock_ - tempAt_ >= 5000 || !isfinite(cur_.alt)) return;
+  profile_.addTemp(cur_.alt, tempC_, clock_);
 }
 
 void FlightModel::updateThermals() {

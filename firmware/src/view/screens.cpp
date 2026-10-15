@@ -396,6 +396,9 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
 // minutes old. The range follows the flight: lowest to highest band with data, widened to include the
 // current altitude. Rows use the page height (16..36 px each); when more rows than fit at 16 px exist,
 // the window nearest the current altitude is shown. A triangle and a thin line mark where you are.
+// With temperatures, a column on the right traces them on the same altitude scale (3 px thick where
+// the air warms with height, an inversion), the lapse rate sits in a header strip above it and its
+// scale below. Without any temperature the page is laid out exactly as before.
 static void drawWindProfile(const ViewModel& vm, int mx, int my, int mw, int mh) {
   d->drawRect(mx, my, mw, mh, BLK);
   const int n = vm.profileCount;
@@ -404,7 +407,13 @@ static void drawWindProfile(const ViewModel& vm, int mx, int my, int mw, int mh)
     text(mx + mw / 2, my + mh / 2 + 20, "circle or turn to measure", F9, AC);
     return;
   }
-  const int top = my + 8, areaH = mh - 16;
+  bool haveT = false, anyWind = false;
+  for (int i = 0; i < n; i++) {
+    if (isfinite(vm.profile[i].tempC)) haveT = true;
+    if (isfinite(vm.profile[i].speedKmh)) anyWind = true;
+  }
+  const int hs = haveT ? 20 : 0, fs = haveT ? 14 : 0;           // header and footer strips for the temperature column
+  const int top = my + 8 + hs, areaH = mh - 16 - hs - fs;
   int lo = WindProfile::bandOf(vm.profile[0].altM), hi = WindProfile::bandOf(vm.profile[n - 1].altM);
   const bool haveAlt = isfinite(vm.profileAlt);
   const int cur = haveAlt ? WindProfile::bandOf(vm.profileAlt) : -1;
@@ -449,6 +458,7 @@ static void drawWindProfile(const ViewModel& vm, int mx, int my, int mw, int mh)
     if (band < lo || band > hi) continue;
     int cy = y0 + (hi - band) * rh + rh / 2;
     const ProfileBand& pb = vm.profile[i];
+    if (!isfinite(pb.speedKmh)) continue;                         // temperature only
     fnum(b, sizeof b, pb.speedKmh, "%.0f");
     if (pb.ageS > 20 * 60) {
       char c[16];
@@ -463,11 +473,57 @@ static void drawWindProfile(const ViewModel& vm, int mx, int my, int mw, int mh)
     drawArrow(ax, cy, th, big ? 12 : 7, big ? 7 : 5);
   }
 
-  // north indicator (top right) and the unit
-  d->fillRect(mx + mw - 54, my + 3, 52, 28, WHT);
-  drawArrow(mx + mw - 14, my + 17, 0, 9, 5);
-  textMid(mx + mw - 36, my + 17, "N", F9);
-  text(mx + mw - 6, my + 46, "km/h", F9, AR);
+  if (!haveT) {
+    // north indicator (top right) and the unit
+    d->fillRect(mx + mw - 54, my + 3, 52, 28, WHT);
+    drawArrow(mx + mw - 14, my + 17, 0, 9, 5);
+    textMid(mx + mw - 36, my + 17, "N", F9);
+    text(mx + mw - 6, my + 46, "km/h", F9, AR);
+    return;
+  }
+
+  // header: the unit over the wind columns, the lapse rate over the temperature; footer: north arrow
+  // under the wind columns, the temperature scale under its column
+  text(mx + 56, my + 17, anyWind ? "km/h" : "no wind", F9);
+  textMid(mx + 62, my + mh - 11, "N", F9);
+  drawArrow(mx + 76, my + mh - 11, 0, 7, 5);
+  const int colL = mx + mw - 84, colR = mx + mw - 8;
+  float lr = lapseRate(vm.profile, n);
+  fnum(b, sizeof b, lr, "%+.1f");
+  if (isfinite(lr)) strncat(b, "/100m", sizeof b - strlen(b) - 1);
+  text(mx + mw - 6, my + 17, b, F9, AR);
+
+  float tmin = 1e9f, tmax = -1e9f;
+  for (int i = 0; i < n; i++) {
+    int band = WindProfile::bandOf(vm.profile[i].altM);
+    if (band < lo || band > hi) continue;
+    float t = vm.profile[i].tempC;
+    if (!isfinite(t)) continue;
+    if (t < tmin) tmin = t;
+    if (t > tmax) tmax = t;
+  }
+  if (tmin > tmax) return;                                        // no temperature inside the shown altitudes
+  if (tmax - tmin < 4.0f) { float mid = (tmin + tmax) / 2; tmin = mid - 2; tmax = mid + 2; }
+  const float xs = (colR - colL) / (tmax - tmin);
+  int px = 0, py = 0, pband = -10;
+  for (int i = 0; i < n; i++) {
+    int band = WindProfile::bandOf(vm.profile[i].altM);
+    float t = vm.profile[i].tempC;
+    if (band < lo || band > hi || !isfinite(t)) continue;
+    int x = colL + (int)lroundf((t - tmin) * xs), y = y0 + (hi - band) * rh + rh / 2;
+    if (band == pband + 1) thickLine(px, py, x, y, inversionAt(vm.profile, n, i) ? 3 : 1, false);
+    d->fillRect(x - 1, y - 1, 2, 2, BLK);
+    px = x; py = y; pband = band;
+  }
+  // scale below the column: the two ends of the temperature axis
+  const int yb = my + mh - 18;
+  d->drawFastHLine(colL, yb, colR - colL + 1, BLK);
+  d->drawFastVLine(colL, yb - 2, 5, BLK);
+  d->drawFastVLine(colR, yb - 2, 5, BLK);
+  fnum(b, sizeof b, tmin, "%.0f"); strncat(b, "C", sizeof b - strlen(b) - 1);
+  text(colL, my + mh - 4, b, F9);
+  fnum(b, sizeof b, tmax, "%.0f"); strncat(b, "C", sizeof b - strlen(b) - 1);
+  text(colR, my + mh - 4, b, F9, AR);
 }
 
 // Home page: the way back to the takeoff point. Heading-up arrow, distance, required glide ratio and

@@ -1,4 +1,5 @@
 // Unit tests for the pure layers and the app, run on the PC.
+#include <math.h>
 #include <stdio.h>
 #include <string>
 #include "app/app.h"
@@ -308,6 +309,156 @@ static void test_wind_profile() {
   CHECK(low >= 4 && high >= 6);
   fm.reset();
   CHECK(fm.profile().query(pb, 60, fm.clockMs()) == 0);
+}
+
+static void test_temp_profile() {
+  puts("temperature profile");
+  WindProfile p;
+  static ProfileBand out[60];
+  // exponential average, alpha 0.25; a band can hold temperature without wind
+  p.addTemp(1234, 10, 1000);
+  p.addTemp(1250, 14, 2000);
+  p.addTemp(NAN, 5, 2000); p.addTemp(1250, NAN, 2000); p.addTemp(1250, INFINITY, 2000);
+  int n = p.query(out, 60, 3000);
+  CHECK(n == 1);
+  NEAR(out[0].tempC, 11, 1e-4); CHECK(out[0].tempSamples == 2);
+  CHECK(std::isnan(out[0].speedKmh)); CHECK(std::isnan(out[0].toDeg)); CHECK(out[0].samples == 0); CHECK(out[0].ageS == 1);
+  // wind without temperature, in another band
+  p.add(1750, 5, 0, 3000);
+  n = p.query(out, 60, 3000);
+  CHECK(n == 2);
+  CHECK(!std::isnan(out[0].tempC) && std::isnan(out[1].tempC) && !std::isnan(out[1].speedKmh));
+  // both in one band
+  p.add(1250, 0, 5, 3000);
+  n = p.query(out, 60, 3000);
+  CHECK(n == 2); NEAR(out[0].tempC, 11, 1e-4); NEAR(out[0].speedKmh, 18, 0.01);
+  // expiry is per quantity: the temperature (2000) dies first, the wind (3000) lives on
+  n = p.query(out, 60, 2001 + 60u * 60 * 1000);
+  CHECK(n == 2 && std::isnan(out[0].tempC) && !std::isnan(out[0].speedKmh));
+  n = p.query(out, 60, 3001 + 60u * 60 * 1000);
+  CHECK(n == 0);
+  // an expired temperature starts afresh
+  p.addTemp(1250, 3, 3001 + 2 * 60u * 60 * 1000);
+  n = p.query(out, 60, 3001 + 2 * 60u * 60 * 1000);
+  CHECK(n == 1); NEAR(out[0].tempC, 3, 1e-4); CHECK(out[0].tempSamples == 1);
+  p.reset();
+  CHECK(p.query(out, 60, 0) == 0);
+
+  // lapse rate on a linear profile: -0.65 degC per 100 m
+  static ProfileBand b[20];
+  auto lin = [&](int cnt) {
+    for (int i = 0; i < cnt; i++) {
+      b[i].altM = 1050 + 100.0f * i; b[i].tempC = 15.0f - 0.0065f * (b[i].altM - 1000);
+      b[i].speedKmh = NAN; b[i].toDeg = NAN; b[i].ageS = 0; b[i].samples = 0; b[i].tempSamples = 5;
+    }
+  };
+  lin(10);
+  NEAR(lapseRate(b, 10), -0.65, 1e-3);
+  CHECK(!std::isnan(lapseRate(b, 3)));                 // 3 bands spanning exactly 200 m
+  CHECK(std::isnan(lapseRate(b, 2)));                  // too few bands
+  CHECK(std::isnan(lapseRate(b, 0)));
+  b[1].tempC = NAN;                                    // a band without temperature does not count
+  CHECK(std::isnan(lapseRate(b, 3)));
+  NEAR(lapseRate(b, 10), -0.65, 1e-3);
+  lin(10);
+  b[0].altM = 1050; b[1].altM = 1070; b[2].altM = 1090;  // 3 bands but only 40 m apart
+  CHECK(std::isnan(lapseRate(b, 3)));
+  lin(10);
+  for (int i = 0; i < 10; i++) CHECK(!inversionAt(b, 10, i));   // a normal lapse has no inversion
+  // warms by 2 degC between 1500 and 1700 m: +1 at 1550 and 1650, +2 from 1750 up
+  for (int i = 0; i < 10; i++) {
+    if (b[i].altM > 1500 && b[i].altM < 1700) b[i].tempC += 1.0f;
+    else if (b[i].altM >= 1700) b[i].tempC += 2.0f;
+  }
+  // 1550 is 0.35 warmer than 1450 and 1750 is 0.35 warmer than 1650; 1650 is cooler again than 1550
+  for (int i = 0; i < 10; i++) {
+    bool want = b[i].altM == 1550 || b[i].altM == 1750;
+    CHECK(inversionAt(b, 10, i) == want);
+  }
+  b[5].tempC = NAN;                                      // 1550 has no temperature: 1650 has no valid band below
+  CHECK(!inversionAt(b, 10, 6)); CHECK(!inversionAt(b, 10, 5));
+  CHECK(!inversionAt(b, 10, -1)); CHECK(!inversionAt(b, 10, 10));
+  // exactly 0.2 is not enough
+  lin(3); b[1].tempC = b[0].tempC + 0.2f; CHECK(!inversionAt(b, 3, 1));
+  b[1].tempC = b[0].tempC + 0.25f; CHECK(inversionAt(b, 3, 1));
+}
+
+static void test_flight_temperature() {
+  puts("flight model temperature");
+  static FlightModel fm;
+  fm.reset();
+  static ProfileBand pb[60];
+  fm.feedTemperature(NAN);                              // ignored
+  fm.feed(smp(0, true, 43, 26, 40, 90, 0, 1000));
+  CHECK(fm.profile().query(pb, 60, fm.clockMs()) == 0);
+  fm.feedTemperature(12.0f);
+  fm.feed(smp(1, true, 43, 26, 40, 90, 0, 1020));
+  int n = fm.profile().query(pb, 60, fm.clockMs());
+  CHECK(n == 1); NEAR(pb[0].altM, 1050, 0.1); NEAR(pb[0].tempC, 12, 1e-4);
+  // a reading is used while it is under 5 s old, then ignored
+  fm.feed(smp(2, true, 43, 26, 40, 90, 0, 1230));
+  fm.feed(smp(3, true, 43, 26, 40, 90, 0, 1330));
+  fm.feed(smp(4, true, 43, 26, 40, 90, 0, 1430));
+  fm.feed(smp(5, true, 43, 26, 40, 90, 0, 1530));       // 5 s old: stale
+  fm.feed(smp(6, true, 43, 26, 40, 90, 0, 1630));
+  fm.feed(smp(7, true, 43, 26, 40, 90, 0, 1730));
+  n = fm.profile().query(pb, 60, fm.clockMs());
+  bool b14 = false, b15 = false, b16 = false, b17 = false;
+  for (int i = 0; i < n; i++) {
+    if (pb[i].altM == 1450) b14 = true;      // 4 s old: still fresh
+    if (pb[i].altM == 1550) b15 = true;
+    if (pb[i].altM == 1650) b16 = true;
+    if (pb[i].altM == 1750) b17 = true;
+  }
+  CHECK(b14 && !b15 && !b16 && !b17);
+  // no altitude: nothing is added
+  fm.feedTemperature(20.0f);
+  fm.feed(smp(8, true, 43, 26, 40, 90, 0, NAN));
+  CHECK(fm.profile().query(pb, 60, fm.clockMs()) == n);
+  fm.reset();
+  CHECK(fm.profile().query(pb, 60, fm.clockMs()) == 0);
+  fm.feed(smp(0, true, 43, 26, 40, 90, 0, 1000));      // the pre-reset reading is gone
+  fm.feed(smp(1, true, 43, 26, 40, 90, 0, 1000));
+  CHECK(fm.profile().query(pb, 60, fm.clockMs()) == 0);
+}
+
+static void test_app_temperature() {
+  puts("app forwards the thermometer");
+  Rig r;
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+  app.begin(0);
+  uint32_t now = 0;
+  auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
+  // a 60 s climb from 1000 to 1600 m, a reading every 2 s following the standard atmosphere
+  for (int i = 0; i < 60; i++) {
+    float alt = 1000.0f + 10.0f * i;
+    char body[160];
+    snprintf(body, sizeof body, "XCTRC,2026,8,16,10,%d,%d,0,43.252650,26.927967,%.2f,30.00,250.0,1.0,,,,900.00,85", i / 60, i % 60, alt);
+    r.laptop.inject(line(body));
+    if (i % 2 == 0) r.thermo.set(15.0f - 0.0065f * (alt - 1000.0f));
+    run(1000);
+  }
+  static ProfileBand pb[60];
+  int n = app.flight().profile().query(pb, 60, app.flight().clockMs());
+  CHECK(n >= 5);
+  int withT = 0;
+  for (int i = 0; i < n; i++) if (!std::isnan(pb[i].tempC)) withT++;
+  CHECK(withT == n);
+  NEAR(lapseRate(pb, n), -0.65, 0.1);
+  // a missing sensor adds nothing
+  Rig r2;
+  r2.thermo.present = false;
+  App app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.thermo, r2.power);
+  app2.begin(0);
+  r2.thermo.set(10);
+  now = 0;
+  for (int i = 0; i < 5; i++) {
+    char body[160];
+    snprintf(body, sizeof body, "XCTRC,2026,8,16,10,0,%d,0,43.252650,26.927967,1000.00,30.00,250.0,1.0,,,,900.00,85", i);
+    r2.laptop.inject(line(body));
+    for (uint32_t e = now + 1000; now < e; now += 10) app2.tick(now);
+  }
+  CHECK(app2.flight().profile().query(pb, 60, app2.flight().clockMs()) == 0);
 }
 
 static void test_home() {
@@ -625,7 +776,7 @@ static void test_app_heading() {
   puts("app heading source and calibration");
   Rig r;
   r.compass.psi = 123; r.compass.pitch = 10; r.compass.roll = -5;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power);
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
   app.begin(0);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -683,7 +834,7 @@ static void test_app_heading() {
   run(400);
   NEAR(fabsf(angDiff(app.buildViewModel(now).heading, 200)), 0, 4.0);
   { Rig r2; r2.settings = r.settings; r2.compass = r.compass; r2.compass.enabled = false;
-    App app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.power);
+    App app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.thermo, r2.power);
     app2.begin(0);
     uint32_t n2 = 0;
     for (; n2 < 400; n2 += 10) app2.tick(n2);
@@ -731,7 +882,7 @@ static void test_button() {
 static void test_app() {
   puts("app");
   Rig r;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power);
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
   app.begin(0);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -956,6 +1107,9 @@ int main() {
   test_flight();
   test_wind_ekf();
   test_wind_profile();
+  test_temp_profile();
+  test_flight_temperature();
+  test_app_temperature();
   test_home();
   test_air_trail();
   test_thermal();

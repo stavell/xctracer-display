@@ -192,7 +192,7 @@ static void test_fuzz_app() {
   puts("fuzz: whole App");
   Rig r;
   r.compass.psi = 40; r.compass.pitch = 5; r.compass.roll = -3;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power);
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
   app.begin(0);
   uint32_t now = 1000, delivered = 0;
   Rng rng(0xABCDEF12345ull);
@@ -245,7 +245,7 @@ static void test_known_bug_nonfinite_position() {
   for (const char* v : bad) {
     bool ok = survives([&] {
       Rig r;
-      App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power);
+      App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
       app.begin(0);
       uint32_t now = 0;
       { Command pc; pc.type = Command::PAGE; pc.value = 1; r.laptop.cmds.push_back(pc); }
@@ -290,8 +290,8 @@ struct WrapTrace {
 
 static WrapTrace runWrapScript(uint32_t base) {
   CountPanel panel; MockInput input; MockBattery battery; MockTracer tracer; StampLaptop laptop; MockSettings settings;
-  MockCompass compass; MockPower power;
-  App app(panel, input, battery, tracer, laptop, settings, compass, power);
+  MockCompass compass; MockThermo thermo; MockPower power;
+  App app(panel, input, battery, tracer, laptop, settings, compass, thermo, power);
   app.begin(base);
   // buttons: cancelled hold (1.6 s), short, long (opens the device list), long (selects "< back")
   input.press(base + 20000, 1600);
@@ -355,7 +355,7 @@ static void test_time_wrap() {
 
   // Directly, with the clock 60 s before 2^32 and data flowing across it.
   {
-    Rig r; App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power);
+    Rig r; App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     uint32_t now = 0xFFFFFFFFu - 60000 + 1;
     app.begin(now);
     int freshWrong = 0;
@@ -371,7 +371,7 @@ static void test_time_wrap() {
   // Exactly 0 is "never" for three timestamps (injectMs_, lastSampleMs_ in app.cpp; lastDraw_ in laptop_ble.cpp).
   // One tick in 49.7 days (one in ten for a 10 ms loop at that instant) hits it.
   {
-    Rig r; App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power);
+    Rig r; App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     uint32_t now = 0xFFFFFFFFu - 500 + 1;
     app.begin(now);
     for (; now != 0; now += 10) app.tick(now);              // reach exactly 0 (500 is a multiple of 10 away)
@@ -385,7 +385,7 @@ static void test_time_wrap() {
     CHECK(app.linesOk() == ok);
     bool freshAfterZeroSample;
     {
-      Rig r2; App a2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.power);
+      Rig r2; App a2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.thermo, r2.power);
       uint32_t n2 = 0xFFFFFFFFu - 500 + 1;
       a2.begin(n2);
       for (; n2 != 0; n2 += 10) a2.tick(n2);

@@ -89,6 +89,13 @@ class ICompass {
   virtual bool read(Vec3& accel, Vec3& mag) = 0;     // true when a new reading pair is available
 };
 
+// Air temperature sensor, always on (the profile builds during the whole flight).
+class IThermo {
+ public:
+  virtual ~IThermo() {}
+  virtual bool read(float& tempC) = 0;               // true when a new, finite reading is available
+};
+
 class IPower {
  public:
   virtual ~IPower() {}

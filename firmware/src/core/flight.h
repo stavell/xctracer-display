@@ -15,7 +15,8 @@ class FlightModel {
   static const int WIND_S = 30;    // seconds of track used for each wind fit
 
   void reset();
-  bool feed(const Sample& s);      // true when a new data second started
+  bool feed(const Sample& s);
+  void feedTemperature(float tempC);   // latest thermometer reading, stamped with the flight clock      // true when a new data second started
 
   bool hasData() const { return have_; }
   const Sample& last() const { return cur_; }
@@ -46,6 +47,7 @@ class FlightModel {
   void updateWind();
   bool windXY(double& wx, double& wy) const;   // the one wind vector wind(), airTrail and thermals use
   void updateProfile();
+  void updateTemperature();
   void updateThermals();
 
   Sample cur_;
@@ -65,6 +67,9 @@ class FlightModel {
   bool ekfStarted_ = false;
   uint32_t ekfAt_ = 0;
   WindProfile profile_;
+  float tempC_ = NAN;
+  uint32_t tempAt_ = 0;
+  bool haveTemp_ = false;
   HomePoint home_;
   bool homeFixed_ = false;         // takeoff seen: home is final
   ThermalMemory mem_;

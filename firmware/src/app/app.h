@@ -21,7 +21,7 @@ struct AppConfig {
 class App {
  public:
   App(IPanel& panel, IInput& input, IBattery& battery, ITracer& tracer, ILaptop& laptop,
-      ISettings& settings, ICompass& compass, IPower& power, AppConfig cfg = AppConfig());
+      ISettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg = AppConfig());
 
   void begin(uint32_t nowMs);
   void tick(uint32_t nowMs);
@@ -57,6 +57,7 @@ class App {
   ILaptop& laptop_;
   ISettings& settings_;
   ICompass& compassHw_;
+  IThermo& thermo_;
   IPower& power_;
   AppConfig cfg_;
 

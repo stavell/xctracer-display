@@ -6,9 +6,9 @@
 #include "view/screens.h"
 
 App::App(IPanel& panel, IInput& input, IBattery& battery, ITracer& tracer, ILaptop& laptop,
-         ISettings& settings, ICompass& compass, IPower& power, AppConfig cfg)
+         ISettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg)
     : panel_(panel), input_(input), battery_(battery), tracer_(tracer), laptop_(laptop),
-      settings_(settings), compassHw_(compass), power_(power), cfg_(cfg) {}
+      settings_(settings), compassHw_(compass), thermo_(thermo), power_(power), cfg_(cfg) {}
 
 void App::begin(uint32_t) {
   heading_.configure(cfg_.gpsHeadingOnKmh, cfg_.gpsHeadingOffKmh);
@@ -218,6 +218,8 @@ void App::tick(uint32_t now) {
   while (tracer_.popLine(line, sizeof line)) {
     if (!injecting(now)) ingestLine(line, now);
   }
+  float tc;
+  if (thermo_.read(tc)) flight_.feedTemperature(tc);
   laptop_.service(now);
   updateHeading(now);
 
