@@ -27,6 +27,7 @@
 static int failures = 0, checks = 0;
 #define CHECK(cond) do { checks++; if (!(cond)) { failures++; printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); } } while (0)
 #define NEAR(a, b, tol) CHECK(fabs((double)(a) - (double)(b)) <= (tol))
+#include "gfx_tests.h"
 
 static const double D2R = 0.017453292519943295;
 
@@ -1302,6 +1303,7 @@ static void test_prof() {
 }
 
 int main() {
+  { int ops = 0; gt::run(ops); printf("gfx: %d random canvas ops compared\n", ops); }
   test_spsc_ring();
   test_linediff();
   test_devmatch();

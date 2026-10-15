@@ -1,5 +1,6 @@
 #pragma once
 #include <Adafruit_SharpMem.h>
+#include "hw/fast_sharp.h"
 #include "app/ports.h"
 
 // The 400x240 Sharp memory display: SPI refresh, change detection, and the 1 Hz VCOM toggle that
@@ -24,7 +25,7 @@ class SharpPanel : public IPanel {
   void sendLines(const uint8_t* idx, int n);
   int lastLines_ = 0;
   uint8_t vcomBit_ = SHARPMEM_BIT_VCOM;   // mirror of the library's private _sharpmem_vcom
-  Adafruit_SharpMem display_;
+  FastSharp display_;
   SoftwareTimer vcom_;
   uint8_t* snap_ = nullptr;
   bool dirty_ = true;
