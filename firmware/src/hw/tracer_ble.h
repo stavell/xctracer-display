@@ -22,6 +22,7 @@ class TracerBle : public ITracer {
   bool listItem(int i, ListItem& out) override;
   bool listConnect(int i) override;
   bool popLine(char* buf, size_t n) override;
+  void describe(char* buf, size_t n) const override;
   void disconnect();
 
  private:
@@ -49,6 +50,8 @@ class TracerBle : public ITracer {
   Item items_[MAX_ITEMS];
   int nItems_ = 0;
   uint32_t connectingSince_ = 0;
+  ble_gap_addr_t connAddr_ = {};
+  bool haveConnAddr_ = false;
 
   char lineBuf_[LINE];
   int lineLen_ = 0;

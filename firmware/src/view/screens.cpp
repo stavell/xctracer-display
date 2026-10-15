@@ -469,7 +469,7 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
       char nm[20];
       snprintf(nm, sizeof nm, "%.17s", it.name);
       text(10, y + 18, nm, F12B, AL, col);
-      snprintf(b, sizeof b, "%d dBm", it.rssi);
+      snprintf(b, sizeof b, "%d dBm   %s", it.rssi, it.id);
       text(10, y + 36, b, F9, AL, col);
     }
   }

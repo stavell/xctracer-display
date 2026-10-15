@@ -27,6 +27,8 @@ class App {
   uint32_t linesBad() const { return linesBad_; }
   bool simOn() const { return simOn_; }
   bool listOpen() const { return listOpen_; }
+  const char* lastRaw() const { return lastRaw_; }          // last line received, parsed or not (diagnostics)
+  void describeTracer(char* buf, size_t n) const { tracer_.describe(buf, n); }
   const ViewModel& buildViewModel(uint32_t nowMs);   // fills and returns the member (it is far too big for the stack)
 
  private:
@@ -52,6 +54,7 @@ class App {
   uint32_t injectMs_ = 0, lastSampleMs_ = 0;
   uint32_t linesOk_ = 0, linesBad_ = 0;
 
+  char lastRaw_[100] = "";
   ViewModel vm_;
   ViewModel::Page page_ = ViewModel::PAGE_COMPASS;
   bool wasLocal_ = true;

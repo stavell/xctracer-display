@@ -70,7 +70,8 @@ class MockTracer : public ITracer {
     lines.pop_front();
     return true;
   }
-  void addItem(const char* name, int rssi) { ListItem it; memset(&it, 0, sizeof it); strncpy(it.name, name, 23); it.rssi = rssi; items_.push_back(it); }
+  void describe(char* buf, size_t n) const override { snprintf(buf, n, "mock"); }
+  void addItem(const char* name, int rssi) { ListItem it; memset(&it, 0, sizeof it); strncpy(it.name, name, 23); it.rssi = rssi; strcpy(it.id, "00:00"); items_.push_back(it); }
 
   std::deque<std::string> lines;
   ViewModel::Link link_ = ViewModel::LINK_CONNECTED;

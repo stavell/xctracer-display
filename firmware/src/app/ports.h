@@ -49,6 +49,7 @@ class ITracer {
   virtual bool listItem(int i, ListItem& out) = 0;     // strongest signal first
   virtual bool listConnect(int i) = 0;                 // connect and remember
   virtual bool popLine(char* buf, size_t n) = 0;       // next raw line received, without CR/LF
+  virtual void describe(char* buf, size_t n) const = 0;  // which device is saved / connected (diagnostics)
 };
 
 // Commands from the laptop (BLE peripheral). Heavy parsing stays out of the BLE callbacks:

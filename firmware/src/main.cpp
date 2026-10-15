@@ -87,6 +87,9 @@ static void debugLine(uint32_t now) {
                 vm.s.alt, vm.s.speedKmh, vm.s.vario, vm.wind.valid, vm.wind.speedKmh, vm.sim, (int)vm.link,
                 (int)vm.page, vm.markCount, vm.trailCount, (unsigned long)worstTickUs, (unsigned long)panel.refreshUs(),
                 (unsigned long)benchParseUs, (unsigned long)benchWindUs, (unsigned long)benchVmUs);
+  char desc[120];
+  app.describeTracer(desc, sizeof desc);
+  Serial.printf("dev %s\nraw %s\n", desc, app.lastRaw());
   worstTickUs = 0;
 }
 

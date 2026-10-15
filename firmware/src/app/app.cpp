@@ -20,6 +20,8 @@ bool App::injecting(uint32_t now) const {
 }
 
 void App::ingestLine(const char* line, uint32_t now) {
+  strncpy(lastRaw_, line, sizeof lastRaw_ - 1);
+  lastRaw_[sizeof lastRaw_ - 1] = 0;
   Sample s;
   if (xctrcParse(line, s)) {
     linesOk_++;

@@ -105,8 +105,8 @@ static int cmdShots(const std::string& out, int rot) {
     if (s == "list") {
       ListModel lm;
       lm.count = 3; lm.selected = 1;
-      strcpy(lm.items[0].name, "XC-Tracer"); lm.items[0].rssi = -52;
-      strcpy(lm.items[1].name, "ATC_0CAA9D"); lm.items[1].rssi = -66;
+      strcpy(lm.items[0].name, "XC-Tracer"); lm.items[0].rssi = -52; strcpy(lm.items[0].id, "D6:75");
+      strcpy(lm.items[1].name, "XC-Tracer"); lm.items[1].rssi = -83; strcpy(lm.items[1].id, "A1:0C");
       strcpy(lm.items[2].name, "Q-Series Soundbar"); lm.items[2].rssi = -78;
       drawList(p.gfx(), lm, vm, 0);
     } else {

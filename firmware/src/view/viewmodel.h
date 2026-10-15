@@ -33,6 +33,7 @@ struct ViewModel {
 struct ListItem {
   char name[24];
   int rssi;
+  char id[8];                    // last two address bytes, to tell same-named devices apart
 };
 
 struct ListModel {

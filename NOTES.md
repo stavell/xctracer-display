@@ -50,6 +50,16 @@ project is and how to run it; this file says what we found and why things are th
 - A floating-point NaN can reach a screen only through `fnum()`, which prints `--` for anything not finite.
   With no GPS fix, speed, track and wind read 0 and the speed cell is titled NO FIX; glide stays `--`.
 
+- **Same-named devices.** Reconnecting by name as well as by address (added to survive private addresses)
+  made the box connect to whichever `XC-Tracer` it heard first, which can be a different unit from the one
+  chosen in the list. Matching is now by address only, with the name used as a fallback only when the saved
+  address is a private (changing) one. The device list shows the last two address bytes (for example `D6:75`)
+  so same-named units can be told apart. The serial status prints `dev saved=... conn=...` and the last raw
+  line (`raw ...`), which shows exactly what the box is connected to and receiving.
+- Observed (2026-10-15, 12:32 UTC): the saved tracer (F3:50:DF:21:D6:75, static random address) sent
+  `lat = lon = 0.000000` (no fix) at 137.7 m with 46% battery while the user reported a second tracer
+  outdoors with a fix. Whether that second unit exists, or the saved one simply had no fix, was not settled.
+
 ## Wind estimate
 
 - Method: least-squares circle fit to the ground-velocity vectors of the last 30 s while turning (centre =

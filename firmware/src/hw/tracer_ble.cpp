@@ -52,9 +52,15 @@ void TracerBle::handleScan(ble_gap_evt_adv_report_t* r) {
   if (!n) { Bluefruit.Scanner.resume(); return; }
 
   if (!listMode_) {   // auto mode: connect to the saved device only, by address or by name
+    // Match the saved address. Matching by name is only a fallback for devices whose address changes
+    // (private addresses): with a static address two units sharing a name must not be mixed up.
+    bool privateAddr = cfg_.addr().addr_type == BLE_GAP_ADDR_TYPE_RANDOM_PRIVATE_RESOLVABLE ||
+                       cfg_.addr().addr_type == BLE_GAP_ADDR_TYPE_RANDOM_PRIVATE_NON_RESOLVABLE;
     if (cfg_.hasSaved() && link_ == ViewModel::LINK_SEARCHING &&
-        (sameAddr(r->peer_addr, cfg_.addr()) || strcmp(name, cfg_.name()) == 0)) {
+        (sameAddr(r->peer_addr, cfg_.addr()) || (privateAddr && strcmp(name, cfg_.name()) == 0))) {
       cfg_.updateAddr(r->peer_addr);   // keep the newest address
+      connAddr_ = r->peer_addr;
+      haveConnAddr_ = true;
       link_ = ViewModel::LINK_CONNECTING;
       Bluefruit.Central.connect(r);
       return;
@@ -156,6 +162,7 @@ bool TracerBle::listItem(int i, ListItem& out) {
   strncpy(out.name, sorted[i].name, sizeof out.name - 1);
   out.name[sizeof out.name - 1] = 0;
   out.rssi = sorted[i].rssi;
+  snprintf(out.id, sizeof out.id, "%02X:%02X", sorted[i].addr.addr[1], sorted[i].addr.addr[0]);
   return true;
 }
 
@@ -167,6 +174,8 @@ bool TracerBle::listConnect(int i) {
     for (int b = a + 1; b < nItems_; b++)
       if (sorted[b].rssi > sorted[a].rssi) { Item t = sorted[a]; sorted[a] = sorted[b]; sorted[b] = t; }
   Item it = sorted[i];
+  connAddr_ = it.addr;
+  haveConnAddr_ = true;
   Bluefruit.Scanner.stop();
   listMode_ = false;
   if (conn_ != BLE_CONN_HANDLE_INVALID) Bluefruit.disconnect(conn_);
@@ -182,4 +191,13 @@ bool TracerBle::listConnect(int i) {
 
 void TracerBle::disconnect() {
   if (conn_ != BLE_CONN_HANDLE_INVALID) Bluefruit.disconnect(conn_);
+}
+
+void TracerBle::describe(char* buf, size_t n) const {
+  const ble_gap_addr_t& s = cfg_.addr();
+  snprintf(buf, n, "saved=%s %02X:%02X:%02X:%02X:%02X:%02X t%d conn=%02X:%02X:%02X:%02X:%02X:%02X",
+           cfg_.name(), s.addr[5], s.addr[4], s.addr[3], s.addr[2], s.addr[1], s.addr[0], (int)s.addr_type,
+           haveConnAddr_ ? connAddr_.addr[5] : 0, haveConnAddr_ ? connAddr_.addr[4] : 0,
+           haveConnAddr_ ? connAddr_.addr[3] : 0, haveConnAddr_ ? connAddr_.addr[2] : 0,
+           haveConnAddr_ ? connAddr_.addr[1] : 0, haveConnAddr_ ? connAddr_.addr[0] : 0);
 }
