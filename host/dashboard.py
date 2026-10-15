@@ -10,7 +10,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from display_link import DisplayLink, W, H
 
-INTERVAL = 1.0   # seconds between frames
+INTERVAL = 0.5   # seconds between frames
 BAND = 40        # rows per diff band
 HIST = 120       # sparkline samples
 
