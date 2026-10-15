@@ -14,4 +14,6 @@
 #define CMD_SIM     0x12   // [0x12, 0|1] built-in flight simulator for bench testing
 #define CMD_XCTRC   0x13   // [0x13, ascii $XCTRC line] injected as if received from the vario (log replay)
 #define CMD_PAGE    0x14   // [0x14, 0|1] 0 = compass page, 1 = thermal assistant page
+#define CMD_DIAG_HANG 0x70   // diagnostics build only: spin in the loop task (watchdog test)
+#define CMD_DIAG_OFF  0x71   // diagnostics build only: System OFF (power-off test)
 #define CMD_CAL     0x15   // [0x15, 1|2|0] compass calibration: 1 start, 2 save, 0 cancel

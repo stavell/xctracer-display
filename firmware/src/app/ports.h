@@ -58,7 +58,7 @@ class ITracer {
 // Commands from the laptop (BLE peripheral). Heavy parsing stays out of the BLE callbacks:
 // they only copy the text into a queue, the app thread does the rest.
 struct Command {
-  enum Type { NONE, SIM, TZ, FILTER, XCTRC, PAGE, CAL } type = NONE;   // CAL: 1 start, 2 save, 0 cancel
+  enum Type { NONE, SIM, TZ, FILTER, XCTRC, PAGE, CAL, DIAG_HANG, DIAG_OFF } type = NONE;   // CAL: 1 start, 2 save, 0 cancel
   int value = 0;
   char text[200] = "";
 };

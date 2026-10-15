@@ -25,6 +25,14 @@ bool decodeCommand(const uint8_t* d, uint16_t len, Command& c) {
       c.type = Command::PAGE;
       c.value = d[1] != 0;
       return true;
+#ifdef DIAGNOSTICS
+    case CMD_DIAG_HANG:
+      c.type = Command::DIAG_HANG;
+      return true;
+    case CMD_DIAG_OFF:
+      c.type = Command::DIAG_OFF;
+      return true;
+#endif
     case CMD_XCTRC:
     case CMD_SET_FILTER: {
       size_t n = (size_t)(len - 1) < sizeof(c.text) - 1 ? (size_t)(len - 1) : sizeof(c.text) - 1;

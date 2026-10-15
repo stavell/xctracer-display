@@ -1,5 +1,8 @@
 #include "hw/diagnostics.h"
 #include <Arduino.h>
+#ifdef DIAGNOSTICS
+#include "utility/debug.h"
+#endif
 #include "app/app.h"
 #include "hw/compass_lis.h"
 #include "hw/panel_sharp.h"
@@ -99,12 +102,16 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
 #else
   (void)v0;
 #endif
-  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus refresh=%luus parse=%luus windfit=%luus viewmodel=%luus feed_avg=%luus feed_max=%luus compass=%luus\n",
+  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus refresh=%luus parse=%luus windfit=%luus viewmodel=%luus feed_avg=%luus feed_max=%luus compass=%luus",
                 (unsigned long)app.linesOk(), (unsigned long)app.linesBad(), vm.fresh, vm.s.fix,
                 vm.s.alt, vm.s.speedKmh, vm.s.vario, vm.wind.valid, vm.wind.speedKmh, vm.sim, (int)vm.link,
                 (int)vm.page, vm.markCount, vm.trailCount, (unsigned long)worstTickUs, (unsigned long)panel.refreshUs(),
                 (unsigned long)benchParseUs, (unsigned long)benchWindUs, (unsigned long)benchVmUs,
                 (unsigned long)benchFeedAvgUs, (unsigned long)benchFeedMaxUs, (unsigned long)benchCompassUs);
+#ifdef DIAGNOSTICS
+  Serial.printf(" up=%lu heap=%d", (unsigned long)(millis() / 1000), dbgHeapUsed());
+#endif
+  Serial.print("\n");
   char desc[120];
   app.describeTracer(desc, sizeof desc);
   // reset cause (POWER->RESETREAS at boot: 0x1 pin, 0x2 watchdog, 0x4 soft reset incl. hard fault,

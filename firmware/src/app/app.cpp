@@ -62,6 +62,13 @@ void App::handle(const Command& c, uint32_t now) {
       haveInject_ = true;
       ingestLine(c.text, now);
       break;
+#ifdef DIAGNOSTICS
+    case Command::DIAG_HANG:
+      for (;;) {}
+    case Command::DIAG_OFF:
+      shutdown();
+      break;
+#endif
     default:
       break;
   }
