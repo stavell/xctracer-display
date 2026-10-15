@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "vario.h"
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSansBold18pt7b.h>
@@ -53,14 +54,14 @@ static void hbar(int x, int y, int w, int h, float frac) {
   d->fillRect(x + 2, y + 2, (int)((w - 4) * frac), h - 4, BLK);
 }
 
-static const char* NAMES[PAGE_COUNT] = {"ENVIRONMENT", "COMPASS", "MOTION", "LIGHT & GESTURE", "SOUND"};
+static const char* NAMES[PAGE_COUNT] = {"VARIO", "ENVIRONMENT", "COMPASS", "MOTION", "LIGHT & GESTURE", "SOUND"};
 
-static void header(Page p) {
+static void header(const char* title, int cur) {
   d->fillRect(0, 0, W, HDR, BLK);
-  text(8, 17, NAMES[p], F9, AL, WHT);
-  for (int i = 0; i < PAGE_COUNT; i++) {
+  text(8, 17, title, F9, AL, WHT);
+  for (int i = 0; cur >= 0 && i < PAGE_COUNT; i++) {
     int x = 200 - (PAGE_COUNT - 1) * 8 + i * 16 + 40;
-    if (i == (int)p) d->fillCircle(x, 12, 4, WHT);
+    if (i == cur) d->fillCircle(x, 12, 4, WHT);
     else d->drawCircle(x, 12, 4, WHT);
   }
   const Readings& r = readings();
@@ -70,6 +71,33 @@ static void header(Page p) {
   d->drawRect(W - 42, 6, 30, 13, WHT);
   d->fillRect(W - 12, 9, 3, 7, WHT);
   d->fillRect(W - 40, 8, (26 * r.battPct) / 100, 9, WHT);
+}
+
+// ---- VARIO -------------------------------------------------------------------
+static void pageVario() {
+  VarioState st = varioState();
+  const char* title = st == VS_CONNECTED ? "CONNECTED" : st == VS_CONNECTING ? "CONNECTING"
+                      : st == VS_SEARCHING ? "SEARCHING" : "NO VARIO";
+  text(200, 80, title, F24B, AC);
+  char b[48];
+  if (varioHasSaved()) snprintf(b, sizeof b, "%s", varioDeviceName());
+  else snprintf(b, sizeof b, "filter: %s", varioFilter());
+  text(200, 112, b, F12B, AC);
+  if (st == VS_CONNECTED) {
+    const char* raw = varioLastRaw();
+    if (*raw) {
+      char l1[46], l2[46];
+      snprintf(l1, sizeof l1, "%.44s", raw);
+      snprintf(l2, sizeof l2, "%.44s", strlen(raw) > 44 ? raw + 44 : "");
+      text(200, 150, l1, F9, AC);
+      text(200, 170, l2, F9, AC);
+      snprintf(b, sizeof b, "%lus ago", (unsigned long)((millis() - varioLastRawMs()) / 1000));
+      text(200, 196, b, F9, AC);
+    } else {
+      text(200, 160, "waiting for data...", F9, AC);
+    }
+  }
+  text(200, 228, "hold: choose device", F9, AC);
 }
 
 // ---- ENVIRONMENT -----------------------------------------------------------
@@ -309,8 +337,9 @@ static void present() {
 
 void uiDraw(Page p, uint32_t heldMs) {
   d->fillRect(0, 0, W, H, WHT);
-  header(p);
+  header(NAMES[p], p);
   switch (p) {
+    case PAGE_VARIO: pageVario(); break;
     case PAGE_ENV: pageEnv(); break;
     case PAGE_COMPASS: pageCompass(); break;
     case PAGE_MOTION: pageMotion(); break;
@@ -339,5 +368,32 @@ void uiMessage(const char* l1, const char* l2) {
 void uiBlank() {
   d->fillRect(0, 0, W, H, WHT);
   dirty = true;
+  present();
+}
+
+void uiDrawList(int sel, uint32_t heldMs) {
+  d->fillRect(0, 0, W, H, WHT);
+  header("SELECT VARIO", -1);
+  char b[40];
+  snprintf(b, sizeof b, "filter: %s", varioFilter());
+  text(8, HDR + 20, b, F9);
+  int n = varioListCount();
+  const int rowH = 30, y0 = HDR + 30;
+  for (int i = 0; i <= n && i < 6; i++) {
+    int y = y0 + i * rowH;
+    bool on = (i == sel);
+    if (on) d->fillRect(0, y, W, rowH - 2, BLK);
+    uint16_t col = on ? WHT : BLK;
+    if (i == 0) {
+      text(12, y + 21, "< back", F12B, AL, col);
+    } else {
+      const ScanItem& it = varioListItem(i - 1);
+      text(12, y + 21, it.name, F12B, AL, col);
+      snprintf(b, sizeof b, "%d dBm", it.rssi);
+      text(W - 12, y + 21, b, F9, AR, col);
+    }
+  }
+  if (n == 0) text(200, y0 + 2 * rowH + 20, "scanning...", F12B, AC);
+  text(200, 232, "press: next    hold: select", F9, AC);
   present();
 }

@@ -9,3 +9,4 @@
 #define CMD_BLIT  0x02
 #define CMD_DATA  0x03
 #define CMD_FLUSH 0x04
+#define CMD_SET_FILTER 0x10   // [0x10, ascii glob...] name filter for the vario scan, e.g. "XC*"

@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 
-enum Page { PAGE_ENV, PAGE_COMPASS, PAGE_MOTION, PAGE_LIGHT, PAGE_SOUND, PAGE_COUNT };
+enum Page { PAGE_VARIO, PAGE_ENV, PAGE_COMPASS, PAGE_MOTION, PAGE_LIGHT, PAGE_SOUND, PAGE_COUNT };
 
 struct Readings {
   float tempC = NAN, hum = NAN, pressHpa = NAN, altM = NAN;

@@ -8,6 +8,7 @@
 #include "button.h"
 #include "sensors.h"
 #include "ui.h"
+#include "vario.h"
 
 static const uint16_t W = 400, H = 240;
 static const uint16_t BLACK = 0, WHITE = 1;
@@ -30,6 +31,8 @@ static struct {
   uint32_t pos;
 } blit;
 static volatile bool flushPending = false;
+static char pendingFilter[24];
+static volatile bool filterPending = false;
 
 static void drawBlitByte(uint8_t b) {
   uint16_t stride = (blit.w + 7) / 8;
@@ -69,6 +72,13 @@ static void onCmdWrite(uint16_t, BLECharacteristic*, uint8_t* d, uint16_t len) {
     case CMD_FLUSH:
       flushPending = true;
       break;
+    case CMD_SET_FILTER: {
+      uint16_t n = min<uint16_t>(len - 1, sizeof(pendingFilter) - 1);
+      memcpy(pendingFilter, d + 1, n);
+      pendingFilter[n] = 0;
+      filterPending = true;
+      break;
+    }
   }
 }
 
@@ -132,7 +142,9 @@ static void powerOnGate() {
 }
 
 // ---- main ------------------------------------------------------------------------
-static Page page = PAGE_ENV;
+static Page page = PAGE_VARIO;
+static bool listOpen = false;
+static int listSel = 0;
 static bool wasLocal = false;
 static uint32_t lastDraw = 0;
 
@@ -151,7 +163,7 @@ void setup() {
   sensorsBegin();
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-  Bluefruit.begin();
+  Bluefruit.begin(1, 1);
   Bluefruit.setName(DISP_NAME);
   Bluefruit.setTxPower(0);
   Bluefruit.Periph.setConnectCallback(onConnect);
@@ -171,6 +183,7 @@ void setup() {
   Bluefruit.Advertising.setInterval(1600, 3200);   // 1 s - 2 s, units of 0.625 ms
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
+  varioBegin();
   Serial.println("ready");
 }
 
@@ -190,14 +203,39 @@ void loop() {
     }
   }
 
-  if (local) {
+  if (filterPending) {
+    filterPending = false;
+    varioSetFilter(pendingFilter);
+  }
+  varioUpdate();
+
+  if (local && listOpen) {
+    int n = varioListCount();
+    if (ev == BTN_SHORT) { listSel = (listSel + 1) % (n + 1); lastDraw = 0; }
+    else if (ev == BTN_LONG) {
+      if (listSel > 0) varioListConnect(listSel - 1);
+      else varioListClose();
+      listOpen = false;
+      uiInvalidate();
+      lastDraw = 0;
+    }
+    if (listSel > n) listSel = 0;
+    if (listOpen && (millis() - lastDraw >= 250 || lastDraw == 0)) {
+      lastDraw = millis();
+      uiDrawList(listSel, button.heldMs());
+    }
+  } else if (local) {
     if (ev == BTN_SHORT) {
       if (page == PAGE_COMPASS && calState().active) calFinish(false);
       else page = (Page)((page + 1) % PAGE_COUNT);
       sensorsSetPage(page);
       lastDraw = 0;
     } else if (ev == BTN_LONG) {
-      if (page == PAGE_COMPASS) {
+      if (page == PAGE_VARIO) {
+        varioListOpen();
+        listOpen = true;
+        listSel = 0;
+      } else if (page == PAGE_COMPASS) {
         if (calState().active) calFinish(true);
         else calStart();
       } else {
@@ -213,7 +251,7 @@ void loop() {
       lastDraw = millis();
       uiDraw(page, held);
     }
-  } else if (flushPending) {
+  } else if (!local && flushPending) {
     flushPending = false;
     display.refresh();
   }
