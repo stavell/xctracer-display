@@ -677,6 +677,8 @@ static void test_show_raw() {
   CHECK(p.rawPixel(10, 5) == 1);
 }
 
+#include "robust_tests.h"
+
 int main() {
   test_spsc_ring();
   test_devmatch();
@@ -693,6 +695,11 @@ int main() {
   test_button();
   test_app();
   test_app_heading();
+  test_fuzz_parser();
+  test_fuzz_app();
+  test_known_bug_nonfinite_position();
+  test_time_wrap();
+  if (knownBugs) printf("\n%d known firmware bugs hit (see BUG: comments in robust_tests.h)\n", knownBugs);
   printf("\n%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }

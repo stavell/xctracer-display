@@ -2,6 +2,7 @@
 # Build the PC emulator (with sanitizers), run the tests, render the standard screens.
 #   ./build.sh                      tests + screens
 #   ./build.sh replay <args...>     run the emulator with the given arguments (see emu_main.cpp)
+#   ./build.sh soak [lines.txt]     long session through the App, about a minute (see emu_main.cpp)
 set -e
 cd "$(dirname "$0")"
 G="../.pio/libdeps/feather_sense/Adafruit GFX Library"
@@ -15,6 +16,7 @@ FLAGS="-std=c++17 -g -O1 -DARDUINO=100 -Wall -Wno-unused-function -Istubs -I../s
 c++ $FLAGS -I"$G" $SRC emu_main.cpp -o out/emu
 c++ $FLAGS -I"$G" $SRC tests.cpp -o out/tests
 if [ "$1" = "replay" ]; then shift; exec out/emu replay "$@"; fi
+if [ "$1" = "soak" ]; then shift; exec out/emu soak "$@"; fi
 out/tests
 out/emu shots out ${ROT:-1}
 ../../.venv/bin/python - <<'PY'

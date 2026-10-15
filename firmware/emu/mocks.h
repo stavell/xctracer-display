@@ -36,7 +36,7 @@ class MockInput : public IInput {
   void press(uint32_t at, uint32_t durMs) { presses_.push_back({at, durMs}); }
   ButtonEvent poll(uint32_t now) override {
     bool down = false;
-    for (auto& p : presses_) if (now >= p.at && now < p.at + p.dur) down = true;
+    for (auto& p : presses_) if (now - p.at < p.dur) down = true;   // unsigned difference: correct across the 49.7-day millis() wrap
     return fsm_.feed(down, now);
   }
   uint32_t heldMs(uint32_t now) override { return fsm_.heldMs(now); }
