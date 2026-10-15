@@ -75,7 +75,9 @@ static void onScan(ble_gap_evt_adv_report_t* r) {
   if (!n) { Bluefruit.Scanner.resume(); return; }
 
   if (!listMode) {   // auto mode: connect to the saved device only
-    if (sv.has && sameAddr(r->peer_addr, sv.addr) && state == VS_SEARCHING) {
+    // match the saved address, or the saved name (covers devices that change address)
+    if (sv.has && state == VS_SEARCHING && (sameAddr(r->peer_addr, sv.addr) || strcmp(name, sv.name) == 0)) {
+      sv.addr = r->peer_addr;   // keep the newest address
       state = VS_CONNECTING;
       Bluefruit.Central.connect(r);
       return;
