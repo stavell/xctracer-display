@@ -94,6 +94,26 @@ project is and how to run it; this file says what we found and why things are th
 - The preview is only as good as the stubs: it uses the real Adafruit_GFX and fonts, but not the real SPI
   or timing. Timing was measured on the device through the serial status line (`tick=`, `refresh=`).
 
+## Magnetic compass
+
+- When the GPS gives no usable track (no fix, no data, or slower than about 4 km/h with 2.5 km/h hysteresis),
+  the compass page uses the magnetometer. `HeadingSelector` (core) picks the source; the dial labels it
+  `TRK` (GPS track) or `MAG`; with neither it stays north-up and shows `--`. The sensors are powered only
+  when the compass page is showing and the GPS track is not in use.
+- Bug found by the new tests: the first compass maths (written for the old sensor dashboard, never verified
+  on the unit) did not normalise gravity, so the heading was distorted. Fixed and covered by tests (every
+  heading, +-50 degrees pitch and roll, free fall rejected).
+- Calibration is a least-squares sphere fit (hard iron only). Min/max was tried first and left 7.9 degrees of
+  error from a coarse sweep; the sphere fit gives 0.0 on the same data. Stored in its own flash file so it
+  never resets the saved tracer. Started from the device list ("Calibrate compass") or
+  `python host/ctl.py cal start|save|cancel`.
+- The magnetic heading is magnetic north, not true north (no declination model), so it differs from the GPS
+  track by the local declination.
+- **Not yet done on the unit: the axis mapping.** The sensors report in their own axes; `toDeviceAccel` and
+  `toDeviceMag` in `src/hw/compass_lis.cpp` are still identity. `host/orient_log.py` records a session and
+  `host/orient_analyze.py` solves both mappings (self-tested on synthetic data) and prints the code to paste.
+  First reading from the unit: accelerometer gravity along -z at rest in its current pose.
+
 ## Maths load (estimate, not yet measured on the device)
 
 - The Cortex-M4F has a single-precision FPU; `double` is software (about 10-30x slower). `double` is used in
