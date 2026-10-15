@@ -111,6 +111,7 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
 #ifdef DIAGNOSTICS
   Serial.printf(" up=%lu heap=%d", (unsigned long)(millis() / 1000), dbgHeapUsed());
 #endif
+  Serial.printf(" lines=%d", panel.lastLines());
   Serial.print("\n");
   char desc[120];
   app.describeTracer(desc, sizeof desc);

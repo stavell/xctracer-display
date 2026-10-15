@@ -8,6 +8,8 @@
 #include "core/devmatch.h"
 #include "core/flight.h"
 #include "core/home.h"
+#include "core/linediff.h"
+#include <string.h>
 #include "core/windprofile.h"
 #include "core/heading.h"
 #include "core/sim.h"
@@ -979,6 +981,34 @@ static void test_app() {
   CHECK(r.power.off);
 }
 
+static void test_linediff() {
+  static uint8_t a[LD_LINES * LD_BYTES_PER_LINE], b[LD_LINES * LD_BYTES_PER_LINE];
+  uint8_t out[LD_LINES];
+  memset(a, 0xff, sizeof a); memset(b, 0xff, sizeof b);
+  CHECK(changedLines(a, b, out) == 0);
+  const int ys[] = {0, 119, 239};
+  for (int y : ys) {
+    const int bis[] = {0, LD_BYTES_PER_LINE - 1};
+    for (int bi : bis) {
+      b[y * LD_BYTES_PER_LINE + bi] ^= 0x10;
+      CHECK(changedLines(a, b, out) == 1 && out[0] == y);
+      b[y * LD_BYTES_PER_LINE + bi] ^= 0x10;
+    }
+  }
+  memset(b, 0x00, sizeof b);
+  int n = changedLines(a, b, out);
+  CHECK(n == LD_LINES);
+  bool seq = true;
+  for (int i = 0; i < n; i++) seq = seq && out[i] == i;
+  CHECK(seq);
+  memset(b, 0xff, sizeof b);
+  const int sc[] = {3, 4, 77, 150, 238};
+  for (int y : sc) b[y * LD_BYTES_PER_LINE + 25] = 0;
+  n = changedLines(a, b, out);
+  CHECK(n == 5);
+  for (int i = 0; i < 5 && i < n; i++) CHECK(out[i] == sc[i]);
+}
+
 static void test_spsc_ring() {
   SpscRing<int, 4> q;
   int v = -1;
@@ -1099,6 +1129,7 @@ static void test_show_raw() {
 
 int main() {
   test_spsc_ring();
+  test_linediff();
   test_devmatch();
   test_command_decode();
   test_show_raw();

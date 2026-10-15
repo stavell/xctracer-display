@@ -18,7 +18,12 @@ class SharpPanel : public IPanel {
   void stopVcom();
   uint32_t refreshUs() const { return refreshUs_; }     // duration of the last SPI refresh, for diagnostics
 
+  int lastLines() const { return lastLines_; }          // lines sent by the last refresh
+
  private:
+  void sendLines(const uint8_t* idx, int n);
+  int lastLines_ = 0;
+  uint8_t vcomBit_ = SHARPMEM_BIT_VCOM;   // mirror of the library's private _sharpmem_vcom
   Adafruit_SharpMem display_;
   SoftwareTimer vcom_;
   uint8_t* snap_ = nullptr;
