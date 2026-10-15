@@ -1,6 +1,7 @@
 #pragma once
 #include "core/thermal.h"
 #include "core/types.h"
+#include "core/windekf.h"
 
 // Everything derived from the stream of samples: 1 Hz history, averages, glide ratio, takeoff /
 // landing, circling and wind. Pure and deterministic: time comes from the samples' own time stamps
@@ -21,7 +22,11 @@ class FlightModel {
   bool flying() const { return flying_; }
   uint32_t flightSec() const;
   bool circling() const { return circling_; }
-  Wind wind() const;
+  Wind wind() const;               // EKF estimate when confident, else the circle fit (with its age)
+  Wind circleWind() const;         // circle-fit estimate only (diagnostics)
+  bool ekfConfident() const { return ekf_.confident(); }
+  float ekfSigmaW() const { return ekf_.sigmaW(); }
+  const WindEkf& ekf() const { return ekf_; }
   // Last maxN seconds of track in the air-mass frame (wind-compensated when a wind estimate exists).
   int airTrail(AirPoint* out, int maxN) const;
   // Remembered thermals relative to the current position, newest first (positions drift with the wind).
@@ -32,6 +37,7 @@ class FlightModel {
  private:
   void tick();
   void updateWind();
+  bool windXY(double& wx, double& wy) const;   // the one wind vector wind(), airTrail and thermals use
   void updateThermals();
 
   Sample cur_;
@@ -47,6 +53,9 @@ class FlightModel {
   bool windValid_ = false;
   double wx_ = 0, wy_ = 0;
   uint32_t windAt_ = 0;
+  WindEkf ekf_;
+  bool ekfStarted_ = false;
+  uint32_t ekfAt_ = 0;
   ThermalMemory mem_;
   AirPoint scratch_[HIST];         // working space for the thermal finder (too big for the stack)
 };

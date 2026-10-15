@@ -25,6 +25,9 @@ void FlightModel::reset() {
   windValid_ = false;
   wx_ = wy_ = 0;
   windAt_ = 0;
+  ekf_.reset();
+  ekfStarted_ = false;
+  ekfAt_ = 0;
   mem_.reset();
 }
 
@@ -64,6 +67,13 @@ void FlightModel::tick() {
   if (circling_ && now - lastTurn_ > 16000) circling_ = false;    // straight again for 16 s
 
   updateWind();
+  if (!ekfStarted_) {
+    if (windValid_) ekf_.init((float)wx_, (float)wy_, 4);
+    ekfStarted_ = true;
+    ekfAt_ = now - 1000;
+  }
+  ekf_.step((now - ekfAt_) / 1000.0f, cur_.fix, cur_.speedKmh, cur_.course);
+  ekfAt_ = now;
   updateThermals();
 }
 
@@ -73,12 +83,16 @@ void FlightModel::updateThermals() {
   int cnt = airTrail(scratch_, HIST);
   Thermal found;
   if (!findThermal(scratch_, cnt, found)) return;
-  mem_.update(h_[n_ - 1].lat, h_[n_ - 1].lon, found, clock_, windValid_ ? wx_ : 0, windValid_ ? wy_ : 0);
+  double wx = 0, wy = 0;
+  windXY(wx, wy);
+  mem_.update(h_[n_ - 1].lat, h_[n_ - 1].lon, found, clock_, wx, wy);
 }
 
 int FlightModel::thermals(ThermalRel* out, int maxN) const {
   if (n_ < 1 || !h_[n_ - 1].fix) return 0;
-  return mem_.relative(out, maxN, h_[n_ - 1].lat, h_[n_ - 1].lon, clock_, windValid_ ? wx_ : 0, windValid_ ? wy_ : 0);
+  double wx = 0, wy = 0;
+  windXY(wx, wy);
+  return mem_.relative(out, maxN, h_[n_ - 1].lat, h_[n_ - 1].lon, clock_, wx, wy);
 }
 
 void FlightModel::updateWind() {
@@ -91,14 +105,31 @@ void FlightModel::updateWind() {
   windValid_ = true;
 }
 
-Wind FlightModel::wind() const {
+bool FlightModel::windXY(double& wx, double& wy) const {
+  if (ekf_.confident()) { wx = ekf_.wx(); wy = ekf_.wy(); return true; }
+  if (!windValid_) return false;
+  wx = wx_; wy = wy_;
+  return true;
+}
+
+static Wind makeWind(double wx, double wy, uint32_t ageS) {
   Wind w;
-  if (!windValid_) return w;
   w.valid = true;
-  w.speedKmh = (float)(hypot(wx_, wy_) * 3.6);
-  w.toDeg = (float)fmod(atan2(wx_, wy_) * R2D + 360.0, 360.0);
-  w.ageS = (clock_ - windAt_) / 1000;
+  w.speedKmh = (float)(hypot(wx, wy) * 3.6);
+  w.toDeg = (float)fmod(atan2(wx, wy) * R2D + 360.0, 360.0);
+  w.ageS = ageS;
   return w;
+}
+
+Wind FlightModel::wind() const {
+  double wx, wy;
+  if (!windXY(wx, wy)) return Wind();
+  return makeWind(wx, wy, ekf_.confident() ? 0 : (clock_ - windAt_) / 1000);
+}
+
+Wind FlightModel::circleWind() const {
+  if (!windValid_) return Wind();
+  return makeWind(wx_, wy_, (clock_ - windAt_) / 1000);
 }
 
 int FlightModel::airTrail(AirPoint* out, int maxN) const {
@@ -106,7 +137,8 @@ int FlightModel::airTrail(AirPoint* out, int maxN) const {
   const double D2R = 0.017453292519943295;
   double lat0 = h_[n_ - 1].lat, lon0 = h_[n_ - 1].lon;
   double kx = 111320.0 * cos(lat0 * D2R), ky = 111320.0;
-  double wx = windValid_ ? wx_ : 0, wy = windValid_ ? wy_ : 0;
+  double wx = 0, wy = 0;
+  windXY(wx, wy);
   int cnt = 0;
   for (int i = (n_ > maxN ? n_ - maxN : 0); i < n_; i++) {
     if (!h_[i].fix) continue;

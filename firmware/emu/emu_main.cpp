@@ -8,6 +8,9 @@
 //        --shot-every S  save a frame every S virtual seconds (default 30)
 //        --rot R         display rotation (default 1)
 //        --thermal       switch to the thermal map page (one short press) at the start
+//   emu wind <lines.txt>                           wind EKF against the circle fit over a real flight: share of seconds
+//        with a valid wind, per circling episode the median of both, overall median difference.
+//        Run:  .venv/bin/python host/make_lines.py igc flight.igc > lines.txt && firmware/emu/build.sh wind lines.txt
 //   emu soak [lines.txt] [--runs N] [--seed S]     long session through the real App (about a minute; NOT part of
 //        the default build.sh run): the whole flight N times (default 3, ~3 h of flight each) in virtual time as
 //        fast as the PC goes, with link drops, live no-fix lines, page switches, compass calibration
@@ -20,6 +23,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <math.h>
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <string>
@@ -27,6 +32,7 @@
 #include "app/app.h"
 #include "core/flight.h"
 #include "core/thermal.h"
+#include "core/xctrc.h"
 #include "mocks.h"
 #include "view/screens.h"
 #include "soak.h"
@@ -209,9 +215,87 @@ static int cmdReplay(int argc, char** argv) {
   return 0;
 }
 
+// emu wind: EKF against the circle fit over a real flight
+static double med(std::vector<double> v) {
+  if (v.empty()) return NAN;
+  std::sort(v.begin(), v.end());
+  size_t n = v.size();
+  return n % 2 ? v[n / 2] : 0.5 * (v[n / 2 - 1] + v[n / 2]);
+}
+static double circMean(const std::vector<double>& deg) {
+  double s = 0, c = 0;
+  for (double d : deg) { s += sin(d * M_PI / 180); c += cos(d * M_PI / 180); }
+  return deg.empty() ? NAN : fmod(atan2(s, c) * 180 / M_PI + 360, 360);
+}
+static double angDiffDeg(double a, double b) { return fabs(fmod(a - b + 540, 360) - 180); }
+
+struct Episode { std::vector<double> es, ed, cs, cd; int secs = 0; uint32_t start = 0; };
+
+static int cmdWind(const char* file) {
+  std::vector<std::string> L = readLines(file);
+  if (L.empty()) { fprintf(stderr, "no lines in %s\n", file); return 2; }
+  static FlightModel fm;
+  fm.reset();
+  unsigned secs = 0, flySecs = 0, circleValid = 0, circleFresh = 0, ekfConf = 0, combined = 0, circlingSecs = 0;
+  unsigned flyCircle = 0, flyFresh = 0, flyEkf = 0, flyCombined = 0;
+  std::vector<Episode> eps;
+  uint32_t lastCirc = 0, t = 0;
+  std::vector<double> dSpeed, dDir, dVec;
+  for (const std::string& l : L) {
+    Sample s;
+    if (!xctrcParse(l.c_str(), s)) continue;
+    if (!fm.feed(s)) continue;
+    t++;
+    secs++;
+    Wind cw = fm.circleWind(), w = fm.wind();
+    bool cf = cw.valid && cw.ageS <= 60, ec = fm.ekfConfident();
+    if (cw.valid) circleValid++;
+    if (cf) circleFresh++;
+    if (ec) ekfConf++;
+    if (w.valid) combined++;
+    if (fm.flying()) { flySecs++; flyCircle += cw.valid; flyFresh += cf; flyEkf += ec; flyCombined += w.valid; }
+    double ew = hypot(fm.ekf().wx(), fm.ekf().wy()) * 3.6, ed = fmod(atan2(fm.ekf().wx(), fm.ekf().wy()) * 180 / M_PI + 360, 360);
+    if (ec && cf) {
+      dSpeed.push_back(fabs(ew - cw.speedKmh));
+      dDir.push_back(angDiffDeg(ed, cw.toDeg));
+      double ex = fm.ekf().wx(), ey = fm.ekf().wy(), cwr = cw.toDeg * M_PI / 180;
+      dVec.push_back(hypot(ex - cw.speedKmh / 3.6 * sin(cwr), ey - cw.speedKmh / 3.6 * cos(cwr)) * 3.6);
+    }
+    if (fm.circling()) {
+      circlingSecs++;
+      if (eps.empty() || t - lastCirc > 60) { eps.push_back(Episode()); eps.back().start = t; }
+      lastCirc = t;
+      Episode& e = eps.back();
+      e.secs++;
+      if (ec) { e.es.push_back(ew); e.ed.push_back(ed); }
+      if (cw.valid) { e.cs.push_back(cw.speedKmh); e.cd.push_back(cw.toDeg); }
+    }
+  }
+  auto pct = [&](unsigned n, unsigned d) { return d ? 100.0 * n / d : 0.0; };
+  printf("data seconds %u, flying %u, circling %u\n", secs, flySecs, circlingSecs);
+  printf("valid wind, all seconds : circle fit %.1f %% (age <= 60 s: %.1f %%), EKF confident %.1f %%, combined wind() %.1f %%\n",
+         pct(circleValid, secs), pct(circleFresh, secs), pct(ekfConf, secs), pct(combined, secs));
+  printf("valid wind, flying only : circle fit %.1f %% (age <= 60 s: %.1f %%), EKF confident %.1f %%, combined wind() %.1f %%\n",
+         pct(flyCircle, flySecs), pct(flyFresh, flySecs), pct(flyEkf, flySecs), pct(flyCombined, flySecs));
+  printf("circling episodes (gap > 60 s): %zu   (medians over the episode; direction = circular mean)\n", eps.size());
+  printf("  %3s %6s %5s | %-22s | %-22s\n", "#", "start", "secs", "EKF km/h  to-deg (n)", "circle fit km/h  to-deg (n)");
+  for (size_t i = 0; i < eps.size(); i++) {
+    const Episode& e = eps[i];
+    char a[40], b[40];
+    if (e.es.empty()) snprintf(a, sizeof a, "-"); else snprintf(a, sizeof a, "%5.1f  %5.0f (%zu)", med(e.es), circMean(e.ed), e.es.size());
+    if (e.cs.empty()) snprintf(b, sizeof b, "-"); else snprintf(b, sizeof b, "%5.1f  %5.0f (%zu)", med(e.cs), circMean(e.cd), e.cs.size());
+    printf("  %3zu %5us %5d | %-22s | %-22s\n", i + 1, e.start, e.secs, a, b);
+  }
+  printf("both available (EKF confident, circle fit age <= 60 s): %zu s\n", dVec.size());
+  printf("  median |speed difference| %.2f km/h, median |direction difference| %.1f deg, median vector difference %.2f km/h\n",
+         med(dSpeed), med(dDir), med(dVec));
+  return 0;
+}
+
 int main(int argc, char** argv) {
   signal(SIGALRM, watchdog);
   if (argc >= 2 && !strcmp(argv[1], "soak")) return cmdSoak(argc, argv, readLines);
+  if (argc >= 3 && !strcmp(argv[1], "wind")) return cmdWind(argv[2]);
   alarm(120);
   if (argc >= 3 && !strcmp(argv[1], "shots")) return cmdShots(argv[2], argc > 3 ? atoi(argv[3]) : 1);
   if (argc >= 4 && !strcmp(argv[1], "replay")) return cmdReplay(argc, argv);

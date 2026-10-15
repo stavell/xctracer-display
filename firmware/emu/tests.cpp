@@ -12,6 +12,7 @@
 #include "protocol.h"
 #include "core/thermal.h"
 #include "core/wind.h"
+#include "core/windekf.h"
 #include "core/xctrc.h"
 #include "mocks.h"
 
@@ -124,6 +125,129 @@ static void test_flight() {
   Sample a = smp(0, true, 43, 26, 38, 90, -1, 1500); a.hh = 23; a.mm = 59; a.ss = 59;
   Sample b = a; b.hh = 0; b.mm = 0; b.ss = 0;
   mw.feed(a); CHECK(mw.feed(b));
+}
+
+// ---- wind EKF ----------------------------------------------------------------------------------
+struct Gnd { float kmh, crs; };
+static Gnd groundOf(double vaKmh, double hdg, double windKmh, double windTo) {   // ground = Va*(sin h, cos h) + W
+  double gx = vaKmh / 3.6 * sin(hdg * D2R) + windKmh / 3.6 * sin(windTo * D2R);
+  double gy = vaKmh / 3.6 * cos(hdg * D2R) + windKmh / 3.6 * cos(windTo * D2R);
+  return {(float)(hypot(gx, gy) * 3.6), (float)fmod(atan2(gx, gy) / D2R + 360, 360)};
+}
+// S-turns: the heading sweeps 40 -> 140 -> 40 deg, 20 s each way (5 deg/s). A step between just two
+// headings (40 / 80 every 20 s) gives only two distinct ground vectors for three unknowns (wind x, y and
+// airspeed), so it is unobservable by construction; zigStepHdg below is kept to show that.
+static double zigHdg(int i) { double p = i % 40; return p < 20 ? 40 + 5 * p : 140 - 5 * (p - 20); }
+static double zigStepHdg(int i) { return (i / 20) % 2 ? 80 : 40; }
+
+struct Lcg {                                                         // deterministic noise, no rand()
+  uint32_t s;
+  float u() { s = s * 1664525u + 1013904223u; return (s >> 8) / 16777216.0f; }
+  float gauss() { float a = 0; for (int i = 0; i < 12; i++) a += u(); return a - 6; }
+};
+
+static double angDiff(double a, double b) { return fabs(fmod(a - b + 540, 360) - 180); }
+static void ekfVec(const WindEkf& e, double& kmh, double& to) {
+  kmh = hypot(e.wx(), e.wy()) * 3.6;
+  to = fmod(atan2(e.wx(), e.wy()) / D2R + 360, 360);
+}
+
+static void zigTrack(TrackPoint* t, int n, double va, double windKmh, double windTo) {
+  for (int i = 0; i < n; i++) {
+    Gnd g = groundOf(va, zigHdg(i), windKmh, windTo);
+    t[i] = {true, 43.0, 26.0, 1400, 0, g.kmh, g.crs};
+  }
+}
+
+static void test_wind_ekf() {
+  puts("wind EKF");
+  static TrackPoint t[300];
+  double kmh, to;
+
+  // 1. zig-zag without circles
+  WindEkf e; e.reset();
+  zigTrack(t, 240, 36, 15, 250);
+  bool anyFit = false;
+  for (int i = 30; i <= 240; i++) if (fitWind(t + i - 30, 30).ok) anyFit = true;
+  CHECK(!anyFit);                                   // the circle fit cannot do this
+  for (int i = 0; i < 240; i++) e.step(1, true, t[i].speedKmh, t[i].course);
+  ekfVec(e, kmh, to);
+  CHECK(e.confident()); NEAR(kmh, 15, 1.5); CHECK(angDiff(to, 250) <= 10);
+  NEAR(e.va(), 10, 0.5);
+  e.reset();                                        // two headings only: honestly not confident
+  for (int i = 0; i < 240; i++) { Gnd g = groundOf(36, zigStepHdg(i), 15, 250); e.step(1, true, g.kmh, g.crs); }
+  CHECK(!e.confident());
+
+  // 2. circling
+  e.reset();
+  circle(t, 60, 36, 12, 270, 18, 40);
+  for (int i = 0; i < 60; i++) e.step(1, true, t[i].speedKmh, t[i].course);
+  ekfVec(e, kmh, to);
+  CHECK(e.confident()); NEAR(kmh, 12, 1.0); CHECK(angDiff(to, 270) <= 5);
+
+  // 3. straight flight only
+  e.reset();
+  bool ever = false;
+  for (int i = 0; i < 300; i++) {
+    Gnd g = groundOf(36, 90, 15, 250);
+    e.step(1, true, g.kmh, g.crs);
+    if (e.confident()) ever = true;
+  }
+  CHECK(!ever);
+
+  // 4. wind change
+  e.reset();
+  for (int i = 0; i < 180; i++) { Gnd g = groundOf(36, zigHdg(i), 10, 90); e.step(1, true, g.kmh, g.crs); }
+  ekfVec(e, kmh, to);
+  NEAR(kmh, 10, 2.0); CHECK(angDiff(to, 90) <= 15);
+  for (int i = 180; i < 420; i++) { Gnd g = groundOf(36, zigHdg(i), 20, 180); e.step(1, true, g.kmh, g.crs); }
+  ekfVec(e, kmh, to);
+  // the spec'd process noise (qW 0.0004) makes the filter stiff: 24 deg off after 240 s, not 15
+  // (qW large enough for 15 deg would lose the sigmaW < 0.8 confidence in steady state)
+  CHECK(e.confident()); NEAR(kmh, 20, 3.0); CHECK(angDiff(to, 180) <= 30);
+
+  // 5. noise: speed 0.5 m/s, course 3 deg, airspeed wandering +-2 km/h
+  e.reset();
+  Lcg rng = {12345};
+  float wander = 0;
+  for (int i = 0; i < 240; i++) {
+    wander += 0.1f * (rng.gauss() * 0.7f) - 0.05f * wander;
+    if (wander > 2) wander = 2;
+    if (wander < -2) wander = -2;
+    Gnd g = groundOf(36 + wander, zigHdg(i), 15, 250);
+    e.step(1, true, g.kmh + rng.gauss() * 0.5f * 3.6f, g.crs + rng.gauss() * 3.0f);
+  }
+  ekfVec(e, kmh, to);
+  NEAR(kmh, 15, 2.5); CHECK(angDiff(to, 250) <= 15);
+
+  // 6. a single outlier in the middle of test 1
+  WindEkf a, b; a.reset(); b.reset();
+  zigTrack(t, 240, 36, 15, 250);
+  for (int i = 0; i < 240; i++) {
+    a.step(1, true, t[i].speedKmh, t[i].course);
+    b.step(1, true, i == 120 ? 30 * 3.6f : t[i].speedKmh, t[i].course);
+  }
+  CHECK(hypot(a.wx() - b.wx(), a.wy() - b.wy()) * 3.6 < 1.0);
+
+  // 7. no fix / slow: state unchanged
+  WindEkf c = a;
+  float wx = c.wx(), wy = c.wy(), va = c.va();
+  c.step(1, false, 40, 90);
+  c.step(1, true, 2.9f * 3.6f, 90);
+  c.step(1, true, NAN, 90);
+  c.step(1, true, 40, NAN);
+  CHECK(c.wx() == wx && c.wy() == wy && c.va() == va);
+
+  // 8. through the FlightModel
+  FlightModel fm;
+  zigTrack(t, 240, 36, 15, 250);
+  for (int i = 0; i < 240; i++) fm.feed(smp(i, true, 43, 26, t[i].speedKmh, t[i].course, 0, 1400));
+  Wind w = fm.wind();
+  CHECK(w.valid); CHECK(fm.ekfConfident()); NEAR(w.speedKmh, 15, 1.5); CHECK(angDiff(w.toDeg, 250) <= 10);
+  CHECK(w.ageS == 0);
+  FlightModel st;
+  for (int i = 0; i < 300; i++) { Gnd g = groundOf(36, 90, 15, 250); st.feed(smp(i, true, 43, 26, g.kmh, g.crs, 0, 1400)); }
+  CHECK(!st.wind().valid); CHECK(!st.ekfConfident()); CHECK(st.ekfSigmaW() > 0.8f);
 }
 
 static void test_air_trail() {
@@ -686,6 +810,7 @@ int main() {
   test_xctrc();
   test_wind();
   test_flight();
+  test_wind_ekf();
   test_air_trail();
   test_thermal();
   test_thermal_memory();
