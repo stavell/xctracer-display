@@ -7,10 +7,11 @@
 static const size_t BUF_LEN = 400 * 240 / 8;
 // More changed lines than this: the full refresh is as good and keeps the common path simple.
 static const int FULL_REFRESH_LINES = 200;
+static const uint32_t SPI_HZ = 4000000;   // panel SPI clock (library default 2 MHz)
 
 static void vcomToggle(TimerHandle_t) { digitalToggle(PIN_DISP_EXTCOMIN); }
 
-SharpPanel::SharpPanel() : display_(&SPI, PIN_DISP_CS, 400, 240, 2000000) {}
+SharpPanel::SharpPanel() : display_(&SPI, PIN_DISP_CS, 400, 240, SPI_HZ) {}
 
 void SharpPanel::begin() {
   pinMode(PIN_DISP_EXTCOMIN, OUTPUT);
@@ -49,7 +50,7 @@ void SharpPanel::present() {
 // partial and full writes exactly as if only the library were writing. clearDisplay() is never called.
 void SharpPanel::sendLines(const uint8_t* idx, int n) {
   const uint8_t* buf = display_.getBuffer();
-  SPI.beginTransaction(SPISettings(2000000, LSBFIRST, SPI_MODE0));
+  SPI.beginTransaction(SPISettings(SPI_HZ, LSBFIRST, SPI_MODE0));
   digitalWrite(PIN_DISP_CS, HIGH);
   SPI.transfer(vcomBit_ | SHARPMEM_BIT_WRITECMD);
   vcomBit_ = vcomBit_ ? 0x00 : SHARPMEM_BIT_VCOM;
