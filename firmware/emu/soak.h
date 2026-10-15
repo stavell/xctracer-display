@@ -112,7 +112,7 @@ static int cmdSoak(int argc, char** argv, std::vector<std::string> (*readLines)(
           drops++; dropped = true; r.tracer.lines.clear();
         }
         if (!dropped && inject && k % 33 == 5) r.tracer.lines.push_back(noFix);   // live tracer without a fix, 3 Hz
-        if (now >= nextPage) { Command c; c.type = Command::PAGE; c.value = rng.range(0, 1); r.laptop.cmds.push_back(c); nextPage = now + (uint32_t)rng.range(120000, 300000); pages++; }
+        if (now >= nextPage) { Command c; c.type = Command::PAGE; c.value = rng.range(0, 3); r.laptop.cmds.push_back(c); nextPage = now + (uint32_t)rng.range(120000, 300000); pages++; }
         if (now >= nextPress) { r.input.press(now, 120); nextPress = now + (uint32_t)rng.range(300000, 600000); presses++; }
         if (now >= nextCal) {
           Command c; c.type = Command::CAL; c.value = 1; r.laptop.cmds.push_back(c);

@@ -176,14 +176,20 @@ static void compassDial(int cx, int cy, int R, float heading, HeadingSource src)
 }
 
 // Arrow centred on (ax, ay) pointing along screen angle th (radians clockwise from up), half length L.
-static void drawArrow(int ax, int ay, float th, int L) {
+static void drawArrow(int ax, int ay, float th, int L, int hw = 9) {
   if (!isfinite(th)) return;                               // NaN -> int is undefined behaviour
   float ux = sinf(th), uy = -cosf(th), px = -uy, py = ux;
   int tx = ax - L * ux, ty = ay - L * uy;                  // tail
   int hx = ax + 3 * ux, hy = ay + 3 * uy;                  // base of the head
   int ex = ax + L * ux, ey = ay + L * uy;                  // tip
-  for (int k = -1; k <= 1; k++) d->drawLine(tx + k * px, ty + k * py, hx + k * px, hy + k * py, BLK);
-  d->fillTriangle(ex, ey, hx + 9 * px, hy + 9 * py, hx - 9 * px, hy - 9 * py, BLK);
+  if (hw > 9) {                                            // big arrow: a solid 5 px shaft (parallel lines leave gaps on diagonals)
+    int qx = (int)lroundf(2 * px), qy = (int)lroundf(2 * py);
+    d->fillTriangle(tx + qx, ty + qy, tx - qx, ty - qy, hx + qx, hy + qy, BLK);
+    d->fillTriangle(tx - qx, ty - qy, hx - qx, hy - qy, hx + qx, hy + qy, BLK);
+  } else {
+    for (int k = -1; k <= 1; k++) d->drawLine(tx + k * px, ty + k * py, hx + k * px, hy + k * py, BLK);
+  }
+  d->fillTriangle(ex, ey, hx + hw * px, hy + hw * py, hx - hw * px, hy - hw * py, BLK);
 }
 
 // The wind arrow lives in the compass corner the wind comes from and points the way it blows,
@@ -385,6 +391,122 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
   text(mx + 8, by - 7, lb, F9);
 }
 
+// Wind profile page. The altitude axis runs up the left; each 100 m band that has data is a row with
+// a north-up arrow (the way the wind blows) and the speed in km/h, in brackets once it is over 20
+// minutes old. The range follows the flight: lowest to highest band with data, widened to include the
+// current altitude. Rows use the page height (16..36 px each); when more rows than fit at 16 px exist,
+// the window nearest the current altitude is shown. A triangle and a thin line mark where you are.
+static void drawWindProfile(const ViewModel& vm, int mx, int my, int mw, int mh) {
+  d->drawRect(mx, my, mw, mh, BLK);
+  const int n = vm.profileCount;
+  if (n < 1) {
+    text(mx + mw / 2, my + mh / 2 - 4, "no wind measured yet", F9, AC);
+    text(mx + mw / 2, my + mh / 2 + 20, "circle or turn to measure", F9, AC);
+    return;
+  }
+  const int top = my + 8, areaH = mh - 16;
+  int lo = WindProfile::bandOf(vm.profile[0].altM), hi = WindProfile::bandOf(vm.profile[n - 1].altM);
+  const bool haveAlt = isfinite(vm.profileAlt);
+  const int cur = haveAlt ? WindProfile::bandOf(vm.profileAlt) : -1;
+  if (haveAlt) { if (cur < lo) lo = cur; if (cur > hi) hi = cur; }
+  int rows = hi - lo + 1;
+  const int maxRows = areaH / 16;
+  if (rows > maxRows) {                                           // window nearest the current altitude
+    int centre = haveAlt ? cur : (lo + hi) / 2;
+    int nlo = centre - maxRows / 2;
+    if (nlo < lo) nlo = lo;
+    if (nlo > hi - maxRows + 1) nlo = hi - maxRows + 1;
+    lo = nlo;
+    hi = lo + maxRows - 1;
+    rows = maxRows;
+  }
+  int rh = areaH / rows;
+  rh = rh < 16 ? 16 : (rh > 36 ? 36 : rh);
+  const int y0 = top + (areaH - rows * rh) / 2;                   // block top, centred when rows are capped
+  const bool big = rh >= 24;
+  const GFXfont* nf = big ? F12B : F9;
+  char b[16];
+
+  // altitude axis: a label and tick on every 500 m line
+  for (int k = ((lo * 100 + 499) / 500) * 500; k <= (hi + 1) * 100; k += 500) {
+    int y = y0 + ((hi + 1) * 100 - k) * rh / 100;
+    d->drawFastHLine(mx + 44, y, 6, BLK);
+    text(mx + 38, y + 5, fnum(b, sizeof b, (float)k, "%.0f"), F9, AR);
+  }
+  d->drawFastVLine(mx + 50, y0, rows * rh, BLK);
+
+  // current altitude: line first, so the row text can sit on a white patch over it
+  if (haveAlt) {
+    float f = ((hi + 1) * 100 - vm.profileAlt) * rh / 100.0f;
+    int ya = y0 + (int)lroundf(f < 0 ? 0 : (f > rows * rh ? rows * rh : f));
+    d->drawFastHLine(mx + 52, ya, mw - 56, BLK);
+    d->fillTriangle(mx + 53, ya, mx + 43, ya - 6, mx + 43, ya + 6, BLK);
+  }
+
+  const int ax = mx + 74, tx = mx + 94;
+  for (int i = 0; i < n; i++) {
+    int band = WindProfile::bandOf(vm.profile[i].altM);
+    if (band < lo || band > hi) continue;
+    int cy = y0 + (hi - band) * rh + rh / 2;
+    const ProfileBand& pb = vm.profile[i];
+    fnum(b, sizeof b, pb.speedKmh, "%.0f");
+    if (pb.ageS > 20 * 60) {
+      char c[16];
+      snprintf(c, sizeof c, "(%s)", b);
+      memcpy(b, c, sizeof b);
+    }
+    int w = textW(b, nf);
+    d->fillRect(tx - 3, cy - 8, w + 6, 16, WHT);
+    text(tx, cy + (big ? 7 : 5), b, nf);
+    float th = isfinite(pb.toDeg) ? pb.toDeg * PI_F / 180.0f : NAN;
+    if (big) d->fillRect(ax - 14, cy - 14, 28, 28, WHT);
+    drawArrow(ax, cy, th, big ? 12 : 7, big ? 7 : 5);
+  }
+
+  // north indicator (top right) and the unit
+  d->fillRect(mx + mw - 54, my + 3, 52, 28, WHT);
+  drawArrow(mx + mw - 14, my + 17, 0, 9, 5);
+  textMid(mx + mw - 36, my + 17, "N", F9);
+  text(mx + mw - 6, my + 46, "km/h", F9, AR);
+}
+
+// Home page: the way back to the takeoff point. Heading-up arrow, distance, required glide ratio and
+// the estimated height on arrival (wind and a typical sink rate included).
+static void drawHome(const ViewModel& vm, int mx, int my, int mw, int mh) {
+  d->drawRect(mx, my, mw, mh, BLK);
+  const int cx = mx + mw / 2;
+  if (!vm.homeValid) {
+    text(cx, my + mh / 2 + 6, "no home yet", F12B, AC);
+    return;
+  }
+  char b[24], c[24];
+  text(cx, my + 20, vm.homeProvisional ? "HOME (provisional)" : "HOME", F9, AC);
+  const bool north = !isfinite(vm.homeRelBearing);
+  if (north) text(mx + 6, my + 44, "N up", F9);
+  float ang = north ? vm.homeBearing : vm.homeRelBearing;
+  drawArrow(cx, my + 64, isfinite(ang) ? ang * PI_F / 180.0f : NAN, 32, 13);
+  if (!isfinite(ang)) text(cx, my + 80, "--", F18B, AC);   // no position now: nothing to point at
+
+  // distance, centred as number + unit
+  const float dm = vm.homeDist;
+  const bool km = isfinite(dm) && dm >= 1000;
+  fnum(b, sizeof b, km ? dm / 1000.0f : dm, km ? "%.1f" : "%.0f");
+  const char* unit = km ? "km" : "m";
+  int wn = textW(b, F24B), wu = textW(unit, F12B), x = cx - (wn + 6 + wu) / 2;
+  text(x, my + 136, b, F24B);
+  text(x + wn + 6, my + 136, unit, F12B);
+
+  snprintf(c, sizeof c, "GR req %s", fnum(b, sizeof b, vm.homeGlideReq, "%.1f"));
+  text(cx, my + 164, c, F12B, AC);
+  if (vm.homeReachable || !isfinite(vm.homeDist)) {
+    snprintf(c, sizeof c, "arrival %s m", fnum(b, sizeof b, vm.homeArrival, "%+.0f"));
+    text(cx, my + 192, c, F12B, AC);
+  } else {
+    d->fillRect(mx + 4, my + 172, mw - 8, 28, BLK);
+    textMid(cx, my + 186, "OUT OF REACH", F12B, WHT);
+  }
+}
+
 // Portrait layout, 240 x 400. Priorities: GPS speed + glide, altitude + vertical speed, compass + wind.
 // Cells have a short inverted title band like the top toolbar.
 static void cell(int x, int y, int w, const char* title, const char* value) {
@@ -412,8 +534,13 @@ static void drawLiveBody(const ViewModel& vm) {
   // compass with the wind arrow in a corner
   const Wind& w = vm.wind;
   const int R = 92, cx = cx0 + (W - cx0) / 2, cy = gridEnd + 8 + R + 6;
+  const int pageH = H - 6 - 25 - 5 - (gridEnd + 2);
   if (vm.page == ViewModel::PAGE_THERMAL) {
-    drawThermalMap(vm, cx0, gridEnd + 2, W - cx0 - 2, H - 6 - 25 - 5 - (gridEnd + 2));
+    drawThermalMap(vm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+  } else if (vm.page == ViewModel::PAGE_PROFILE) {
+    drawWindProfile(vm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+  } else if (vm.page == ViewModel::PAGE_HOME) {
+    drawHome(vm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
   } else {
     compassDial(cx, cy, R, vm.heading, vm.headingSrc);
     if (vm.headingSrc == HDG_GPS) windCorner(cx, cy, R, crs, w);

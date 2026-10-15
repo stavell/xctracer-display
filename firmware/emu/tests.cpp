@@ -6,6 +6,8 @@
 #include "core/compass.h"
 #include "core/devmatch.h"
 #include "core/flight.h"
+#include "core/home.h"
+#include "core/windprofile.h"
 #include "core/heading.h"
 #include "core/sim.h"
 #include "core/spsc_ring.h"
@@ -248,6 +250,123 @@ static void test_wind_ekf() {
   FlightModel st;
   for (int i = 0; i < 300; i++) { Gnd g = groundOf(36, 90, 15, 250); st.feed(smp(i, true, 43, 26, g.kmh, g.crs, 0, 1400)); }
   CHECK(!st.wind().valid); CHECK(!st.ekfConfident()); CHECK(st.ekfSigmaW() > 0.8f);
+}
+
+static void test_wind_profile() {
+  puts("wind profile");
+  WindProfile p;
+  ProfileBand out[60];
+  CHECK(p.query(out, 60, 0) == 0);
+  // 10 m/s east, then 20 m/s east: exponential average alpha 0.25
+  p.add(1234, 10, 0, 1000);
+  p.add(1250, 20, 0, 2000);
+  int n = p.query(out, 60, 3000);
+  CHECK(n == 1);
+  NEAR(out[0].altM, 1250, 0.1); CHECK(out[0].samples == 2); CHECK(out[0].ageS == 1);
+  NEAR(out[0].speedKmh, 12.5 * 3.6, 0.05); NEAR(out[0].toDeg, 90, 0.1);
+  // clamping: below 0 and above 6000 land in the end bands; NaN is ignored
+  p.add(-300, 0, 5, 3000);
+  p.add(9000, -5, 0, 3000);
+  p.add(NAN, 1, 1, 3000);
+  p.add(500, NAN, 1, 3000);
+  n = p.query(out, 60, 3000);
+  CHECK(n == 3);
+  NEAR(out[0].altM, 50, 0.1); NEAR(out[0].toDeg, 0, 0.1);
+  NEAR(out[1].altM, 1250, 0.1);
+  NEAR(out[2].altM, 5950, 0.1); NEAR(out[2].toDeg, 270, 0.1);
+  CHECK(p.query(out, 2, 3000) == 2);                  // respects maxN
+  // expiry after 60 minutes
+  n = p.query(out, 60, 2000 + 60u * 60 * 1000);       // the 1250 m band was last updated at 2000: still alive
+  CHECK(n == 3);
+  n = p.query(out, 60, 3001 + 60u * 60 * 1000);       // the rest was updated at 3000: all gone now
+  CHECK(n == 0);
+  // an expired band starts afresh instead of averaging with stale air
+  p.add(1250, 0, 30, 3001 + 2 * 60u * 60 * 1000);
+  n = p.query(out, 60, 3001 + 2 * 60u * 60 * 1000);
+  CHECK(n == 1 && out[0].samples == 1); NEAR(out[0].speedKmh, 108, 0.1);
+  p.reset();
+  CHECK(p.query(out, 60, 0) == 0);
+
+  // through the flight model: a long circling climb, wind 10 km/h toward 270 below 1500 m, 25 toward 300 above
+  static FlightModel fm;
+  fm.reset();
+  double hdg = 40;
+  for (int i = 0; i < 1500; i++, hdg += 18) {
+    float alt = 600 + 1.5f * i;
+    double wk = alt < 1500 ? 10 : 25, wt = alt < 1500 ? 270 : 300;
+    double gx = 36 / 3.6 * sin(hdg * D2R) + wk / 3.6 * sin(wt * D2R), gy = 36 / 3.6 * cos(hdg * D2R) + wk / 3.6 * cos(wt * D2R);
+    fm.feed(smp(i, true, 43, 26, (float)(hypot(gx, gy) * 3.6), (float)fmod(atan2(gx, gy) / D2R + 360, 360), 1.5f, alt));
+  }
+  static ProfileBand pb[60];
+  n = fm.profile().query(pb, 60, fm.clockMs());
+  CHECK(n > 20);
+  int low = 0, high = 0;
+  for (int i = 0; i < n; i++) {
+    if (pb[i].altM < 1300 && pb[i].altM > 800) { low++; NEAR(pb[i].speedKmh, 10, 2); NEAR(pb[i].toDeg, 270, 10); }
+    if (pb[i].altM > 1800) { high++; NEAR(pb[i].speedKmh, 25, 2); NEAR(pb[i].toDeg, 300, 10); }
+  }
+  CHECK(low >= 4 && high >= 6);
+  fm.reset();
+  CHECK(fm.profile().query(pb, 60, fm.clockMs()) == 0);
+}
+
+static void test_home() {
+  puts("home");
+  HomePoint h; h.valid = true; h.lat = 43.0; h.lon = 26.0; h.alt = 500;
+  Wind none;
+  // 1 km south of home: home is north
+  HomeInfo r = computeHome(43.0 - 1000 / 111320.0, 26.0, 1000, 0, h, none);
+  CHECK(r.valid); NEAR(r.distM, 1000, 1); NEAR(r.bearingDeg, 0, 0.1); NEAR(r.relBearingDeg, 0, 0.1);
+  NEAR(r.glideReq, 2.0, 0.01);
+  // 1 km west of home: home is east; heading north = 90 deg to the right, heading east = straight on
+  double dlon = 1000 / (111320.0 * cos(43.0 * D2R));
+  r = computeHome(43.0, 26.0 - dlon, 1000, 0, h, none);
+  NEAR(r.distM, 1000, 2); NEAR(r.bearingDeg, 90, 0.2); NEAR(r.relBearingDeg, 90, 0.2);
+  r = computeHome(43.0, 26.0 - dlon, 1000, 180, h, none);
+  NEAR(r.relBearingDeg, -90, 0.2);                       // heading south: home is on the left
+  r = computeHome(43.0, 26.0 - dlon, 1000, 350, h, none);
+  NEAR(r.relBearingDeg, 100, 0.2);                       // wraps correctly
+  r = computeHome(43.0, 26.0 - dlon, 1000, NAN, h, none);
+  CHECK(!isfinite(r.relBearingDeg)); CHECK(isfinite(r.bearingDeg));
+  // arrival, no wind: 500 m above home, 1 km away at 10 m/s = 100 s, sink 1.1 m/s
+  r = computeHome(43.0, 26.0 - dlon, 1000, 0, h, none);
+  CHECK(r.reachable); NEAR(r.arrivalM, 500 - 1.1 * 1000 / 10.0, 1.0);
+  // wind 18 km/h (5 m/s) blowing east, home is east: tailwind, more height on arrival
+  Wind tail; tail.valid = true; tail.speedKmh = 18; tail.toDeg = 90;
+  HomeInfo rt = computeHome(43.0, 26.0 - dlon, 1000, 0, h, tail);
+  NEAR(rt.arrivalM, 500 - 1.1 * 1000 / 15.0, 1.0); CHECK(rt.arrivalM > r.arrivalM);
+  Wind head = tail; head.toDeg = 270;
+  HomeInfo rh = computeHome(43.0, 26.0 - dlon, 1000, 0, h, head);
+  NEAR(rh.arrivalM, 500 - 1.1 * 1000 / 5.0, 1.0); CHECK(rh.arrivalM < r.arrivalM);
+  // crosswind stronger than the airspeed: out of reach; a headwind that stops you too
+  Wind cross = tail; cross.toDeg = 0; cross.speedKmh = 40;
+  HomeInfo rc = computeHome(43.0, 26.0 - dlon, 1000, 0, h, cross);
+  CHECK(!rc.reachable); CHECK(!isfinite(rc.arrivalM));
+  Wind gale = head; gale.speedKmh = 36;
+  CHECK(!computeHome(43.0, 26.0 - dlon, 1000, 0, h, gale).reachable);
+  // below home: no required glide; negative arrival
+  r = computeHome(43.0, 26.0 - dlon, 400, 0, h, none);
+  CHECK(!isfinite(r.glideReq)); CHECK(r.arrivalM < 0);
+  // no home / no position
+  CHECK(!computeHome(43, 26, 1000, 0, HomePoint(), none).valid);
+  CHECK(!computeHome(NAN, 26, 1000, 0, h, none).valid);
+  // through the flight model: provisional first fix, final at takeoff, kept afterwards, cleared by reset
+  static FlightModel fm;
+  fm.reset();
+  CHECK(!fm.home().valid);
+  fm.feed(smp(0, false, 0, 0, 0, 0, 0, 800));            // no fix: no home
+  CHECK(!fm.home().valid);
+  for (int i = 1; i < 10; i++) fm.feed(smp(i, true, 43.0, 26.0, 0, 0, 0, 800));
+  CHECK(fm.home().valid && fm.home().provisional); NEAR(fm.home().lat, 43.0, 1e-9); NEAR(fm.home().alt, 800, 0.01);
+  for (int i = 10; i < 30; i++) fm.feed(smp(i, true, 43.0 + (i - 10) * 1e-4, 26.0, 20, 0, 0, 800 + (i - 10)));   // walks / runs off
+  CHECK(fm.flying());
+  CHECK(!fm.home().provisional);
+  double homeLat = fm.home().lat;
+  CHECK(homeLat > 43.0);                                  // the takeoff position, not the first fix
+  for (int i = 30; i < 60; i++) fm.feed(smp(i, true, 43.0 + (i - 10) * 1e-4, 26.0, 20, 0, 0, 900));
+  NEAR(fm.home().lat, homeLat, 1e-12);                    // kept
+  fm.reset();
+  CHECK(!fm.home().valid);
 }
 
 static void test_air_trail() {
@@ -534,6 +653,13 @@ static void test_app_heading() {
   { Command pc; pc.type = Command::PAGE; pc.value = 1; r.laptop.cmds.push_back(pc); }
   run(200);
   CHECK(!app.compassOn());
+  // the wind profile page needs none either; the home page does (arrow on the ground)
+  { Command pc; pc.type = Command::PAGE; pc.value = 2; r.laptop.cmds.push_back(pc); }
+  run(200);
+  CHECK(!app.compassOn());
+  { Command pc; pc.type = Command::PAGE; pc.value = 3; r.laptop.cmds.push_back(pc); }
+  run(200);
+  CHECK(app.compassOn());
   { Command pc; pc.type = Command::PAGE; pc.value = 0; r.laptop.cmds.push_back(pc); }
   run(200);
   CHECK(app.compassOn());
@@ -680,7 +806,22 @@ static void test_app() {
   CHECK(app.buildViewModel(now).page == ViewModel::PAGE_THERMAL);
   r.input.press(now + 100, 150);
   run(600);
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_PROFILE);
+  r.input.press(now + 100, 150);
+  run(600);
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_HOME);
+  r.input.press(now + 100, 150);
+  run(600);
   CHECK(app.buildViewModel(now).page == ViewModel::PAGE_COMPASS);
+  // laptop page index 2 and 3 select profile and home; 4 and above are ignored
+  for (int pg = 2; pg <= 3; pg++) {
+    Command pc; pc.type = Command::PAGE; pc.value = pg; r.laptop.cmds.push_back(pc);
+    run(100);
+    CHECK(app.buildViewModel(now).page == (pg == 2 ? ViewModel::PAGE_PROFILE : ViewModel::PAGE_HOME));
+  }
+  { Command pc; pc.type = Command::PAGE; pc.value = 4; r.laptop.cmds.push_back(pc); run(100); }
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_HOME);
+  { Command pc; pc.type = Command::PAGE; pc.value = 0; r.laptop.cmds.push_back(pc); run(100); }
   // hold 3 s = power off
   r.input.press(now + 100, 3500);
   run(4500);
@@ -767,6 +908,9 @@ static void test_command_decode() {
   { uint8_t d[] = {CMD_CAL}; CHECK(!decodeCommand(d, 1, c)); }
   { uint8_t d[] = {CMD_PAGE, 1}; CHECK(decodeCommand(d, 2, c) && c.type == Command::PAGE && c.value == 1); }
   { uint8_t d[] = {CMD_PAGE}; CHECK(!decodeCommand(d, 1, c)); }
+  { uint8_t d[] = {CMD_PAGE, 3}; CHECK(decodeCommand(d, 2, c) && c.type == Command::PAGE && c.value == 3); }
+  { uint8_t d[] = {CMD_PAGE, 4}; CHECK(!decodeCommand(d, 2, c)); }    // unknown page: ignored
+  { uint8_t d[] = {CMD_PAGE, 255}; CHECK(!decodeCommand(d, 2, c)); }
   { uint8_t d[] = {CMD_XCTRC, '$', 'X', 'C'}; CHECK(decodeCommand(d, 4, c) && c.type == Command::XCTRC && strcmp(c.text, "$XC") == 0); }
   { uint8_t d[] = {CMD_SET_FILTER, 'X', 'C', '*'}; CHECK(decodeCommand(d, 4, c) && c.type == Command::FILTER && strcmp(c.text, "XC*") == 0); }
   { uint8_t d[] = {CMD_SET_FILTER}; CHECK(decodeCommand(d, 1, c) && c.type == Command::FILTER && c.text[0] == 0); }   // empty = match all
@@ -811,6 +955,8 @@ int main() {
   test_wind();
   test_flight();
   test_wind_ekf();
+  test_wind_profile();
+  test_home();
   test_air_trail();
   test_thermal();
   test_thermal_memory();

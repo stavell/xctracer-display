@@ -7,7 +7,8 @@
 //                        with no GPS fix next to a replay, the situation seen on the device)
 //        --shot-every S  save a frame every S virtual seconds (default 30)
 //        --rot R         display rotation (default 1)
-//        --thermal       switch to the thermal map page (one short press) at the start
+//        --page N        start on page N (0 compass, 1 thermal, 2 wind profile, 3 home)
+//        --thermal       same as --page 1
 //   emu wind <lines.txt>                           wind EKF against the circle fit over a real flight: share of seconds
 //        with a valid wind, per circling episode the median of both, overall median difference.
 //        Run:  .venv/bin/python host/make_lines.py igc flight.igc > lines.txt && firmware/emu/build.sh wind lines.txt
@@ -88,7 +89,8 @@ static ViewModel* thermalVm(int kind) {
 
 static int cmdShots(const std::string& out, int rot) {
   struct Sc { const char* name; };
-  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "mag", "calibrate"};
+  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "mag", "calibrate",
+                         "profile", "profile_short", "profile_empty", "home", "home_unreachable", "home_provisional"};
   for (const char* n : names) {
     if (!strncmp(n, "thermal", 7)) {
       ViewModel* tv = thermalVm(strcmp(n, "thermal_lost") == 0 ? 1 : 0);
@@ -118,6 +120,34 @@ static int cmdShots(const std::string& out, int rot) {
     if (s == "mag") { vm.s.fix = false; vm.s.speedKmh = NAN; vm.s.course = NAN; vm.glide = NAN; vm.wind.valid = false; vm.heading = 123; vm.headingSrc = HDG_MAG; }
     if (s == "calibrate") { vm.calibrating = true; vm.calSpan[0] = 61; vm.calSpan[1] = 33; vm.calSpan[2] = 12; vm.fieldUt = 47; }
     if (s == "status") vm.fresh = false;
+    if (s.rfind("profile", 0) == 0) {
+      vm.page = ViewModel::PAGE_PROFILE;
+      vm.s.alt = 1530;
+      vm.profileAlt = vm.s.alt;
+      // band centre, km/h, toward degrees, age s
+      static const float full[][4] = {{950, 8, 250, 300}, {1050, 10, 255, 1500}, {1150, 11, 260, 1400}, {1250, 12, 262, 900},
+                                      {1350, 14, 268, 700}, {1450, 17, 280, 400}, {1550, 21, 290, 200}, {1650, 24, 295, 120},
+                                      {1750, 25, 300, 60}, {1850, 27, 302, 30}, {2050, 30, 310, 20}, {2150, 33, 315, 10},
+                                      {2250, 36, 320, 5}, {2350, 38, 322, 3}, {2450, 40, 325, 2}};
+      static const float shortR[][4] = {{1350, 14, 268, 700}, {1450, 17, 280, 400}, {1550, 21, 290, 200}, {1650, 24, 295, 120}};
+      const float (*src)[4] = s == "profile_short" ? shortR : full;
+      int cnt = s == "profile_short" ? 4 : 15;
+      if (s == "profile_empty") cnt = 0;
+      if (s == "profile_short") vm.s.alt = 1500;
+      vm.profileAlt = vm.s.alt;
+      for (int i = 0; i < cnt; i++) {
+        vm.profile[i].altM = src[i][0]; vm.profile[i].speedKmh = src[i][1]; vm.profile[i].toDeg = src[i][2];
+        vm.profile[i].ageS = (uint32_t)src[i][3]; vm.profile[i].samples = 20;
+      }
+      vm.profileCount = cnt;
+    }
+    if (s.rfind("home", 0) == 0) {
+      vm.page = ViewModel::PAGE_HOME;
+      vm.homeValid = true; vm.homeProvisional = s == "home_provisional";
+      vm.homeDist = 3400; vm.homeBearing = 200; vm.homeRelBearing = 80; vm.homeGlideReq = 6.2f; vm.homeArrival = 350; vm.homeReachable = true;
+      if (s == "home_unreachable") { vm.homeDist = 12800; vm.homeGlideReq = 18.4f; vm.homeArrival = NAN; vm.homeReachable = false; vm.homeRelBearing = -150; }
+      if (s == "home_provisional") { vm.homeDist = 640; vm.homeGlideReq = NAN; vm.homeArrival = -45; vm.homeRelBearing = NAN; vm.heading = NAN; vm.headingSrc = HDG_NONE; }
+    }
     MockPanel p;
     p.setRotation(rot);
     if (s == "list") {
@@ -144,7 +174,7 @@ static int cmdReplay(int argc, char** argv) {
   bool inject = false;
   std::string mix;
   int shotEvery = 30, rot = 1;
-  bool thermal = false;
+  int startPage = 0;
   for (int i = 4; i < argc; i++) {
     std::string a = argv[i];
     if (a == "--hz" && i + 1 < argc) hz = atof(argv[++i]);
@@ -152,7 +182,8 @@ static int cmdReplay(int argc, char** argv) {
     else if (a == "--mix" && i + 1 < argc) mix = argv[++i];
     else if (a == "--shot-every" && i + 1 < argc) shotEvery = atoi(argv[++i]);
     else if (a == "--rot" && i + 1 < argc) rot = atoi(argv[++i]);
-    else if (a == "--thermal") thermal = true;
+    else if (a == "--thermal") startPage = 1;
+    else if (a == "--page" && i + 1 < argc) startPage = atoi(argv[++i]);
   }
   std::vector<std::string> L = readLines(file), M = mix.empty() ? std::vector<std::string>() : readLines(mix);
   if (L.empty()) { fprintf(stderr, "no lines in %s\n", file.c_str()); return 2; }
@@ -162,7 +193,7 @@ static int cmdReplay(int argc, char** argv) {
   cfg.rotation = rot;
   App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power, cfg);
   app.begin(0);
-  if (thermal) r.input.press(300, 120);
+  if (startPage > 0 && startPage < ViewModel::PAGE_COUNT) { Command pc; pc.type = Command::PAGE; pc.value = startPage; r.laptop.cmds.push_back(pc); }
 
   uint32_t endMs = (uint32_t)(L.size() * 1000.0 / hz) + 5000;
   size_t next = 0, mixNext = 0;

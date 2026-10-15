@@ -138,7 +138,7 @@ static bool fuzzCommand(Rng& r, int flags, Command& c) {
   } else {
     c = Command();
     switch (r.below(6)) {
-      case 0: c.type = Command::SIM; c.value = r.chance(50) ? (int)r.next() : r.range(0, 1); break;
+      case 0: c.type = Command::SIM; c.value = r.chance(50) ? (int)r.next() : r.range(0, 3); break;
       case 1: c.type = Command::TZ; c.value = (int16_t)r.next(); break;          // the wire format is an int16
       case 2: c.type = Command::CAL; c.value = r.chance(60) ? r.range(0, 3) : (int)r.next(); break;
       case 3: c.type = Command::PAGE; c.value = r.chance(50) ? (int)r.next() : r.range(0, 1); break;

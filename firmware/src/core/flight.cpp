@@ -29,6 +29,9 @@ void FlightModel::reset() {
   ekfStarted_ = false;
   ekfAt_ = 0;
   mem_.reset();
+  profile_.reset();
+  home_ = HomePoint();
+  homeFixed_ = false;
 }
 
 bool FlightModel::feed(const Sample& s) {
@@ -58,6 +61,20 @@ void FlightModel::tick() {
   if (!flying_ && fastSince_ && now - fastSince_ > 5000) { flying_ = true; flightStart_ = fastSince_; }
   if (flying_ && slowSince_ && now - slowSince_ > 60000) flying_ = false;
 
+  // home: the first fix is a provisional guess; takeoff makes it final. Only the first takeoff counts
+  // (slow flying for a minute also clears flying_, and must not move home in mid-air).
+  if (cur_.fix && isfinite(cur_.lat) && isfinite(cur_.lon)) {
+    if (!home_.valid) {
+      home_.valid = true; home_.provisional = true;
+      home_.lat = cur_.lat; home_.lon = cur_.lon; home_.alt = cur_.alt;
+    }
+    if (flying_ && !homeFixed_) {
+      homeFixed_ = true;
+      home_.provisional = false;
+      home_.lat = cur_.lat; home_.lon = cur_.lon; home_.alt = cur_.alt;
+    }
+  }
+
   // circling: mean absolute turn rate over the last 8 s
   if (n_ >= 9 && cur_.fix) {
     float sum = 0;
@@ -74,7 +91,18 @@ void FlightModel::tick() {
   }
   ekf_.step((now - ekfAt_) / 1000.0f, cur_.fix, cur_.speedKmh, cur_.course);
   ekfAt_ = now;
+  updateProfile();
   updateThermals();
+}
+
+// One entry per fresh circle-fit estimate (the fit ran in this very tick), at the altitude it was flown
+// at. Fed from the circle fit, not wind(): wind() prefers the EKF, which adapts over minutes on purpose
+// and would smear how the wind changes with altitude; the circle fit measures over a 30 s window.
+void FlightModel::updateProfile() {
+  if (!windValid_ || windAt_ != clock_ || !isfinite(cur_.alt)) return;
+  Wind w = circleWind();
+  double th = w.toDeg / R2D, ms = w.speedKmh / 3.6;
+  profile_.add(cur_.alt, (float)(ms * sin(th)), (float)(ms * cos(th)), clock_);
 }
 
 void FlightModel::updateThermals() {
