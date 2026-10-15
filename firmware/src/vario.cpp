@@ -205,9 +205,10 @@ static void onCentralDisconnect(uint16_t, uint8_t reason) {
 }
 
 // ---- derived flight data -----------------------------------------------------------
+static uint32_t dataMs = 1000;     // flight clock driven by the data's own time stamps
+static int lastKey = -1;           // seconds of day of the last sample
 static VarioSecond hist[VARIO_HIST];
 static int histN = 0;
-static uint32_t lastHistMs = 0;
 static bool flying = false;
 static uint32_t flightStartMs = 0, slowSinceMs = 0, fastSinceMs = 0;
 static bool circling = false;
@@ -287,7 +288,7 @@ VarioWind varioWind() {
   if (w.valid) {
     w.speedKmh = hypot(wx, wy) * 3.6;
     w.toDeg = fmod(atan2(wx, wy) / DEG_TO_RAD + 360.0, 360.0);
-    w.ageS = (millis() - wndMs) / 1000;
+    w.ageS = (dataMs - wndMs) / 1000;
   }
   return w;
 }
@@ -366,7 +367,7 @@ void varioSim(bool on) {
   simOn = on;
   simT0 = simLast = millis();
   simX = simY = 0; simAlt = 1500; simCourse = 90;
-  histN = 0; flying = false; circling = false;
+  histN = 0; flying = false; circling = false; lastKey = -1;
 }
 bool varioSimOn() { return simOn; }
 static bool simOnFwd() { return simOn; }
@@ -405,10 +406,12 @@ void varioUpdate() {
     cur = ring[ringTail];
     ringTail = (ringTail + 1) % RING;
     curMs = now;
-  }
-  if (curMs && now - lastHistMs >= 1000) {
-    lastHistMs = now;
-    if (now - curMs < 3000) tickSecond(now);
+    int key = cur.hh * 3600 + cur.mm * 60 + cur.ss;
+    if (key != lastKey) {   // a new data second: advance the flight clock and the 1 Hz history
+      if (lastKey >= 0) dataMs += (uint32_t)min((key - lastKey + 86400) % 86400, 5) * 1000u;
+      lastKey = key;
+      tickSecond(dataMs);
+    }
   }
 }
 
@@ -509,7 +512,7 @@ float varioGlide() {
 }
 
 bool varioFlying() { return flying; }
-uint32_t varioFlightSec() { return flying ? (millis() - flightStartMs) / 1000 : 0; }
+uint32_t varioFlightSec() { return flying ? (dataMs - flightStartMs) / 1000 : 0; }
 bool varioCircling() { return circling; }
 int varioHistCount() { return histN; }
 const VarioSecond& varioHist(int i) { return hist[i]; }

@@ -1,7 +1,8 @@
-"""Replay an IGC flight to the box as if the XC Tracer were streaming it (real time, 1 line/s).
+"""Replay an IGC flight to the box as if the XC Tracer were streaming it (1 line per flight second).
   python igc_replay.py flight.igc --find            list the strongest climbs with start offsets
   python igc_replay.py flight.igc --start 4300      replay from 4300 s after the first fix
-Switch the real tracer off first, otherwise its live stream mixes with the replay."""
+  python igc_replay.py flight.igc --start 4300 --speed 3   three times faster
+The box ignores the live tracer while a replay is feeding it."""
 import argparse
 import asyncio
 import time
@@ -32,11 +33,11 @@ def find_climbs(fx, win=150, top=6):
     return sorted(picked, key=lambda x: x[1])
 
 
-async def replay(path, start):
+async def replay(path, start, speed):
     date, fx = read_igc(path)
     t0 = fx[0].t
     i0 = next((i for i, f in enumerate(fx) if f.t - t0 >= start), 0)
-    print(f"replaying from {clock(fx[i0].t)} ({len(fx) - i0} s). Ctrl-C to stop.", flush=True)
+    print(f"replaying from {clock(fx[i0].t)} ({len(fx) - i0} s of flight) at {speed:g}x. Ctrl-C to stop.", flush=True)
     async with DisplayLink() as link:
         t_start = time.monotonic()
         for k, f in enumerate(fx[i0:]):
@@ -44,7 +45,7 @@ async def replay(path, start):
             await link.client.write_gatt_char(CMD_UUID, bytes([CMD_XCTRC]) + line.encode(), response=False)
             if k % 30 == 0:
                 print(f"{clock(f.t)}  alt {f.palt:.0f} m  vario {f.vario:+.1f}  {f.speed:.0f} km/h", flush=True)
-            delay = t_start + (k + 1) - time.monotonic()
+            delay = t_start + (k + 1) / speed - time.monotonic()
             if delay > 0:
                 await asyncio.sleep(delay)
 
@@ -54,6 +55,7 @@ def main():
     ap.add_argument("igc")
     ap.add_argument("--find", action="store_true")
     ap.add_argument("--start", type=int, default=0, help="seconds after the first fix")
+    ap.add_argument("--speed", type=float, default=1.0, help="replay speed factor (1 = real time)")
     a = ap.parse_args()
     if a.find:
         date, fx = read_igc(a.igc)
@@ -62,7 +64,7 @@ def main():
             print(f"--start {fx[i].t - t0 - 120:5d}   {clock(fx[i].t)}   +{gain:.0f} m in 150 s")
         return
     try:
-        asyncio.run(replay(a.igc, a.start))
+        asyncio.run(replay(a.igc, a.start, a.speed))
     except KeyboardInterrupt:
         pass
 

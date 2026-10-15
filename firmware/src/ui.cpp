@@ -146,7 +146,7 @@ static void compassDial(int cx, int cy, int R, float course) {
     float th = (i * 45 - course) * PI_F / 180.0f;
     int lx = cx + rl * sinf(th), ly = cy - rl * cosf(th);
     if (i == 0) {
-      d->fillCircle(lx, ly, 13, BLK);
+      d->fillRect(lx - 12, ly - 12, 25, 25, BLK);
       text(lx, ly + 6, "N", F12B, AC, WHT);
     } else if (i % 2 == 0) {
       text(lx, ly + 6, L[i], F12B, AC);
@@ -205,7 +205,7 @@ static void cell(int x, int y, int w, const char* title, const char* value) {
 }
 
 static void liveScreen(const VarioData& v) {
-  char b[24], t[24];
+  char b[24];
   const int barX = 3, barW = 9;              // thin vario on the left edge
   const int cx0 = 22, cellW = 107;           // two cells to the right of it
   const int row1 = HDR + 2, row2 = HDR + 66, gridEnd = HDR + 130;
