@@ -1,6 +1,7 @@
 #include "app/command_decode.h"
 #include <string.h>
 #include "protocol.h"
+#include "view/viewmodel.h"
 
 bool decodeCommand(const uint8_t* d, uint16_t len, Command& c) {
   if (len == 0) return false;
@@ -23,7 +24,8 @@ bool decodeCommand(const uint8_t* d, uint16_t len, Command& c) {
     case CMD_PAGE:
       if (len < 2) return false;
       c.type = Command::PAGE;
-      c.value = d[1] != 0;
+      if (d[1] >= ViewModel::PAGE_COUNT) return false;     // unknown page: ignore the packet
+      c.value = d[1];
       return true;
 #ifdef DIAGNOSTICS
     case CMD_DIAG_HANG:

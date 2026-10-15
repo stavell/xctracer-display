@@ -26,6 +26,9 @@ void FlightModel::reset() {
   wx_ = wy_ = 0;
   windAt_ = 0;
   mem_.reset();
+  profile_.reset();
+  home_ = HomePoint();
+  homeFixed_ = false;
 }
 
 bool FlightModel::feed(const Sample& s) {
@@ -55,6 +58,20 @@ void FlightModel::tick() {
   if (!flying_ && fastSince_ && now - fastSince_ > 5000) { flying_ = true; flightStart_ = fastSince_; }
   if (flying_ && slowSince_ && now - slowSince_ > 60000) flying_ = false;
 
+  // home: the first fix is a provisional guess; takeoff makes it final. Only the first takeoff counts
+  // (slow flying for a minute also clears flying_, and must not move home in mid-air).
+  if (cur_.fix && isfinite(cur_.lat) && isfinite(cur_.lon)) {
+    if (!home_.valid) {
+      home_.valid = true; home_.provisional = true;
+      home_.lat = cur_.lat; home_.lon = cur_.lon; home_.alt = cur_.alt;
+    }
+    if (flying_ && !homeFixed_) {
+      homeFixed_ = true;
+      home_.provisional = false;
+      home_.lat = cur_.lat; home_.lon = cur_.lon; home_.alt = cur_.alt;
+    }
+  }
+
   // circling: mean absolute turn rate over the last 8 s
   if (n_ >= 9 && cur_.fix) {
     float sum = 0;
@@ -64,7 +81,16 @@ void FlightModel::tick() {
   if (circling_ && now - lastTurn_ > 16000) circling_ = false;    // straight again for 16 s
 
   updateWind();
+  updateProfile();
   updateThermals();
+}
+
+// One entry per fresh wind estimate (the fit ran this second), at the altitude it was flown at.
+void FlightModel::updateProfile() {
+  Wind w = wind();
+  if (!w.valid || w.ageS != 0 || !isfinite(cur_.alt)) return;
+  double th = w.toDeg / R2D, ms = w.speedKmh / 3.6;
+  profile_.add(cur_.alt, (float)(ms * sin(th)), (float)(ms * cos(th)), clock_);
 }
 
 void FlightModel::updateThermals() {

@@ -1,6 +1,7 @@
 #include "app/app.h"
 #include <string.h>
 #include "app/button_fsm.h"
+#include "core/home.h"
 #include "core/xctrc.h"
 #include "view/screens.h"
 
@@ -51,8 +52,10 @@ void App::handle(const Command& c, uint32_t now) {
       else if (calibrating_) finishCalibration(c.value == 2);
       break;
     case Command::PAGE:
-      page_ = c.value ? ViewModel::PAGE_THERMAL : ViewModel::PAGE_COMPASS;
-      redraw_ = true;
+      if (c.value >= 0 && c.value < ViewModel::PAGE_COUNT) {
+        page_ = (ViewModel::Page)c.value;
+        redraw_ = true;
+      }
       break;
     case Command::FILTER:
       tracer_.setFilter(c.text);
@@ -142,6 +145,25 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   if (page_ == ViewModel::PAGE_THERMAL) {
     vm.trailCount = flight_.airTrail(vm.trail, ViewModel::TRAIL_MAX);
     vm.markCount = flight_.thermals(vm.marks, ViewModel::MARKS_MAX);
+  }
+  vm.profileCount = 0;
+  vm.homeValid = false;
+  if (page_ == ViewModel::PAGE_PROFILE) {
+    vm.profileCount = flight_.profile().query(vm.profile, ViewModel::PROFILE_MAX, flight_.clockMs());
+    vm.profileAlt = vm.s.alt;
+  }
+  if (page_ == ViewModel::PAGE_HOME) {
+    const HomePoint& hp = flight_.home();
+    HomeInfo hi = computeHome(vm.s.lat, vm.s.lon, vm.s.alt, vm.heading, hp, vm.wind);
+    if (!vm.s.fix) hi = HomeInfo();             // no position now: distance and bearing would be stale
+    vm.homeValid = hp.valid;                    // distance etc. stay NaN while there is no fix
+    vm.homeProvisional = hp.provisional;
+    vm.homeDist = hi.distM;
+    vm.homeRelBearing = hi.relBearingDeg;
+    vm.homeBearing = hi.bearingDeg;
+    vm.homeGlideReq = hi.glideReq;
+    vm.homeArrival = hi.arrivalM;
+    vm.homeReachable = hi.reachable;
   }
   return vm;
 }
@@ -236,7 +258,7 @@ void App::tick(uint32_t now) {
     }
   } else {
     if (ev == BTN_SHORT) {
-      page_ = page_ == ViewModel::PAGE_COMPASS ? ViewModel::PAGE_THERMAL : ViewModel::PAGE_COMPASS;
+      page_ = (ViewModel::Page)((page_ + 1) % ViewModel::PAGE_COUNT);
       redraw_ = true;
     }
     if (ev == BTN_LONG) {

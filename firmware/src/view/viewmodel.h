@@ -1,5 +1,6 @@
 #pragma once
 #include "core/heading.h"
+#include "core/windprofile.h"
 #include "core/thermal.h"
 #include "core/types.h"
 
@@ -20,7 +21,7 @@ struct ViewModel {
   int localMinutes = -1;         // minutes since midnight, local time; -1 = unknown
   int localBattPct = 0;
 
-  enum Page { PAGE_COMPASS, PAGE_THERMAL };
+  enum Page { PAGE_COMPASS, PAGE_THERMAL, PAGE_PROFILE, PAGE_HOME, PAGE_COUNT };
   Page page = PAGE_COMPASS;
   static const int TRAIL_MAX = 180;      // 3 minutes of dense track
   AirPoint trail[TRAIL_MAX];      // wind-compensated track, filled for the thermal page
@@ -29,6 +30,22 @@ struct ViewModel {
   ThermalRel marks[MARKS_MAX];     // remembered thermals, newest first
   int markCount = 0;
   bool mapHeadingUp = true;
+
+  // wind profile page: bands with data, lowest first
+  static const int PROFILE_MAX = WindProfile::BANDS;
+  ProfileBand profile[PROFILE_MAX];
+  int profileCount = 0;
+  float profileAlt = NAN;          // current altitude
+
+  // home page
+  bool homeValid = false;          // a home position exists
+  bool homeProvisional = false;    // first fix, takeoff not seen yet
+  float homeDist = NAN;            // metres
+  float homeRelBearing = NAN;      // degrees from the heading (NaN: no heading), -180..180
+  float homeBearing = NAN;         // true bearing
+  float homeGlideReq = NAN;        // NaN when not above home
+  float homeArrival = NAN;         // metres above home on arrival (NaN: unknown)
+  bool homeReachable = false;
 
   // heading for the compass dial: the GPS track when there is one, else the magnetometer, else none
   HeadingSource headingSrc = HDG_NONE;

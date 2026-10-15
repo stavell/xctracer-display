@@ -1,5 +1,7 @@
 #pragma once
+#include "core/home.h"
 #include "core/thermal.h"
+#include "core/windprofile.h"
 #include "core/types.h"
 
 // Everything derived from the stream of samples: 1 Hz history, averages, glide ratio, takeoff /
@@ -26,12 +28,18 @@ class FlightModel {
   int airTrail(AirPoint* out, int maxN) const;
   // Remembered thermals relative to the current position, newest first (positions drift with the wind).
   int thermals(ThermalRel* out, int maxN) const;
+  // Wind by altitude, filled from fresh wind estimates while flying.
+  const WindProfile& profile() const { return profile_; }
+  // Takeoff position (provisional first fix until takeoff is detected; kept for the rest of the session).
+  const HomePoint& home() const { return home_; }
+  uint32_t clockMs() const { return clock_; }
   int histCount() const { return n_; }
   const TrackPoint& hist(int i) const { return h_[i]; }
 
  private:
   void tick();
   void updateWind();
+  void updateProfile();
   void updateThermals();
 
   Sample cur_;
@@ -47,6 +55,9 @@ class FlightModel {
   bool windValid_ = false;
   double wx_ = 0, wy_ = 0;
   uint32_t windAt_ = 0;
+  WindProfile profile_;
+  HomePoint home_;
+  bool homeFixed_ = false;         // takeoff seen: home is final
   ThermalMemory mem_;
   AirPoint scratch_[HIST];         // working space for the thermal finder (too big for the stack)
 };
