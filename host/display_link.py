@@ -37,6 +37,10 @@ class DisplayLink:
         self.chunk = min(char.max_write_without_response_size, 240) - 1
         return self
 
+    @property
+    def connected(self) -> bool:
+        return self.client.is_connected
+
     async def __aexit__(self, *exc):
         await self.client.disconnect()
 
