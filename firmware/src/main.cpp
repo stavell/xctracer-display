@@ -11,6 +11,7 @@
 #include "hw/panel_sharp.h"
 #include "hw/power_nrf.h"
 #include "hw/tracer_ble.h"
+#include "hw/watchdog.h"
 #include "pins.h"
 #include "protocol.h"
 
@@ -32,6 +33,7 @@ static App app(panel, button, battery, tracer, laptop, config, compassHw, power,
 
 void setup() {
   PowerNrf::gateOnWake(PIN_BUTTON1, 1000);   // before anything else: a quick tap goes back to sleep
+  watchdog::start(8000);                     // a hung loop resets the board instead of freezing the screen
   Serial.begin(115200);
   button.begin();
   config.begin();
@@ -52,6 +54,7 @@ void setup() {
 static uint32_t worstTickUs = 0;   // slowest app.tick() since the last status line
 
 void loop() {
+  watchdog::feed();
   uint32_t now = millis();
   uint32_t t0 = micros();
   app.tick(now);

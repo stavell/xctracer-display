@@ -107,7 +107,10 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
                 (unsigned long)benchFeedAvgUs, (unsigned long)benchFeedMaxUs, (unsigned long)benchCompassUs);
   char desc[120];
   app.describeTracer(desc, sizeof desc);
-  Serial.printf("dev %s\nraw %s\n", desc, app.lastRaw());
+  // reset cause (POWER->RESETREAS at boot: 0x1 pin, 0x2 watchdog, 0x4 soft reset incl. hard fault,
+  // 0x10000 wake from System OFF; 0 = power-on) and the loop task's smallest free stack so far, in bytes
+  Serial.printf("dev %s rst=0x%lx loopstack=%lu\nraw %s\n", desc, (unsigned long)readResetReason(),
+                (unsigned long)uxTaskGetStackHighWaterMark(nullptr) * 4, app.lastRaw());
   const Vec3& ca = compassHw.lastAccel();
   const Vec3& cm = compassHw.lastMag();
   Serial.printf("cmp on=%d present=%d acc=%.2f,%.2f,%.2f mag=%.1f,%.1f,%.1f hdg=%.1f src=%d cal=%d\n", app.compassOn(),

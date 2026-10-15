@@ -1,9 +1,10 @@
 #include "hw/power_nrf.h"
 #include <bluefruit.h>
+#include "hw/watchdog.h"
 #include "pins.h"
 
 static void waitRelease(uint8_t pin) {
-  while (digitalRead(pin) == LOW) delay(10);
+  while (digitalRead(pin) == LOW) { watchdog::feed(); delay(10); }
   delay(50);
 }
 
@@ -20,7 +21,9 @@ void PowerNrf::shutdown() {
   delay(150);
   laptop_.stopAdvertising();
   Bluefruit.Scanner.stop();
+  watchdog::feed();
   delay(800);
+  watchdog::feed();
   panel_.clear();                   // never leave a picture on a panel whose VCOM is stopped
   panel_.invalidate();
   panel_.present();

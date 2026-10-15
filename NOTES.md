@@ -126,6 +126,20 @@ project is and how to run it; this file says what we found and why things are th
 - The serial status line can report `parse=`, `windfit=` and `viewmodel=` timings (only when a terminal is
   attached). They were added but not yet read on the device: the board was not on USB at the time.
 
+## Watchdog (wired in, NOT yet verified on the device)
+
+- 8 s nRF52 WDT, started right after the power-on gate, fed every loop iteration and inside the power-off
+  waits. Once started it cannot be stopped and it survives soft resets; the Adafruit bootloader feeds a
+  running WDT in its DFU wait loop (checked in its source), so USB uploads should keep working.
+- The core resets on a hard fault (`NVIC_SystemReset`), but its stack-overflow and malloc-failed hooks
+  only log and return in release builds: an overflow continues on a corrupted stack. Only stack margins
+  and the watchdog protect against that, so the status line now reports `loopstack=` (smallest free
+  stack of the loop task so far, bytes) and `rst=` (reset cause at boot: 0x2 watchdog, 0x4 soft reset
+  including a hard fault, 0x10000 wake from System OFF, 0x1 reset pin, 0 power-on).
+- To verify before relying on it: (1) two uploads in a row still work; (2) an injected hang (test build)
+  resets the board within 8 s and `rst=0x2` is reported; (3) a powered-off box stays off for minutes
+  (the WDT must not wake it); (4) the reset button recovers the board in every state.
+
 ## Power (not measured)
 
 - The board has no current sensor and the nRF52840 has no current ADC. Battery voltage on A6 is read for the
