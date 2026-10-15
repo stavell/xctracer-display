@@ -49,8 +49,10 @@ static void drawBlitByte(uint8_t b) {
   blit.pos++;
 }
 
+static volatile uint32_t cmdCount = 0, injCount = 0;
 static void onCmdWrite(uint16_t, BLECharacteristic*, uint8_t* d, uint16_t len) {
   if (len == 0) return;
+  cmdCount++;
   switch (d[0]) {
     case CMD_CLEAR:
       lastHostDrawMs = millis();
@@ -86,6 +88,7 @@ static void onCmdWrite(uint16_t, BLECharacteristic*, uint8_t* d, uint16_t len) {
       uint16_t n = min<uint16_t>(len - 1, sizeof(s) - 1);
       memcpy(s, d + 1, n);
       s[n] = 0;
+      injCount++;
       varioInject(s);
       break;
     }
@@ -246,6 +249,14 @@ void loop() {
   } else if (!local && flushPending) {
     flushPending = false;
     display.refresh();
+  }
+  static uint32_t lastDbg = 0;
+  if (millis() - lastDbg >= 2000) {   // USB serial diagnostics
+    lastDbg = millis();
+    const VarioData& v = varioData();
+    Serial.printf("dbg lines=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f hist=%d sim=%d local=%d cmds=%lu inj=%lu\n",
+                  (unsigned long)varioLines(), (unsigned long)varioBadLines(), varioFresh(), v.fix,
+                  v.alt, v.speedKmh, v.vario, varioHistCount(), varioSimOn(), local, (unsigned long)cmdCount, (unsigned long)injCount);
   }
   delay(10);
 }
