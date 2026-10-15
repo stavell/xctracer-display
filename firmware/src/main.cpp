@@ -79,6 +79,14 @@ static void onCmdWrite(uint16_t, BLECharacteristic*, uint8_t* d, uint16_t len) {
     case CMD_SET_TZ:
       if (len >= 3) varioSetTz((int16_t)(d[1] | (d[2] << 8)));
       break;
+    case CMD_XCTRC: {
+      char s[200];
+      uint16_t n = min<uint16_t>(len - 1, sizeof(s) - 1);
+      memcpy(s, d + 1, n);
+      s[n] = 0;
+      varioInject(s);
+      break;
+    }
     case CMD_SIM:
       if (len >= 2) varioSim(d[1] != 0);
       break;

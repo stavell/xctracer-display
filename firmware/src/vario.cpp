@@ -158,6 +158,13 @@ static void pushLine(char* s) {
   lines++;
 }
 
+void varioInject(const char* line) {
+  char tmp[160];
+  strncpy(tmp, line, sizeof tmp - 1);
+  tmp[sizeof tmp - 1] = 0;
+  pushLine(tmp);
+}
+
 static void onNotify(BLEClientCharacteristic*, uint8_t* data, uint16_t len) {
   for (uint16_t i = 0; i < len; i++) {
     char c = (char)data[i];

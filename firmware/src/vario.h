@@ -72,6 +72,9 @@ int varioLocalMinutes();                   // minutes since midnight, local (UTC
 int16_t varioTz();
 void varioSetTz(int16_t minutes);
 
+// feed a raw $XCTRC line (no CR/LF) as if it came from the tracer; used by log replay
+void varioInject(const char* line);
+
 // bench simulator: synthetic glide / thermal / glide flight
 void varioSim(bool on);
 bool varioSimOn();
