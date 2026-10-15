@@ -7,6 +7,22 @@ using namespace Adafruit_LittleFS_Namespace;
 static const uint32_t MAGIC = 0x56415233;
 static const char* PATH = "/vario.cfg";
 
+// Write to path.tmp, check the byte count, then rename over the real file. littlefs rename replaces an
+// existing target atomically, so a power loss leaves either the old or the new file, never neither.
+// A leftover .tmp from an interrupted save is ignored by loading and overwritten by the next save.
+static bool writeAtomic(const char* path, const void* data, size_t len) {
+  char tmp[24];
+  snprintf(tmp, sizeof tmp, "%s.tmp", path);
+  InternalFS.remove(tmp);
+  File f(InternalFS);
+  if (!f.open(tmp, FILE_O_WRITE)) return false;
+  size_t n = f.write((const uint8_t*)data, len);
+  f.close();
+  if (n != len) { InternalFS.remove(tmp); return false; }
+  if (!InternalFS.rename(tmp, path)) { InternalFS.remove(tmp); return false; }
+  return true;
+}
+
 void ConfigStore::begin() {
   InternalFS.begin();
   memset(&sv_, 0, sizeof sv_);
@@ -24,9 +40,7 @@ void ConfigStore::begin() {
 }
 
 void ConfigStore::save() {
-  InternalFS.remove(PATH);
-  File f(InternalFS);
-  if (f.open(PATH, FILE_O_WRITE)) { f.write((uint8_t*)&sv_, sizeof sv_); f.close(); }
+  writeAtomic(PATH, &sv_, sizeof sv_);
 }
 
 void ConfigStore::setFilter(const char* glob) {
@@ -74,7 +88,5 @@ void ConfigStore::saveMagCal(const MagCal& cal) {
   m.magic = MAG_MAGIC;
   for (int i = 0; i < 3; i++) m.off[i] = cal.off[i];
   m.radius = cal.radius;
-  InternalFS.remove("/magcal3.bin");
-  File f(InternalFS);
-  if (f.open("/magcal3.bin", FILE_O_WRITE)) { f.write((uint8_t*)&m, sizeof m); f.close(); }
+  writeAtomic("/magcal3.bin", &m, sizeof m);
 }
