@@ -210,8 +210,11 @@ static void liveScreen(const VarioData& v) {
   const int cx0 = 22, cellW = 107;           // two cells to the right of it
   const int row1 = HDR + 2, row2 = HDR + 66, gridEnd = HDR + 130;
 
+  // no GPS fix: speed and track read 0 (the title says NO FIX) instead of dashes
+  float spd = isfinite(v.speedKmh) ? v.speedKmh : 0;
+  float crs = isfinite(v.course) ? v.course : 0;
   thinVario(barX, barW, v.vario, varioAvg());
-  cell(cx0, row1, cellW, "GPS km/h", fnum(b, sizeof b, v.speedKmh, "%.0f"));
+  cell(cx0, row1, cellW, v.fix ? "GPS km/h" : "NO FIX", fnum(b, sizeof b, spd, "%.0f"));
   cell(cx0 + cellW + 4, row1, cellW, "GLIDE", fnum(b, sizeof b, varioGlide(), "%.1f"));
   cell(cx0, row2, cellW, "ALT m", fnum(b, sizeof b, v.alt, "%.0f"));
   cell(cx0 + cellW + 4, row2, cellW, "VS m/s", fnum(b, sizeof b, v.vario, "%+.1f"));
@@ -219,8 +222,8 @@ static void liveScreen(const VarioData& v) {
   // compass with the wind arrow in a corner
   VarioWind w = varioWind();
   const int R = 92, cx = cx0 + (W - cx0) / 2, cy = gridEnd + 8 + R + 6;
-  compassDial(cx, cy, R, v.course);
-  windCorner(cx, cy, R, v.course, w);
+  compassDial(cx, cy, R, crs);
+  windCorner(cx, cy, R, crs, w);
 
   // wind as one line: "15 km/h NNW"
   const int ly = H - 6;
@@ -235,7 +238,8 @@ static void liveScreen(const VarioData& v) {
     text(x, ly, cardinal16(from), F18B);
     if (w.ageS > 300) text(W - 6, ly, "old", F9, AR);
   } else {
-    text(cx0, ly, "-- km/h", F18B);
+    text(cx0, ly, "0", F18B);
+    text(cx0 + textW("0", F18B) + 5, ly, "km/h", F12B);
   }
 }
 
