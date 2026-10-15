@@ -1,18 +1,17 @@
-# Handheld BLE display
+# Paragliding vario display
 
-See `NOTES.md` for measurements, findings and the open-items list.
+A handheld, portrait display for an XC Tracer Mini III GPS vario. The box is a Bluetooth LE central: it
+connects to the tracer, reads its `$XCTRC` text lines (about 3 per second) and draws speed, glide ratio,
+altitude, vertical speed, a Garmin-style compass dial, a wind estimate and a thermal map on a 2.7" Sharp
+memory LCD (240x400 in use). It is also a BLE peripheral (`SharpDisplay`) so a laptop can set options,
+replay a recorded flight into it and, in a legacy mode, draw frames. One user switch operates it.
+Hardware: Adafruit Feather nRF52840 Sense, LiPo, PlatformIO with the Arduino framework.
 
-A handheld device whose screen is driven entirely over BLE from a laptop script.
-The firmware is a thin display terminal. Layout and logic live on the host.
+- `NOTES.md`: measurements, findings and the open-items list.
+- `PLAN.md`: the current review and improvement plan.
+- `CLAUDE.md`: rules for contributors and AI agents (layering, stack limit, how to check).
 
-## Hardware
-
-- MCU: Adafruit Feather nRF52840 Sense (product 4516). LiPo on the JST connector.
-- Display: Adafruit SHARP Memory Display breakout, 2.7" 400x240 monochrome (product 4694).
-  Write-only SPI, CS active HIGH, needs a 13.5 KB framebuffer on the MCU.
-- 4 front buttons: planned, **not wired yet**. Out of scope for now.
-
-## Current wiring (as built)
+## Hardware and wiring (as built)
 
 | Display pin | Feather pad | Arduino pin | nRF GPIO |
 |---|---|---|---|
@@ -21,142 +20,177 @@ The firmware is a thin display terminal. Layout and logic live on the host.
 | CS (active high) | RX | 1 | P0.24 |
 | EXT (EXTCOMIN) | MI | 24 | P0.15 |
 | DISP, EXTMODE | not recorded | ? | ? |
+| User switch | on board | 7 (`PIN_BUTTON1`) | P1.02, active low |
 
-Pins are defined in one place: `firmware/src/pins.h`. Change the wiring there only.
+- Display: Adafruit SHARP Memory Display breakout, 2.7" 400x240 monochrome (product 4694), used in
+  portrait. Pins are defined only in `firmware/src/pins.h`. `DISPLAY_ROTATION` is 1; 3 flips the picture
+  180 degrees (to be confirmed once the box is mounted).
+- Where DISP and EXTMODE are wired was never recorded. The display works, so they are presumably tied high.
+- VCOM is toggled at 1 Hz on EXTCOMIN by a FreeRTOS timer.
+- Only the user switch is used; the four front buttons planned earlier are not wired.
+- The on-board sensors (I2C 0x1C LIS3MDL magnetometer, 0x6A LSM6DS33 accelerometer) are used for the
+  magnetic compass only.
 
-Open item: where DISP and EXTMODE (EMD) are connected is unconfirmed. The display works,
-so they are presumably tied to 3V3. EXTMODE high is the assumption that makes the
-EXTCOMIN toggle meaningful. Verify against the Adafruit guide.
+## Using it
 
-## Verified board facts (Adafruit nRF52 BSP, `feather_nrf52840_sense`)
+### The switch
 
-- User switch: `PIN_BUTTON1` = Arduino pin 7 (P1.02), active low.
-- Hardware SPI: SCK = 26, MOSI = 25, MISO = 24.
-- I2C: SDA = 22, SCL = 23. NeoPixel = 8. LED1 = 13, LED2 = 4.
-- Battery sense is A6 (pin 20). PDM mic = 34/35. APDS IRQ = 36 (not on the header).
-- Arduino pin numbers are not nRF GPIO numbers. The map is `g_ADigitalPinMap` in the BSP `variant.cpp`.
+| Action | Result |
+|---|---|
+| Short press (under 0.7 s) | Flight screen: switch page. Lists and calibration: see below. |
+| Hold 0.7 to 1.5 s, then release | Flight screen: open the device list. |
+| Hold past 1.5 s | "Keep holding to power off" banner with a progress bar. Releasing before 3 s cancels. |
+| Hold to 3 s | Powers off (System OFF). |
+| Power on | Hold the switch about 1 s. A shorter tap puts the box back to sleep. |
 
-## Software stack
+### Flight screen
 
-- PlatformIO, platform `nordicnrf52`, board `adafruit_feather_nrf52840_sense`, Arduino framework.
-- Libraries: Adafruit SHARP Memory Display, Adafruit GFX.
-- Python tools in `.venv`: platformio, pyserial, bleak, pillow.
-- Chosen over CircuitPython for BLE and sleep power, and because LVGL is not needed
-  (the host renders the UI).
+The header shows local time, the tracer battery (`XC 46%`), `SIM` while the simulator runs, and the box's
+own battery. Time needs the time zone set once (`ctl.py tz`, minutes from UTC).
 
-Gotchas:
-- The current SharpMem library does not define `BLACK`/`WHITE`. `main.cpp` defines `BLACK = 0`, `WHITE = 1`.
-- VCOM is toggled by a 1 Hz FreeRTOS `SoftwareTimer` on EXTCOMIN (500 ms per toggle).
-  The nRF52840 hardware PWM cannot go as low as 1 Hz (about 4 Hz minimum).
+Both pages share the top part: a thin vertical vario strip along the left edge (instant climb filled from
+the centre, a small block marks the average), and four cells: `GPS km/h`, `GLIDE`, `ALT m`, `VS m/s`. The
+last line is the wind: speed, `km/h`, and the direction it comes from (for example `14 km/h E`), with
+`old` when the estimate is more than 5 minutes old and `0 km/h` when there is none yet.
 
-## Commands
+**Compass page** (default). A heading-up dial with the pointer at the top, N/E/S/W and NE/SE/SW/NW on the
+ring, ticks every 10 degrees, and the heading as the big number in the middle. A small label above it
+says where the heading comes from: `TRK` is the GPS track (used above about 4 km/h, released below 2.5),
+`MAG` is the magnetic compass (used otherwise). With neither, the dial stays north-up and shows `--`.
+A wind arrow sits in the corner of the dial the wind comes from and points the way it blows, relative to
+the heading. It is drawn only when the heading is the GPS track and a wind estimate exists.
 
-Run from `firmware/`:
+**Thermal page.** A heading-up map replaces the dial; you are the arrow in the centre. It shows the last
+3 minutes of track in the air-mass frame (shifted by the wind drift, so a thermal holds still while you
+circle). The last 90 s is solid, thicker where you climbed faster; older track is dashed. Up to 6
+remembered thermals appear as rings with their average climb; a thermal is remembered after a climb of
+at least 15 m with circling, drifts with the wind and expires after 15 minutes. When the newest thermal
+is off the map an arrow badge at the frame edge points to it with the distance. The map has a north
+marker (top-left), a wind arrow (top-right) and a scale bar. It reads `no GPS track` until there is a
+track.
+
+Wind comes from a circle fit over about the last 30 s of ground velocity while turning. It needs about
+200 degrees of turn and a fitted airspeed of 14 to 72 km/h, so it appears after the first full circle.
+
+### Status screen, `NO FIX` and `--`
+
+- No fresh data (nothing for 3 s) replaces the flight screen with a status screen: `SEARCHING`,
+  `CONNECTING`, `CONNECTED` (then "waiting for data..." and a count of good and bad lines) or `NO VARIO`,
+  with the saved device name or the scan filter.
+- The tracer reports latitude and longitude 0 when it has no GPS fix. Then the speed cell is titled
+  `NO FIX` and speed shows 0, and the heading comes from the magnetometer.
+- `--` means a value that is not a finite number or not available (glide ratio when not sinking, no
+  heading, no time).
+
+### Device list
+
+Hold the switch for 0.7 to 1.5 s on the flight screen. Press moves the selection down (it wraps), hold
+selects.
+
+| Row | Hold does |
+|---|---|
+| `< back` | closes the list |
+| `Calibrate compass` | starts compass calibration |
+| tracer name, `-NN dBm   XX:XX` | connects to it and saves it |
+
+Devices are sorted by signal strength. The two letters-and-digits are the last two bytes of the address,
+which tells apart tracers with the same name. The list shows the active name filter and `scanning...`
+while empty. The saved tracer survives power off; at boot the box reconnects to it by address (by name
+only if the saved address is a private, changing one).
+
+### Compass calibration
+
+Start it from the device list or with `ctl.py cal start`. Turn the box slowly through every direction
+(flat, on edge, inverted) until the X, Y and Z bars fill (about 70 uT of swing each). Hold the switch
+(0.7 to 1.5 s) to save, short press to cancel; `ctl.py cal save` and `cal cancel` do the same. The
+calibration (hard-iron sphere fit) is stored in flash separately from the saved tracer. The magnetic
+heading is magnetic north; there is no declination correction.
+
+## Build, flash, check
+
+Setup: a Python venv at `.venv` in the repository root with PlatformIO, pyserial, bleak and pillow. In a
+git worktree, link it: `ln -s <main checkout>/.venv .venv`.
+
+    scripts/check.sh            # emulator build + all tests (sanitizers on), then the device build
+    scripts/install-hooks.sh    # git pre-commit hook that runs scripts/check.sh
+
+`check.sh` works from any directory and exits non-zero if the emulator output does not end its test run with
+`0 failures` or either build fails. The hook also works in a worktree. In an emergency skip it with
+`git commit --no-verify`.
+
+Device, from `firmware/`:
 
     ../.venv/bin/pio run               # build
-    ../.venv/bin/pio run -t upload     # flash (1200 bps touch, nrfutil DFU over USB)
+    ../.venv/bin/pio run -t upload     # flash over USB (the board must be on USB)
 
-Serial is USB CDC at 115200 on `/dev/cu.usbmodem*`. `ready` prints once at boot, so a
-monitor opened after boot will not see it. Python that reads from the board's serial port can use
-`.venv/bin/python -I`.
-
-## Status
-
-- Done: toolchain, build, flash, bring-up sketch (text, rectangle, filled block on the display).
-  User switch prints `pressed` / `released` over serial.
-- Done: BLE display terminal. Firmware advertises `SharpDisplay` (service `D15A0001-...`,
-  command characteristic `D15A0002-...`). Wire protocol is in `firmware/src/protocol.h`.
-  Verified on hardware: full 400x240 frame from the laptop renders correctly.
-- Host client: `host/display_link.py` (bleak + Pillow). Demo: `host/send_test.py`
-  (run without `-I`, it imports from its own folder).
-- Original demo source was not found on this machine. It is not needed.
-
-## Design decisions
-
-- One-way link: laptop to device. No notify characteristic for now.
-- The device is a BLE peripheral with a custom GATT service. It shows "waiting for host" until
-  the first frame arrives and keeps the last frame if the link drops (the memory LCD holds
-  the image at near-zero power).
-- Commands: `CLEAR`, `BLIT` (x, y, w, h), `DATA` (1-bit pixels, MSB-first, 1 = black), `FLUSH`.
-  No RLE yet; add it only if frame time matters.
-- The host renders with Pillow to 1-bit and sends changed rectangles. It finds the device by
-  name or service UUID (macOS has no MAC addresses).
-- Power: slow advertising when disconnected, relaxed connection interval, redraw only when
-  data arrives. Keep VCOM toggling independent of BLE logic.
-- Out of scope for now: buttons, sleep modes, sensors, a reverse channel.
-
-## Vario display (current firmware)
-
-The box is an XC Tracer Mini III GPS display. It is a BLE central: it finds the tracer by
-name filter (default `*`, set with `host/ctl.py filter`), remembers it in flash (address or
-name) and reconnects at boot. The tracer streams `$XCTRC` lines on service `0xFFE0`,
-characteristic `0xFFE1` (3 Hz, checksummed):
-
-    $XCTRC,Y,M,D,h,m,s,cs,lat,lon,alt,speed,course,vario,,,,pressure,battery%*CS
-
-lat = lon = 0 means no GPS fix. Speed is assumed km/h (unverified until a fix is available).
-
-- One portrait screen (240x400, `DISPLAY_ROTATION` in `pins.h`: 1 or 3 flips it 180 degrees),
-  in order of importance: GPS speed + glide ratio, altitude + vertical speed, heading-up compass
-  with the wind arrow (up = tailwind, down = headwind) plus wind speed, "from" direction and
-  head/tail component, thin vertical vario down the right edge, time of day in the header.
-- Wind: least-squares circle fit of ground-velocity vectors over the last 30 s while turning
-  (needs about 200 degrees of heading change; radius = airspeed must be 14-72 km/h), smoothed
-  over ~8 s, kept on screen afterwards with its age.
-- Two pages, short press toggles: the compass page, and the thermal assistant page where a heading-up
-  map replaces the compass (you stay in the centre, your direction of travel is up). It shows the last
-  3 minutes of track in the air-mass frame (shifted by the wind drift, so a thermal holds still while you
-  circle; solid and thicker where you climbed, dashed after 90 s) and markers for up to 6 remembered
-  thermals with their average climb. A marker is the lift-weighted centre of the circling part of a climb
-  (at least 15 m gained); it drifts with the wind and expires after 15 minutes; the same thermal
-  re-detected within 50 m updates its marker. The newest marker gets an arrow and the distance at the
-  frame edge when it is off the map, and the zoom stays wide enough to show it. North marker rotates,
-  the wind arrow is relative to your heading. The four top cells and the wind line stay.
-- Hold ~1 s: device list. Hold 3 s: power off (banner at 1.5 s). Hold 1 s at boot to power on.
-- Every float shown goes through `fnum()` in `ui.cpp`: non-finite values print `--`.
-- The laptop can still draw frames (`host/dashboard.py`); the vario UI resumes 10 s after the
-  last draw command.
-- Bench: `python host/ctl.py sim on` runs a built-in glide/thermal/glide flight.
-  `python host/ctl.py tz 180` sets the clock offset from UTC (minutes).
-- `host/xct_probe.py` captures the raw tracer stream (log in `host/xct_capture.log`).
-
-The standalone sensor dashboard (environment, compass with calibration, motion, light and
-gestures, sound) was removed from the firmware. It is kept under the git tag
-`sensor-dashboard`: `git checkout sensor-dashboard`.
-
-## Architecture
-
-    firmware/src/
-      core/   pure logic, no Arduino: XCTRC parser, flight model (history, glide, circling, wind),
-              wind circle fit, flight simulator. Time comes from the data's own time stamps.
-      view/   draws a ViewModel onto any Adafruit_GFX canvas. No hardware, no BLE.
-      app/    the state machine (live / device list / power) behind the port interfaces in ports.h
-      hw/     the only code that touches hardware: Sharp panel (+VCOM), BLE central (tracer),
-              BLE peripheral (laptop), button, battery, power, config in flash
-      main.cpp  wiring only
-    firmware/emu/   PC emulator: the same core + view + app with mock ports
-
-The Bluetooth callbacks only copy bytes into queues; parsing and all maths run in the main loop. The
-view never clears the canvas: the app calls `IPanel::clear()` first (a full-screen `fillRect` costs 142 ms).
+Serial is USB CDC at 115200 (`/dev/cu.usbmodem*`).
 
 ## Testing without the device
 
-`firmware/emu/build.sh` builds the emulator with address/undefined-behaviour sanitizers, runs the
-unit and app tests (parser, wind fit, flight model, button timing, injection precedence, device
-list, power-off) and renders the standard screens to `firmware/emu/out/*.png`
-(`ROT=0 ./build.sh` for landscape).
+The emulator compiles the same `core`, `view` and `app` code on the PC with mock hardware.
 
-Run a whole flight through the real app in seconds:
+    firmware/emu/build.sh              # tests, then screen renders to firmware/emu/out/*.png
+    ROT=0 firmware/emu/build.sh        # renders in landscape
+
+Run a recorded flight through the whole app (parse counts, non-finite values, wind and circling
+coverage, worst tick time, frames saved to the output directory):
 
     python host/make_lines.py igc flight.igc --start 4185 --seconds 900 > flight.txt
     python host/make_lines.py capture host/xct_capture.log > live.txt
     firmware/emu/build.sh replay flight.txt outdir --hz 3 --inject --mix live.txt --shot-every 20
 
-It reports parse counts, non-finite values, wind/circling coverage and the worst tick time, and
-saves frames. A watchdog aborts on an infinite loop.
+| Option | Meaning |
+|---|---|
+| `--hz N` | lines per virtual second (1 = real time for an IGC file, 3 = tracer rate) |
+| `--inject` | deliver lines as laptop commands, like `igc_replay.py` |
+| `--mix FILE` | also feed FILE through the tracer at 3 Hz (a live tracer with no fix next to a replay) |
+| `--shot-every S` | save a frame every S virtual seconds (default 30) |
+| `--rot R` | display rotation (default 1) |
+| `--thermal` | start on the thermal page |
 
-## IGC replay
+Replay a flight to the real box over BLE (from `host/`, without `-I`, these scripts import their folder):
 
-`host/igc_replay.py flight.igc --find` lists the strongest climbs; `--start SECONDS` replays
-from there in real time as injected `$XCTRC` lines (vario derived from pressure altitude,
-speed and course from positions). `host/wind_check.py` runs the wind estimator offline.
+    python igc_replay.py flight.igc --find                       # strongest climbs with start offsets
+    python igc_replay.py flight.igc --start 4185 --speed 3 --page thermal
+
+`--speed` is a replay speed factor (1 = real time). `--page` switches the box to `compass` or `thermal`.
+While a replay feeds the box it ignores the live tracer. After the replay stops, live data returns after
+3 s.
+
+## Host tools (`host/`)
+
+| Tool | Use |
+|---|---|
+| `ctl.py` | control the box: `filter 'XC*'` (scan name filter), `tz 180` (minutes from UTC), `sim on\|off` (built-in test flight), `page compass\|thermal`, `cal start\|save\|cancel` |
+| `igc_replay.py` | replay an IGC file to the box as tracer lines (`--find`, `--start`, `--speed`, `--page`) |
+| `make_lines.py` | convert an IGC file or a tracer capture into line files for the emulator |
+| `xct_probe.py` | find the tracer over BLE, list its GATT table, log raw notifications (`[seconds] [name]`) |
+| `orient_log.py` | record the compass sensor readings from the serial status line (`[seconds] [file]`) |
+| `orient_analyze.py` | solve the sensor-to-case axis mapping from that log and print the code to paste (`--selftest`) |
+| `wind_check.py` | run the wind estimator offline on an IGC file |
+| `dashboard.py`, `send_test.py`, `bench.py`, `display_link.py` frame drawing | legacy: the early design where the laptop draws frames over BLE (`BLIT`/`DATA`/`FLUSH`). The vario screen resumes 10 s after the last draw command. Not needed for normal use. |
+
+`display_link.py` is also the BLE connection helper that `ctl.py` and `igc_replay.py` use.
+
+## Troubleshooting
+
+- **"SharpDisplay not found" after stopping a replay**: the box keeps the stale laptop connection for
+  several seconds. Wait about 10 s.
+- **Two tracers with the same name**: tell them apart by the address id in the device list; the box
+  reconnects by address. Reselect the tracer after a firmware change that alters the stored settings (the
+  file is reset then).
+- **The tracer accepts one connection**: disconnect phone apps first.
+- **Heading is not trustworthy yet when it shows `MAG`**: the compass axis mapping
+  (`toDeviceAccel` and `toDeviceMag` in `firmware/src/hw/compass_lis.cpp`) is still identity. Use
+  `orient_log.py` and `orient_analyze.py` to derive it. `TRK` (GPS track) is not affected.
+- **Speed unit**: the tracer's speed is assumed to be km/h; this is unverified until a capture with a
+  real GPS fix.
+- **Serial status line** (printed every 2 s, only when a terminal is attached):
+  - `st`: `ok`/`bad` lines parsed, `fresh`, `fix`, `alt`, `spd`, `vs`, `wind=valid/speed`, `sim`, `link`
+    (0 none, 1 searching, 2 connecting, 3 connected), `pg` (0 compass, 1 thermal), `marks`, `trail`, then
+    timings in microseconds (`tick` worst loop pass, `refresh` panel transfer, and benchmark values).
+  - `dev saved=NAME ADDR t<type> conn=ADDR`: the saved tracer and the one connected now.
+  - `raw ...`: the last line received.
+  - `cmp`: compass sensors (`on`, `present`, accelerometer, magnetometer, heading, source 0 none 1 GPS
+    2 MAG, calibration valid).
+- Saved settings (tracer, time zone, calibration) live in the nRF's flash filesystem.
