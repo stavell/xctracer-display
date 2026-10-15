@@ -64,6 +64,7 @@ static ViewModel* thermalVm(int kind) {
   }
   vm.fresh = true; vm.link = ViewModel::LINK_CONNECTED; vm.hasSaved = true; strcpy(vm.device, "XC-Tracer");
   vm.s = fm.last(); vm.avgVario = fm.avgVario(); vm.glide = fm.glide(); vm.wind = fm.wind();
+  vm.heading = vm.s.course; vm.headingSrc = HDG_GPS;
   vm.localMinutes = 13 * 60 + 52; vm.localBattPct = 76;
   vm.page = ViewModel::PAGE_THERMAL;
   vm.trailCount = fm.airTrail(vm.trail, ViewModel::TRAIL_MAX);
@@ -73,7 +74,7 @@ static ViewModel* thermalVm(int kind) {
 
 static int cmdShots(const std::string& out, int rot) {
   struct Sc { const char* name; };
-  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost"};
+  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "mag", "calibrate"};
   for (const char* n : names) {
     if (!strncmp(n, "thermal", 7)) {
       ViewModel* tv = thermalVm(strcmp(n, "thermal_lost") == 0 ? 1 : 0);
@@ -93,22 +94,27 @@ static int cmdShots(const std::string& out, int rot) {
     vm.wind.valid = true; vm.wind.speedKmh = 14; vm.wind.toDeg = 262; vm.wind.ageS = 12;
     vm.localMinutes = 13 * 60 + 52;
     vm.localBattPct = 76;
+    vm.heading = vm.s.course; vm.headingSrc = HDG_GPS;
     std::string s = n;
     if (s == "nowind") { vm.wind.valid = false; vm.s.vario = -1.1f; }
     if (s == "tail") vm.wind.toDeg = 120;
     if (s == "head") { vm.wind.toDeg = 300; vm.s.speedKmh = 28; }
     if (s == "big") { vm.s.alt = 2650; vm.s.vario = -4.2f; vm.s.speedKmh = 68; vm.glide = 12.8f; vm.avgVario = -3.0f; vm.wind.speedKmh = 38; }
-    if (s == "nofix") { vm.s.fix = false; vm.s.speedKmh = NAN; vm.s.course = NAN; vm.glide = NAN; vm.wind.valid = false; }
+    if (s == "nofix") { vm.s.fix = false; vm.s.speedKmh = NAN; vm.s.course = NAN; vm.glide = NAN; vm.wind.valid = false; vm.heading = NAN; vm.headingSrc = HDG_NONE; }
+    if (s == "mag") { vm.s.fix = false; vm.s.speedKmh = NAN; vm.s.course = NAN; vm.glide = NAN; vm.wind.valid = false; vm.heading = 123; vm.headingSrc = HDG_MAG; }
+    if (s == "calibrate") { vm.calibrating = true; vm.calSpan[0] = 61; vm.calSpan[1] = 33; vm.calSpan[2] = 12; vm.fieldUt = 47; }
     if (s == "status") vm.fresh = false;
     MockPanel p;
     p.setRotation(rot);
     if (s == "list") {
       ListModel lm;
-      lm.count = 3; lm.selected = 1;
+      lm.count = 3; lm.selected = 1;       // the calibrate row
       strcpy(lm.items[0].name, "XC-Tracer"); lm.items[0].rssi = -52; strcpy(lm.items[0].id, "D6:75");
       strcpy(lm.items[1].name, "XC-Tracer"); lm.items[1].rssi = -83; strcpy(lm.items[1].id, "A1:0C");
-      strcpy(lm.items[2].name, "Q-Series Soundbar"); lm.items[2].rssi = -78;
+      strcpy(lm.items[2].name, "Q-Series Soundbar"); lm.items[2].rssi = -78; strcpy(lm.items[2].id, "00:00");
       drawList(p.gfx(), lm, vm, 0);
+    } else if (s == "calibrate") {
+      drawCalibrate(p.gfx(), vm, 0);
     } else {
       drawLive(p.gfx(), vm, 0);
     }
@@ -140,7 +146,7 @@ static int cmdReplay(int argc, char** argv) {
   Rig r;
   AppConfig cfg;
   cfg.rotation = rot;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.power, cfg);
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power, cfg);
   app.begin(0);
   if (thermal) r.input.press(300, 120);
 

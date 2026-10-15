@@ -4,6 +4,7 @@
 #include <Adafruit_GFX.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "core/types.h"
 #include "view/viewmodel.h"
 
 enum ButtonEvent { BTN_NONE, BTN_SHORT, BTN_LONG, BTN_HOLD };
@@ -55,7 +56,7 @@ class ITracer {
 // Commands from the laptop (BLE peripheral). Heavy parsing stays out of the BLE callbacks:
 // they only copy the text into a queue, the app thread does the rest.
 struct Command {
-  enum Type { NONE, SIM, TZ, FILTER, XCTRC, PAGE } type = NONE;
+  enum Type { NONE, SIM, TZ, FILTER, XCTRC, PAGE, CAL } type = NONE;   // CAL: 1 start, 2 save, 0 cancel
   int value = 0;
   char text[200] = "";
 };
@@ -73,6 +74,17 @@ class ISettings {
   virtual ~ISettings() {}
   virtual int tzMinutes() const = 0;
   virtual void setTzMinutes(int m) = 0;
+  virtual bool loadMagCal(MagCal& out) = 0;          // false if none is stored
+  virtual void saveMagCal(const MagCal& cal) = 0;
+};
+
+// Accelerometer + magnetometer, already mapped to the device frame (x right of the screen, y top of the
+// screen, z out of the screen). Powered down unless enabled.
+class ICompass {
+ public:
+  virtual ~ICompass() {}
+  virtual void enable(bool on) = 0;
+  virtual bool read(Vec3& accel, Vec3& mag) = 0;     // true when a new reading pair is available
 };
 
 class IPower {

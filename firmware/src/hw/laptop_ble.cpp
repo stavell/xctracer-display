@@ -94,6 +94,9 @@ void LaptopBle::handle(const uint8_t* d, uint16_t len) {
     case CMD_SIM:
       if (len >= 2) { c.type = Command::SIM; c.value = d[1] != 0; push(c); }
       break;
+    case CMD_CAL:
+      if (len >= 2) { c.type = Command::CAL; c.value = d[1]; push(c); }
+      break;
     case CMD_PAGE:
       if (len >= 2) { c.type = Command::PAGE; c.value = d[1] != 0; push(c); }
       break;

@@ -8,6 +8,8 @@ class ConfigStore : public ISettings {
   void begin();                                   // mounts the filesystem and loads
   int tzMinutes() const override { return sv_.tz; }
   void setTzMinutes(int m) override { sv_.tz = (int16_t)m; save(); }
+  bool loadMagCal(MagCal& out) override;
+  void saveMagCal(const MagCal& cal) override;
 
   const char* filter() const { return sv_.filter; }
   void setFilter(const char* glob);

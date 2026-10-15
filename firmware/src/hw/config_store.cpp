@@ -48,3 +48,33 @@ void ConfigStore::forget() {
   sv_.name[0] = 0;
   save();
 }
+
+// Magnetometer calibration lives in its own file so that changing it never resets the saved tracer.
+struct MagFile { uint32_t magic; float off[3]; float radius; };
+static const uint32_t MAG_MAGIC = 0x4d414733;
+
+bool ConfigStore::loadMagCal(MagCal& out) {
+  File f(InternalFS);
+  bool ok = false;
+  if (f.open("/magcal3.bin", FILE_O_READ)) {
+    MagFile m;
+    if (f.read((uint8_t*)&m, sizeof m) == sizeof m && m.magic == MAG_MAGIC) {
+      out.valid = true;
+      for (int i = 0; i < 3; i++) out.off[i] = m.off[i];
+      out.radius = m.radius;
+      ok = true;
+    }
+    f.close();
+  }
+  return ok;
+}
+
+void ConfigStore::saveMagCal(const MagCal& cal) {
+  MagFile m;
+  m.magic = MAG_MAGIC;
+  for (int i = 0; i < 3; i++) m.off[i] = cal.off[i];
+  m.radius = cal.radius;
+  InternalFS.remove("/magcal3.bin");
+  File f(InternalFS);
+  if (f.open("/magcal3.bin", FILE_O_WRITE)) { f.write((uint8_t*)&m, sizeof m); f.close(); }
+}

@@ -3,13 +3,14 @@
   python ctl.py tz 180           local time offset from UTC, minutes
   python ctl.py sim on|off       built-in flight simulator (bench testing)
   python ctl.py page compass|thermal   switch the page
+  python ctl.py cal start|save|cancel  magnetometer calibration
 """
 import asyncio
 import struct
 import sys
 from display_link import DisplayLink, CMD_UUID
 
-CMD_SET_FILTER, CMD_SET_TZ, CMD_SIM, CMD_PAGE = 0x10, 0x11, 0x12, 0x14
+CMD_SET_FILTER, CMD_SET_TZ, CMD_SIM, CMD_PAGE, CMD_CAL = 0x10, 0x11, 0x12, 0x14, 0x15
 
 
 async def main():
@@ -23,6 +24,8 @@ async def main():
         data = bytes([CMD_SET_TZ]) + struct.pack("<h", int(arg))
     elif cmd == "sim":
         data = bytes([CMD_SIM, 1 if arg == "on" else 0])
+    elif cmd == "cal":
+        data = bytes([CMD_CAL, {"start": 1, "save": 2, "cancel": 0}[arg]])
     elif cmd == "page":
         data = bytes([CMD_PAGE, 1 if arg == "thermal" else 0])
     else:

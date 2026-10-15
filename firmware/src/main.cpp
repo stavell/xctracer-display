@@ -3,6 +3,7 @@
 #include <bluefruit.h>
 #include "app/app.h"
 #include "hw/battery_adc.h"
+#include "hw/compass_lis.h"
 #include "hw/config_store.h"
 #include "hw/input_button.h"
 #include "hw/laptop_ble.h"
@@ -18,6 +19,7 @@ static ConfigStore config;
 static SharpPanel panel;
 static ButtonGpio button(PIN_BUTTON1);
 static BatteryAdc battery;
+static CompassLis compassHw;
 static TracerBle tracer(config);
 static LaptopBle laptop(panel);
 static PowerNrf power(panel, laptop, tracer, PIN_BUTTON1);
@@ -27,7 +29,7 @@ static AppConfig appConfig() {
   c.rotation = DISPLAY_ROTATION;
   return c;
 }
-static App app(panel, button, battery, tracer, laptop, config, power, appConfig());
+static App app(panel, button, battery, tracer, laptop, config, compassHw, power, appConfig());
 
 void setup() {
   PowerNrf::gateOnWake(PIN_BUTTON1, 1000);   // before anything else: a quick tap goes back to sleep
@@ -35,6 +37,7 @@ void setup() {
   button.begin();
   config.begin();
   panel.begin();
+  compassHw.begin();
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
   Bluefruit.begin(1, 1);                      // one link to the laptop, one to the vario
@@ -90,6 +93,10 @@ static void debugLine(uint32_t now) {
   char desc[120];
   app.describeTracer(desc, sizeof desc);
   Serial.printf("dev %s\nraw %s\n", desc, app.lastRaw());
+  const Vec3& ca = compassHw.lastAccel();
+  const Vec3& cm = compassHw.lastMag();
+  Serial.printf("cmp on=%d present=%d acc=%.2f,%.2f,%.2f mag=%.1f,%.1f,%.1f hdg=%.1f src=%d cal=%d\n", app.compassOn(),
+                compassHw.present(), ca.x, ca.y, ca.z, cm.x, cm.y, cm.z, vm.heading, (int)vm.headingSrc, vm.calValid);
   worstTickUs = 0;
 }
 

@@ -6,6 +6,7 @@
 #include <vector>
 #include <Adafruit_SharpMem.h>      // host mock from emu/stubs
 #include "app/button_fsm.h"
+#include "core/types.h"
 #include "app/ports.h"
 
 class MockPanel : public IPanel {
@@ -97,7 +98,53 @@ class MockSettings : public ISettings {
  public:
   int tzMinutes() const override { return tz; }
   void setTzMinutes(int m) override { tz = m; }
+  bool loadMagCal(MagCal& out) override { if (!hasCal) return false; out = cal; return true; }
+  void saveMagCal(const MagCal& c) override { cal = c; hasCal = true; saves++; }
   int tz = 0;
+  MagCal cal;
+  bool hasCal = false;
+  int saves = 0;
+};
+
+// A magnetometer + accelerometer for a unit with a known orientation. Earth's field: 20 uT north and
+// 40 uT down (a mid-latitude inclination); `hardIron` is added to the magnetometer like a magnetised
+// part in the case would. Orientation: heading psi (azimuth of the top of the screen), pitch (top up),
+// roll (right edge down), degrees.
+class MockCompass : public ICompass {
+ public:
+  void enable(bool on) override { enabled = on; enables += on ? 1 : 0; }
+  bool read(Vec3& a, Vec3& m) override {
+    if (!enabled) return false;
+    reading(psi, pitch, roll, a, m);
+    return true;
+  }
+  void reading(double psiDeg, double pitchDeg, double rollDeg, Vec3& a, Vec3& m) const {
+    const double D2R = 0.017453292519943295;
+    double p = psiDeg * D2R, t = pitchDeg * D2R, r = rollDeg * D2R;
+    // level device axes in east/north/up, then pitch about x, then roll about y
+    double x0[3] = {cos(p), -sin(p), 0}, y0[3] = {sin(p), cos(p), 0}, z0[3] = {0, 0, 1};
+    double x1[3], y1[3], z1[3], x2[3], z2[3];
+    for (int i = 0; i < 3; i++) {
+      x1[i] = x0[i];
+      y1[i] = y0[i] * cos(t) + z0[i] * sin(t);
+      z1[i] = -y0[i] * sin(t) + z0[i] * cos(t);
+      x2[i] = x1[i] * cos(r) - z1[i] * sin(r);
+      z2[i] = x1[i] * sin(r) + z1[i] * cos(r);
+    }
+    const double *ax[3] = {x2, y1, z2};
+    const double up[3] = {0, 0, 1}, field[3] = {0, 20, -40};
+    double av[3], mv[3];
+    for (int k = 0; k < 3; k++) {
+      av[k] = 9.81 * (up[0] * ax[k][0] + up[1] * ax[k][1] + up[2] * ax[k][2]);
+      mv[k] = field[0] * ax[k][0] + field[1] * ax[k][1] + field[2] * ax[k][2];
+    }
+    a.x = (float)av[0]; a.y = (float)av[1]; a.z = (float)av[2];
+    m.x = (float)(mv[0] + hardIron[0]); m.y = (float)(mv[1] + hardIron[1]); m.z = (float)(mv[2] + hardIron[2]);
+  }
+  bool enabled = false;
+  int enables = 0;
+  double psi = 0, pitch = 0, roll = 0;
+  double hardIron[3] = {0, 0, 0};
 };
 
 class MockPower : public IPower {
@@ -114,5 +161,6 @@ struct Rig {
   MockTracer tracer;
   MockLaptop laptop;
   MockSettings settings;
+  MockCompass compass;
   MockPower power;
 };

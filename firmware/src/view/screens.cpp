@@ -135,14 +135,16 @@ static const char* cardinal16(float deg) {
   return n[((int)((deg + 11.25f) / 22.5f)) % 16];
 }
 
-// Heading-up compass in the Garmin style: the dial rotates so the current track is under the
-// fixed pointer at the top; big N/E/S/W and smaller NE/SE/SW/NW sit on the ring, ticks every 10
-// degrees (longer every 30), the track in degrees is the big number in the centre.
-static void compassDial(int cx, int cy, int R, float course) {
+// Heading-up compass in the Garmin style: the dial rotates so the current heading is under the fixed
+// pointer at the top; big N/E/S/W and smaller NE/SE/SW/NW sit on the ring, ticks every 10 degrees
+// (longer every 30), the heading in degrees is the big number in the centre with its source above it
+// (TRK = GPS track, MAG = magnetic compass). With no heading the dial stays north-up and shows "--".
+static void compassDial(int cx, int cy, int R, float heading, HeadingSource src) {
+  const bool have = isfinite(heading);
+  const float course = have ? heading : 0.0f;
   d->drawCircle(cx, cy, R, BLK);
   d->drawCircle(cx, cy, R - 1, BLK);
   d->fillTriangle(cx - 8, cy - R - 4, cx + 8, cy - R - 4, cx, cy - R + 11, BLK);   // direction of travel
-  if (!isfinite(course)) { text(cx, cy + 8, "--", F18B, AC); return; }
   const int rl = R - 24;   // label radius
   for (int a = 0; a < 360; a += 10) {
     if (a % 45 == 0) continue;   // letters sit there
@@ -165,7 +167,12 @@ static void compassDial(int cx, int cy, int R, float course) {
     }
   }
   char b[8];
-  text(cx, cy + 8, fnum(b, sizeof b, course, "%.0f"), F18B, AC);
+  if (have) {
+    if (src != HDG_NONE) text(cx, cy - 14, src == HDG_MAG ? "MAG" : "TRK", F9, AC);
+    text(cx, cy + 12, fnum(b, sizeof b, heading, "%.0f"), F18B, AC);
+  } else {
+    text(cx, cy + 8, "--", F18B, AC);
+  }
 }
 
 // Arrow centred on (ax, ay) pointing along screen angle th (radians clockwise from up), half length L.
@@ -393,7 +400,7 @@ static void drawLiveBody(const ViewModel& vm) {
 
   // no GPS fix: speed and track read 0 (the title says NO FIX) instead of dashes
   float spd = isfinite(v.speedKmh) ? v.speedKmh : 0;
-  float crs = isfinite(v.course) ? v.course : 0;
+  float crs = isfinite(vm.heading) ? vm.heading : 0;
   thinVario(barX, barW, v.vario, vm.avgVario);
   cell(cx0, row1, cellW, v.fix ? "GPS km/h" : "NO FIX", fnum(b, sizeof b, spd, "%.0f"));
   cell(cx0 + cellW + 4, row1, cellW, "GLIDE", fnum(b, sizeof b, vm.glide, "%.1f"));
@@ -406,8 +413,8 @@ static void drawLiveBody(const ViewModel& vm) {
   if (vm.page == ViewModel::PAGE_THERMAL) {
     drawThermalMap(vm, cx0, gridEnd + 2, W - cx0 - 2, H - 6 - 25 - 5 - (gridEnd + 2));
   } else {
-    compassDial(cx, cy, R, crs);
-    windCorner(cx, cy, R, crs, w);
+    compassDial(cx, cy, R, vm.heading, vm.headingSrc);
+    if (vm.headingSrc == HDG_GPS) windCorner(cx, cy, R, crs, w);
   }
 
   // wind as one line: "15 km/h NNW"
@@ -454,7 +461,7 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
   text(6, HDR + 20, b, F9);
   const int n = lm.count, sel = lm.selected;
   const int rowH = 42, y0 = HDR + 30;
-  int rows = n + 1;
+  int rows = n + 2;
   int vis = (H - y0 - 30) / rowH;
   int first = sel >= vis ? sel - vis + 1 : 0;   // scroll so the selection stays visible
   for (int k = 0; k < vis && first + k < rows; k++) {
@@ -464,8 +471,10 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
     uint16_t col = on ? WHT : BLK;
     if (i == 0) {
       text(10, y + 27, "< back", F12B, AL, col);
+    } else if (i == 1) {
+      text(10, y + 27, "Calibrate compass", F12B, AL, col);
     } else {
-      const ListItem& it = lm.items[i - 1];
+      const ListItem& it = lm.items[i - 2];
       char nm[20];
       snprintf(nm, sizeof nm, "%.17s", it.name);
       text(10, y + 18, nm, F12B, AL, col);
@@ -473,8 +482,28 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
       text(10, y + 36, b, F9, AL, col);
     }
   }
-  if (n == 0) text(W / 2, y0 + 2 * rowH, "scanning...", F12B, AC);
+  if (n == 0) text(W / 2, y0 + 3 * rowH, "scanning...", F12B, AC);
   text(W / 2, H - 12, "press: next   hold: select", F9, AC);
+  powerBanner(heldMs);
+}
+
+void drawCalibrate(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs) {
+  begin(g);
+  header(vm, "CALIBRATE");
+  text(W / 2, 74, "Turn the unit slowly", F9, AC);
+  text(W / 2, 96, "in every direction:", F9, AC);
+  text(W / 2, 118, "flat, on edge, inverted", F9, AC);
+  const char* ax[3] = {"X", "Y", "Z"};
+  for (int i = 0; i < 3; i++) {
+    int y = 150 + i * 34;
+    text(14, y + 16, ax[i], F12B);
+    hbar(40, y, W - 60, 22, vm.calSpan[i] / 70.0f);          // about 70 uT of swing per axis is plenty
+  }
+  char b[24];
+  snprintf(b, sizeof b, "field %.0f uT", vm.fieldUt);
+  text(W / 2, 276, b, F9, AC);
+  text(W / 2, H - 44, "hold: save", F12B, AC);
+  text(W / 2, H - 16, "press: cancel", F12B, AC);
   powerBanner(heldMs);
 }
 

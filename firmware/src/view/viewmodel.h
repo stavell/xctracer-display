@@ -1,4 +1,5 @@
 #pragma once
+#include "core/heading.h"
 #include "core/thermal.h"
 #include "core/types.h"
 
@@ -27,7 +28,16 @@ struct ViewModel {
   static const int MARKS_MAX = ThermalMemory::MAX;
   ThermalRel marks[MARKS_MAX];     // remembered thermals, newest first
   int markCount = 0;
-  bool mapHeadingUp = true;       // thermal map: your direction of travel is up (false = north is up)
+  bool mapHeadingUp = true;
+
+  // heading for the compass dial: the GPS track when there is one, else the magnetometer, else none
+  HeadingSource headingSrc = HDG_NONE;
+  float heading = NAN;
+  // magnetometer calibration screen
+  bool calibrating = false;
+  bool calValid = false;
+  float calSpan[3] = {0, 0, 0};    // microtesla covered per axis
+  float fieldUt = 0;       // thermal map: your direction of travel is up (false = north is up)
 };
 
 struct ListItem {
@@ -40,5 +50,5 @@ struct ListModel {
   char filter[24] = "*";
   int count = 0;
   ListItem items[8];
-  int selected = 0;              // 0 = "< back", 1.. = items
+  int selected = 0;              // 0 = "< back", 1 = "Calibrate compass", 2.. = items
 };

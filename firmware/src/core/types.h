@@ -40,3 +40,14 @@ struct ThermalRel {
   float gain;            // metres gained in it
   uint32_t ageS;         // seconds since the climb ended
 };
+
+struct Vec3 {
+  float x = 0, y = 0, z = 0;
+};
+
+// Hard-iron calibration of the magnetometer: the offset that centres the measured field on a sphere.
+struct MagCal {
+  bool valid = false;
+  float off[3] = {0, 0, 0};      // microtesla, subtracted from every reading
+  float radius = 0;              // microtesla, the field strength found during calibration
+};

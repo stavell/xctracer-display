@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <string>
 #include "app/app.h"
+#include "core/compass.h"
 #include "core/flight.h"
+#include "core/heading.h"
 #include "core/sim.h"
 #include "core/thermal.h"
 #include "core/wind.h"
@@ -271,6 +273,188 @@ static void test_thermal_memory() {
   CHECK(nf.thermals(tr, ThermalMemory::MAX) == 0);
 }
 
+
+static float angDiff(float a, float b) { float d = fmodf(a - b + 540.0f, 360.0f) - 180.0f; return d; }
+
+static void test_compass() {
+  puts("compass maths");
+  MockCompass mc;
+  Compass c;
+  Vec3 a, m;
+  // level, every heading
+  for (int psi = 0; psi < 360; psi += 15) {
+    mc.reading(psi, 0, 0, a, m);
+    c.reset();
+    c.update(a, m);
+    CHECK(c.valid());
+    NEAR(fabsf(angDiff(c.heading(), (float)psi)), 0, 0.5);
+  }
+  // tilted: pitch and roll must not change the heading of the top of the screen
+  int bad = 0;
+  for (int psi = 0; psi < 360; psi += 30)
+    for (int pitch = -50; pitch <= 50; pitch += 25)
+      for (int roll = -50; roll <= 50; roll += 25) {
+        mc.reading(psi, pitch, roll, a, m);
+        c.reset();
+        c.update(a, m);
+        if (!c.valid() || fabsf(angDiff(c.heading(), (float)psi)) > 1.0f) bad++;
+      }
+  CHECK(bad == 0);
+  // freefall: no usable gravity, no heading
+  mc.reading(90, 0, 0, a, m);
+  a.x = a.y = a.z = 0.2f;
+  c.reset();
+  c.update(a, m);
+  CHECK(!c.valid());
+  // hard iron: an uncalibrated offset shifts the heading, calibration removes it
+  MockCompass hi;
+  hi.hardIron[0] = 12; hi.hardIron[1] = -18; hi.hardIron[2] = 7;
+  Compass u;
+  hi.reading(90, 0, 0, a, m);
+  u.update(a, m);
+  CHECK(fabsf(angDiff(u.heading(), 90)) > 5.0f);
+  Compass k;
+  CHECK(!k.calibration().valid);
+  k.startCalibration();
+  for (int psi = 0; psi < 360; psi += 20)                  // sweep orientations like a person turning the unit
+    for (int pitch = -90; pitch <= 90; pitch += 30)
+      for (int roll = -90; roll <= 90; roll += 45) {
+        hi.reading(psi, pitch, roll, a, m);
+        k.update(a, m);
+      }
+  float span[3];
+  k.calibrationSpan(span);
+  CHECK(span[0] > 50 && span[1] > 50 && span[2] > 50);
+  CHECK(k.finishCalibration(true));
+  CHECK(k.calibration().valid);
+  float worst = 0;
+  for (int psi = 0; psi < 360; psi += 30)
+    for (int tilt = -30; tilt <= 30; tilt += 30) {
+      hi.reading(psi, tilt, tilt / 2, a, m);
+      k.reset();                                           // reset keeps the calibration
+      k.update(a, m);
+      worst = fmaxf(worst, fabsf(angDiff(k.heading(), (float)psi)));
+    }
+  printf("  worst heading error after calibration: %.1f degrees\n", worst);
+  CHECK(worst < 1.5f);
+  // barely moving: the calibration is not replaced
+  Compass lazy;
+  lazy.startCalibration();
+  hi.reading(0, 0, 0, a, m);
+  lazy.update(a, m);
+  CHECK(!lazy.finishCalibration(true));
+  CHECK(!lazy.calibration().valid);
+}
+
+static void test_heading_selector() {
+  puts("heading selector");
+  HeadingSelector h;
+  h.configure(4.0f, 2.5f);
+  CHECK(h.current().src == HDG_NONE);
+  CHECK(h.wantsMagnetometer());
+  h.feedMag(true, 200);
+  CHECK(h.current().src == HDG_MAG); NEAR(h.current().deg, 200, 0.01);
+  h.feedGps(true, 3.0f, 90);                               // below the on threshold: still the compass
+  CHECK(h.current().src == HDG_MAG);
+  h.feedGps(true, 5.0f, 90);                               // moving: the GPS track wins
+  CHECK(h.current().src == HDG_GPS); NEAR(h.current().deg, 90, 0.01);
+  CHECK(!h.wantsMagnetometer());
+  h.feedGps(true, 3.0f, 95);                               // slowing: hysteresis keeps GPS above 2.5
+  CHECK(h.current().src == HDG_GPS);
+  h.feedGps(true, 2.0f, 95);                               // slow: back to the compass
+  CHECK(h.current().src == HDG_MAG); CHECK(h.wantsMagnetometer());
+  h.feedGps(true, 3.5f, 95);                               // not above 4 yet: stays on the compass
+  CHECK(h.current().src == HDG_MAG);
+  h.feedGps(true, 8.0f, 100);
+  CHECK(h.current().src == HDG_GPS);
+  h.feedGps(false, 30.0f, 100);                            // no fix / stale data: not usable
+  CHECK(h.current().src == HDG_MAG);
+  h.feedMag(false, NAN);                                   // and no valid compass either
+  CHECK(h.current().src == HDG_NONE); CHECK(!isfinite(h.current().deg));
+  h.feedGps(true, NAN, NAN);
+  CHECK(h.current().src == HDG_NONE);
+}
+
+static void test_app_heading() {
+  puts("app heading source and calibration");
+  Rig r;
+  r.compass.psi = 123; r.compass.pitch = 10; r.compass.roll = -5;
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power);
+  app.begin(0);
+  uint32_t now = 0;
+  auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
+  run(200);
+  // compass page, no data from the tracer: the magnetometer is on and feeds the dial
+  CHECK(app.compassOn()); CHECK(r.compass.enabled);
+  const ViewModel& vm = app.buildViewModel(now);
+  CHECK(vm.headingSrc == HDG_MAG);
+  NEAR(fabsf(angDiff(vm.heading, 123)), 0, 2.0);
+  // the tracer reports a fix but we are standing still: still the compass
+  r.laptop.inject(line("XCTRC,2026,8,16,10,38,24,0,43.252650,26.927967,1387.00,1.00,12.5,0.1,,,,967.62,85"));
+  run(200);
+  CHECK(app.buildViewModel(now).headingSrc == HDG_MAG);
+  // moving: the GPS track takes over and the sensors power down
+  r.laptop.inject(line("XCTRC,2026,8,16,10,38,25,0,43.252650,26.927967,1387.00,30.00,250.0,0.1,,,,967.62,85"));
+  run(200);
+  CHECK(app.buildViewModel(now).headingSrc == HDG_GPS);
+  NEAR(fabsf(angDiff(app.buildViewModel(now).heading, 250)), 0, 0.01);
+  CHECK(!app.compassOn()); CHECK(!r.compass.enabled);
+  // data goes stale: back to the compass
+  run(4000);
+  CHECK(app.compassOn());
+  CHECK(app.buildViewModel(now).headingSrc == HDG_MAG);
+  // the thermal page needs no magnetometer
+  { Command pc; pc.type = Command::PAGE; pc.value = 1; r.laptop.cmds.push_back(pc); }
+  run(200);
+  CHECK(!app.compassOn());
+  { Command pc; pc.type = Command::PAGE; pc.value = 0; r.laptop.cmds.push_back(pc); }
+  run(200);
+  CHECK(app.compassOn());
+
+  // calibration from the laptop: start, sweep the unit, save: stored and loaded by a new app instance
+  r.compass.hardIron[0] = 12; r.compass.hardIron[1] = -18; r.compass.hardIron[2] = 7;
+  { Command cc; cc.type = Command::CAL; cc.value = 1; r.laptop.cmds.push_back(cc); }
+  run(100);
+  CHECK(app.calibrating());
+  for (int psi = 0; psi < 360; psi += 20)
+    for (int pitch = -90; pitch <= 90; pitch += 30)
+      for (int roll = -90; roll <= 90; roll += 45) {
+        r.compass.psi = psi; r.compass.pitch = pitch; r.compass.roll = roll;
+        run(20);
+      }
+  CHECK(app.buildViewModel(now).calSpan[0] > 50);
+  { Command cc; cc.type = Command::CAL; cc.value = 2; r.laptop.cmds.push_back(cc); }
+  run(100);
+  CHECK(!app.calibrating()); CHECK(r.settings.hasCal); CHECK(r.settings.saves == 1);
+  r.compass.psi = 200; r.compass.pitch = 0; r.compass.roll = 0;
+  run(400);
+  NEAR(fabsf(angDiff(app.buildViewModel(now).heading, 200)), 0, 4.0);
+  { Rig r2; r2.settings = r.settings; r2.compass = r.compass; r2.compass.enabled = false;
+    App app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.power);
+    app2.begin(0);
+    uint32_t n2 = 0;
+    for (; n2 < 400; n2 += 10) app2.tick(n2);
+    NEAR(fabsf(angDiff(app2.buildViewModel(n2).heading, 200)), 0, 4.0); }     // calibration survives a restart
+  // cancelling keeps the old calibration
+  { Command cc; cc.type = Command::CAL; cc.value = 1; r.laptop.cmds.push_back(cc); }
+  run(100);
+  { Command cc; cc.type = Command::CAL; cc.value = 0; r.laptop.cmds.push_back(cc); }
+  run(100);
+  CHECK(!app.calibrating()); CHECK(r.settings.saves == 1);
+  // calibration from the device list: the second row
+  r.input.press(now + 100, 900);                           // long: open the list
+  run(1500);
+  CHECK(app.listOpen());
+  r.input.press(now + 100, 150);                           // short: the calibrate row
+  run(600);
+  r.input.press(now + 100, 900);                           // long: start calibration
+  run(1500);
+  CHECK(app.calibrating());
+  r.input.press(now + 100, 150);                           // short: cancel
+  run(600);
+  CHECK(!app.calibrating());
+}
+
 static void test_button() {
   puts("button state machine");
   auto run = [](uint32_t downMs) {
@@ -294,7 +478,7 @@ static void test_button() {
 static void test_app() {
   puts("app");
   Rig r;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.power);
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.power);
   app.begin(0);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -348,9 +532,11 @@ static void test_app() {
   r.input.press(now + 100, 900);                          // long press opens the list
   run(1500);
   CHECK(app.listOpen()); CHECK(r.tracer.opened);
-  r.input.press(now + 100, 150);                          // short: next row
+  r.input.press(now + 100, 150);                          // short: next row (the calibrate row)
   run(600);
-  r.input.press(now + 100, 900);                          // long: select row 1 = first device
+  r.input.press(now + 100, 150);                          // short: next row (the first device)
+  run(600);
+  r.input.press(now + 100, 900);                          // long: select the first device
   run(1500);
   CHECK(!app.listOpen()); CHECK(r.tracer.connected == 0);
   // the laptop can switch pages too
@@ -381,8 +567,11 @@ int main() {
   test_air_trail();
   test_thermal();
   test_thermal_memory();
+  test_compass();
+  test_heading_selector();
   test_button();
   test_app();
+  test_app_heading();
   printf("\n%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }

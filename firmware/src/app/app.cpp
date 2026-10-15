@@ -5,11 +5,14 @@
 #include "view/screens.h"
 
 App::App(IPanel& panel, IInput& input, IBattery& battery, ITracer& tracer, ILaptop& laptop,
-         ISettings& settings, IPower& power, AppConfig cfg)
+         ISettings& settings, ICompass& compass, IPower& power, AppConfig cfg)
     : panel_(panel), input_(input), battery_(battery), tracer_(tracer), laptop_(laptop),
-      settings_(settings), power_(power), cfg_(cfg) {}
+      settings_(settings), compassHw_(compass), power_(power), cfg_(cfg) {}
 
 void App::begin(uint32_t) {
+  heading_.configure(cfg_.gpsHeadingOnKmh, cfg_.gpsHeadingOffKmh);
+  MagCal cal;
+  if (settings_.loadMagCal(cal)) compass_.setCalibration(cal);
   panel_.setRotation(cfg_.rotation);
   panel_.invalidate();
   redraw_ = true;
@@ -42,6 +45,10 @@ void App::handle(const Command& c, uint32_t now) {
     case Command::TZ:
       settings_.setTzMinutes(c.value);
       break;
+    case Command::CAL:
+      if (c.value == 1) startCalibration();
+      else if (calibrating_) finishCalibration(c.value == 2);
+      break;
     case Command::PAGE:
       page_ = c.value ? ViewModel::PAGE_THERMAL : ViewModel::PAGE_COMPASS;
       redraw_ = true;
@@ -56,6 +63,39 @@ void App::handle(const Command& c, uint32_t now) {
     default:
       break;
   }
+}
+
+void App::startCalibration() {
+  compass_.startCalibration();
+  calibrating_ = true;
+  listOpen_ = false;
+  panel_.invalidate();
+  redraw_ = true;
+}
+
+void App::finishCalibration(bool keep) {
+  bool saved = compass_.finishCalibration(keep);
+  if (keep && saved) settings_.saveMagCal(compass_.calibration());
+  calibrating_ = false;
+  panel_.invalidate();
+  redraw_ = true;
+}
+
+// Feed the heading selector from both sources and power the magnetometer only when it is needed.
+void App::updateHeading(uint32_t now) {
+  const Sample& s = flight_.last();
+  bool fresh = flight_.hasData() && lastSampleMs_ && now - lastSampleMs_ < cfg_.freshMs;
+  heading_.feedGps(fresh && s.fix, s.speedKmh, s.course);
+
+  bool want = calibrating_ || (page_ == ViewModel::PAGE_COMPASS && heading_.wantsMagnetometer());
+  if (want != compassOn_) {
+    compassOn_ = want;
+    compassHw_.enable(want);
+    if (!want && !calibrating_) compass_.reset();
+  }
+  Vec3 a, m;
+  if (compassOn_ && compassHw_.read(a, m)) compass_.update(a, m);
+  heading_.feedMag(compassOn_ && compass_.valid(), compass_.heading());
 }
 
 const ViewModel& App::buildViewModel(uint32_t now) {
@@ -80,6 +120,13 @@ const ViewModel& App::buildViewModel(uint32_t now) {
     vm.localMinutes = ((m % 1440) + 1440) % 1440;
   }
   vm.localBattPct = battery_.percent();
+  Heading h = heading_.current();
+  vm.heading = h.deg;
+  vm.headingSrc = h.src;
+  vm.calibrating = calibrating_;
+  vm.calValid = compass_.calibration().valid;
+  compass_.calibrationSpan(vm.calSpan);
+  vm.fieldUt = compass_.fieldUt();
   vm.page = page_;
   vm.trailCount = 0;
   vm.markCount = 0;
@@ -102,6 +149,12 @@ void App::shutdown() {
 void App::drawLiveScreen(uint32_t now, uint32_t held) {
   panel_.clear();
   drawLive(panel_.gfx(), buildViewModel(now), held);
+  panel_.present();
+}
+
+void App::drawCalibrateScreen(uint32_t now, uint32_t held) {
+  panel_.clear();
+  drawCalibrate(panel_.gfx(), buildViewModel(now), held);
   panel_.present();
 }
 
@@ -135,6 +188,7 @@ void App::tick(uint32_t now) {
     if (!injecting(now)) ingestLine(line, now);
   }
   laptop_.service(now);
+  updateHeading(now);
 
   bool local = !laptop_.hostDrawing(now);
   if (local != wasLocal_) {
@@ -144,17 +198,28 @@ void App::tick(uint32_t now) {
   if (!local) return;
 
   uint32_t held = input_.heldMs(now);
+  if (calibrating_) {                               // turn the unit in every direction; hold = keep, press = cancel
+    if (ev == BTN_LONG) finishCalibration(true);
+    else if (ev == BTN_SHORT) finishCalibration(false);
+    if (calibrating_ && (redraw_ || now - lastDraw_ >= 200)) {
+      lastDraw_ = now;
+      redraw_ = false;
+      drawCalibrateScreen(now, held);
+    }
+    return;
+  }
   if (listOpen_) {
     int n = tracer_.listCount();
-    if (ev == BTN_SHORT) { listSel_ = (listSel_ + 1) % (n + 1); redraw_ = true; }
+    if (ev == BTN_SHORT) { listSel_ = (listSel_ + 1) % (n + 2); redraw_ = true; }
     else if (ev == BTN_LONG) {
-      if (listSel_ > 0) tracer_.listConnect(listSel_ - 1);
-      else tracer_.listClose();
+      if (listSel_ == 0) tracer_.listClose();
+      else if (listSel_ == 1) { tracer_.listClose(); startCalibration(); }
+      else tracer_.listConnect(listSel_ - 2);
       listOpen_ = false;
       panel_.invalidate();
       redraw_ = true;
     }
-    if (listSel_ > n) listSel_ = 0;
+    if (listSel_ > n + 1) listSel_ = 0;
     if (listOpen_ && (redraw_ || now - lastDraw_ >= 250)) {
       lastDraw_ = now;
       redraw_ = false;
