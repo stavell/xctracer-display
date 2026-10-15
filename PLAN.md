@@ -65,6 +65,27 @@ Every package must keep `firmware/emu/build.sh` green (all checks pass, sanitize
    using it (switch, pages, device list, calibration), architecture, testing and replay, host tools
    (legacy laptop drawing clearly marked), troubleshooting; link `NOTES.md` and `PLAN.md`.
 
+### D. Reliability for a flight instrument (after A, B, C are merged)
+
+The firmware already runs on FreeRTOS (the Adafruit core): `loop()` is a task with a 4 KB stack,
+Bluefruit runs its own event and callback tasks, the VCOM toggle is a software timer. More tasks would
+not make it more reliable by themselves (each one adds concurrency risk); these guards do:
+
+1. Watchdog (reviewer): 8 s hardware WDT fed by the loop and inside blocking waits; the reset cause
+   (watchdog, hard fault, power-on) is reported at boot. Verified on the device: uploads still work
+   (the bootloader feeds a running WDT), the reset button recovers it, System OFF does not wake up.
+2. Stack margins: the core's stack-overflow hook only logs and returns in release builds (execution
+   continues on a corrupted stack), so measure instead: report the stack high-water mark of the loop task
+   and the Bluefruit tasks in the status line; keep at least 1 KB free under the heaviest page.
+3. No heap after start: the panel's snapshot buffer is the only `malloc`; check heap use at boot and after
+   a long run is identical (the malloc-failed hook also just returns).
+4. Input never lost: sample the switch from a 10 ms FreeRTOS software timer into the button state
+   machine, so a press during a 108 ms redraw still counts.
+5. Fuzz and soak in the emulator: random and malformed lines, truncated and huge fields, time jumps,
+   link drops, the whole 3 h flight replayed several times; sanitizers on, no NaN on screen, bounded tick.
+6. Device soak: 2 h of replay with page switches and reconnects; no resets, stable stack and heap.
+7. Review time arithmetic for `millis()` wrap (49.7 days): unsigned differences only.
+
 ### Verification (done by the reviewer, not the agents)
 
 For each branch: read the diff, run `scripts/check.sh` (or its two steps), check the new tests really
