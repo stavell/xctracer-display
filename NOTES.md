@@ -126,6 +126,24 @@ project is and how to run it; this file says what we found and why things are th
 - The serial status line can report `parse=`, `windfit=` and `viewmodel=` timings (only when a terminal is
   attached). They were added but not yet read on the device: the board was not on USB at the time.
 
+## Fuzz, soak and clock-wrap testing (emulator)
+
+- `firmware/emu/build.sh` now runs about 88,900 checks: a 60,000-line parser fuzz, an app-level fuzz with hostile
+  lines and laptop commands, and the `millis()` wrap at 211 positions. `build.sh soak <lines> --runs 3` replays a
+  whole flight repeatedly with link drops, page changes, presses, calibrations and the simulator.
+- Real bugs it found, all fixed and now hard checks:
+  1. **A corrupt position was accepted as a GPS fix** ("nan", "inf", 1e300, lat 95). It reached the trail and wind
+     code, and on the thermal page a NaN angle was cast to int in `drawArrow` (undefined behaviour; it aborted
+     the sanitizer build). A fix now needs a finite position on the globe; `drawArrow` and the map heading also
+     refuse non-finite angles.
+  2. Battery percentage and time fields were read with `atoi` (overflow, "XC 250%"); now strict 0..100 / ranges.
+  3. GPS course was passed to the dial unnormalised (the parser allows -720..720): the dial could show "-400".
+     Courses and magnetic headings are now normalised to 0..360.
+  4. and 5. `0` was used as "never" for the inject, last-sample and laptop-draw time stamps, but `millis()` is 0
+     once every 49.7 days: replaced by explicit flags.
+- Soak on the real 3 h flight, 3 runs: 9.1 virtual hours, 0 heap allocations inside `App::tick()`, every
+  buffer within its limit, 0 bad lines, worst tick 10 ms on the PC with sanitizers.
+
 ## Watchdog (wired in, NOT yet verified on the device)
 
 - 8 s nRF52 WDT, started right after the power-on gate, fed every loop iteration and inside the power-off

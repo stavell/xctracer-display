@@ -56,11 +56,13 @@ void LaptopBle::handle(const uint8_t* d, uint16_t len) {
   switch (d[0]) {
     case CMD_CLEAR:
       lastDraw_ = millis();
+      drawn_ = true;
       memset(frame_, 0xFF, sizeof frame_);
       blit_.open = false;
       return;
     case CMD_BLIT:
       lastDraw_ = millis();
+      drawn_ = true;
       if (len < 9) return;
       blit_.x = d[1] | (d[2] << 8);
       blit_.y = d[3] | (d[4] << 8);
@@ -76,6 +78,7 @@ void LaptopBle::handle(const uint8_t* d, uint16_t len) {
       return;
     case CMD_FLUSH:
       lastDraw_ = millis();
+      drawn_ = true;
       flushPending_ = true;
       return;
   }
@@ -84,8 +87,7 @@ void LaptopBle::handle(const uint8_t* d, uint16_t len) {
 }
 
 bool LaptopBle::hostDrawing(uint32_t now) {
-  uint32_t t = lastDraw_;
-  return t && now - t < grace_;
+  return drawn_ && now - lastDraw_ < grace_;
 }
 
 // Loop context: the only place the frame reaches the panel.

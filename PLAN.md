@@ -32,7 +32,8 @@ unit with a real fix, magnetic declination, power measurement, `DISPLAY_ROTATION
 - A, B, C: done, reviewed and merged. Review found one race agent A missed (a stale disconnect could demote
   a freshly made link after picking a new tracer from the list); fixed in the merge.
 - Watchdog: wired in, device verification pending (see NOTES.md).
-- D: in progress.
+- D: D4 (timer-sampled switch), D5 (fuzz, soak) and D7 (clock wrap) done and merged; the fuzz found five real
+  bugs, all fixed (see NOTES.md). D1 (watchdog), D2 (stack margins), D3 (heap) and D6 (device soak) need the device.
 
 ## Work packages
 

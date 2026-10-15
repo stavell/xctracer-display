@@ -233,7 +233,6 @@ static void test_thermal_memory() {
   const double wxm = -12 / 3.6, wym = 0;                  // 12 km/h toward 270
   const double kx = 111320.0 * cos(43 * D2R), ky = 111320.0;
   FlightModel fm;
-  double cx = 0, cy = 0;                                  // centre of the air column, ground metres
   double px = -400, py = 0;                               // pilot, ground metres
   double lastx = px, lasty = py;
   int sec = 0;
@@ -245,7 +244,7 @@ static void test_thermal_memory() {
     sec++;
   };
   // 20 s glide in, 90 s circling in the thermal
-  for (int i = 0; i < 20; i++) { px += 8 + wxm; py += wym; cx += wxm; cy += wym; feed(px, py, -1.1f); }
+  for (int i = 0; i < 20; i++) { px += 8 + wxm; py += wym; feed(px, py, -1.1f); }
   double a = 0;
   double colX = 0, colY = 0;                              // the thermal column's centre moves with the wind
   colX = px + 0; colY = py + 0;

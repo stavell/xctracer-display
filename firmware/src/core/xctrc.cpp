@@ -4,6 +4,17 @@
 
 static float sane(float v, float lo, float hi) { return (isfinite(v) && v >= lo && v <= hi) ? v : NAN; }
 
+// Whole-field integer in [lo, hi]; false for empty, junk or out of range (no atoi: it overflows silently).
+static bool intField(const char* f, long lo, long hi, long& out) {
+  char* end;
+  long v = strtol(f, &end, 10);
+  if (end == f || *end != 0 || v < lo || v > hi) return false;
+  out = v;
+  return true;
+}
+
+static float norm360(float a) { a = fmodf(a, 360.0f); return a < 0 ? a + 360.0f : a; }
+
 bool xctrcParse(const char* line, Sample& out) {
   char s[160];
   size_t len = strlen(line);
@@ -30,20 +41,25 @@ bool xctrcParse(const char* line, Sample& out) {
   if (n < 19 || strcmp(f[0], "$XCTRC") != 0) return false;
 
   auto num = [&](int i, float lo, float hi) -> float { return f[i][0] ? sane((float)atof(f[i]), lo, hi) : NAN; };
-  int hh = atoi(f[4]), mm = atoi(f[5]), ss = atoi(f[6]);
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 60) return false;
+  long hh, mm, ss;
+  if (!intField(f[4], 0, 23, hh) || !intField(f[5], 0, 59, mm) || !intField(f[6], 0, 60, ss)) return false;
 
   Sample r;
   r.hh = (uint8_t)hh; r.mm = (uint8_t)mm; r.ss = (uint8_t)ss;
-  r.lat = atof(f[8]);
-  r.lon = atof(f[9]);
-  r.fix = !(r.lat == 0.0 && r.lon == 0.0);
+  // A fix needs a real position: finite and on the globe. The tracer sends 0,0 without one; anything
+  // else impossible ("nan", "inf", 1e300, lat 95) is treated the same, never as a fix.
+  double lat = atof(f[8]), lon = atof(f[9]);
+  r.fix = isfinite(lat) && isfinite(lon) && fabs(lat) <= 90.0 && fabs(lon) <= 180.0 && !(lat == 0.0 && lon == 0.0);
+  r.lat = r.fix ? lat : 0;
+  r.lon = r.fix ? lon : 0;
   r.alt = num(10, -1000, 30000);
   r.speedKmh = r.fix ? num(11, 0, 400) : NAN;
   r.course = r.fix ? num(12, -720, 720) : NAN;
+  if (isfinite(r.course)) r.course = norm360(r.course);
   r.vario = num(13, -50, 50);
   r.pressure = num(17, 100, 1200);
-  r.battPct = f[18][0] ? atoi(f[18]) : -1;
+  long batt;
+  r.battPct = intField(f[18], 0, 100, batt) ? (int)batt : -1;
   out = r;
   return true;
 }

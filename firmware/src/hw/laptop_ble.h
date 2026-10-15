@@ -37,6 +37,7 @@ class LaptopBle : public ILaptop {
   uint8_t frame_[FRAME_LEN];             // written by the callback task, copied by the loop on flush
   std::atomic<bool> flushPending_{false};
   std::atomic<uint32_t> lastDraw_{0};
+  std::atomic<bool> drawn_{false};   // a draw command has arrived at all (0 is a valid millis())
 
   SpscRing<Command, 4> q_;
 };

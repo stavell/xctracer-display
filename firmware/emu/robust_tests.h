@@ -47,13 +47,9 @@ static void test_fuzz_parser() {
   }
   CHECK(accepted > 1000);                                   // the generator does produce acceptable lines
   CHECK(badOutput == 0);
-  // BUG: xctrc.cpp accepts any lat/lon text: "nan", "inf", "1e30", "360" give fix = true with a non-finite or
-  // impossible position, which flows into the wind fit, the trail and the thermal memory. A fix needs |lat| <= 90,
-  // |lon| <= 180 and both finite; otherwise the line should count as "no fix" (or be rejected).
-  BUG_CHECK(badLatLon == 0, "parser accepts non-finite / out-of-range lat/lon as a fix");
-  // BUG: xctrc.cpp takes the battery percentage with atoi(): "99999999999" is undefined behaviour in libc terms and
-  // 250 or -7 are shown as "XC 250%" (screens.cpp:91). It should be clamped to 0..100, or -1 when out of range.
-  BUG_CHECK(badBatt == 0, "parser accepts battery percent outside 0..100");
+  // fixed (found by this fuzz): a non-finite or impossible position is never a fix; battery is 0..100 or -1
+  CHECK(badLatLon == 0);
+  CHECK(badBatt == 0);
   // exact edge cases
   CHECK(!xctrcParse("$", s)); CHECK(!xctrcParse("$*", s)); CHECK(!xctrcParse("$*00", s)); CHECK(!xctrcParse("*", s));
   CHECK(!xctrcParse("$XCTRC*00", s));
@@ -80,14 +76,12 @@ static bool vmOk(const ViewModel& vm, const char** why) {
   auto bad = [&](const char* w) { *why = w; return false; };
   const Sample& s = vm.s;
   if (!s.fix && (isfinite(s.speedKmh) || isfinite(s.course))) return bad("speed/course without a fix");
-  // BUG: see test_fuzz_parser: lat/lon of a "fix" can be non-finite; not checked here to keep the app fuzz useful.
+  if (s.fix && !(isfinite(s.lat) && isfinite(s.lon) && fabs(s.lat) <= 90 && fabs(s.lon) <= 180)) return bad("fix position");
   if (!isfinite(vm.avgVario)) return bad("avgVario");
   if (vm.wind.valid && !(isfinite(vm.wind.speedKmh) && vm.wind.speedKmh >= 0 && isfinite(vm.wind.toDeg) &&
                          vm.wind.toDeg >= 0 && vm.wind.toDeg < 360.001f)) return bad("wind");
   if (vm.localMinutes < -1 || vm.localMinutes > 1439) return bad("localMinutes");
   if (isfinite(vm.heading) != (vm.headingSrc != HDG_NONE)) return bad("heading vs source");
-  // BUG: heading.cpp passes the GPS course through unnormalised, and xctrc.cpp accepts courses in -720..720, so the
-  // compass dial shows e.g. "-400" or "512". It should be fmodf'd into 0..360 in HeadingSelector::current().
   if (isfinite(vm.heading) && (vm.heading < 0 || vm.heading >= 360.001f)) headingOutOfRange++;
   if (vm.trailCount < 0 || vm.trailCount > ViewModel::TRAIL_MAX) return bad("trailCount");
   if (vm.markCount < 0 || vm.markCount > ViewModel::MARKS_MAX) return bad("markCount");
@@ -129,7 +123,6 @@ struct HostileFlight {
   }
 };
 
-static std::string avoidKnownBug(const std::string& l);
 enum { FZ_NO_XCTRC = 1, FZ_NO_SIM = 2 };
 
 // A random laptop packet through the real decoder, or a random Command value directly.
@@ -154,19 +147,9 @@ static bool fuzzCommand(Rng& r, int flags, Command& c) {
                                           strncpy(c.text, l.c_str(), sizeof c.text - 1); } break;
     }
   }
-  if (c.type == Command::XCTRC) strncpy(c.text, avoidKnownBug(c.text).c_str(), sizeof c.text - 1);
   if ((flags & FZ_NO_XCTRC) && c.type == Command::XCTRC) return false;
   if ((flags & FZ_NO_SIM) && c.type == Command::SIM) return false;
   return true;
-}
-
-// The parser bug above (non-finite / impossible position accepted as a fix) takes the whole app down in
-// the view (test_known_bug_nonfinite_position shows it in a child process). So that the rest of the fuzz stays
-// useful, such lines are replaced by garbage before delivery.
-static std::string avoidKnownBug(const std::string& l) {
-  Sample s;
-  if (xctrcParse(l.c_str(), s) && s.fix && !(isfinite(s.lat) && isfinite(s.lon) && fabs(s.lat) <= 90 && fabs(s.lon) <= 180)) return "garbage";
-  return l;
 }
 
 struct FuzzStats { double worstTickMs = 0; uint32_t delivered = 0, maxOk = 0; int vmFail = 0; };
@@ -182,7 +165,6 @@ static FuzzStats fuzzAppPhase(Rig& r, App& app, uint32_t& now, Rng& rng, int tic
     for (int k = 0; k < nl; k++) {
       std::string l = rng.chance(55) ? hf.next() : fuzzLine(rng);
       if (l.size() > 199) l.resize(199);                // the BLE layer / mock queue never delivers more than a buffer
-      l = avoidKnownBug(l);
       if (tracerLines && (!injectLines || rng.chance(50))) { r.tracer.lines.push_back(l); delivered++; }
       else if (injectLines) {
         Command c; c.type = Command::XCTRC; strncpy(c.text, l.c_str(), sizeof c.text - 1); r.laptop.cmds.push_back(c); delivered++;
@@ -230,7 +212,7 @@ static void test_fuzz_app() {
   FuzzStats c = fuzzAppPhase(r, app, now, rng, 30000, true, true, 0, false, d2, hf);
   for (const FuzzStats* s : {&a, &b, &c}) { if (s->worstTickMs > worst) worst = s->worstTickMs; vmFail += s->vmFail; }
   CHECK(vmFail == 0);
-  BUG_CHECK(headingOutOfRange == 0, "heading shown outside 0..360 (GPS course passed through unnormalised)");
+  CHECK(headingOutOfRange == 0);                            // fixed: courses are normalised to 0..360
   CHECK(worst < 50.0);
   printf("  %u + %u lines, %d view model violations, worst tick %.2f ms\n", delivered, d2, vmFail, worst);
   // after the abuse the app still works: a clean flight is accepted and shown
@@ -258,7 +240,7 @@ template <class F> static bool survives(F fn) {
 }
 
 static void test_known_bug_nonfinite_position() {
-  puts("known bug demos (child processes)");
+  puts("impossible positions on the thermal page (child processes)");
   const char* bad[] = {"inf", "1e30", "-inf", "1e300"};
   for (const char* v : bad) {
     bool ok = survives([&] {
@@ -274,8 +256,9 @@ static void test_known_bug_nonfinite_position() {
       }
     });
     char what[160];
-    snprintf(what, sizeof what, "a fix at lat %s, lon nan aborts the app (NaN heading in drawArrow, screens.cpp:181) on the thermal page", v);
-    BUG_CHECK(ok, what);
+    snprintf(what, sizeof what, "a line with lat %s, lon nan must not take the app down", v);
+    if (!ok) printf("  FAIL %s\n", what);
+    CHECK(ok);
   }
 }
 
@@ -398,12 +381,8 @@ static void test_time_wrap() {
     for (now += 10; now < 200; now += 10) app.tick(now);
     r.tracer.lines.push_back(xctrcValid(36001, 43.25, 26.9, 1400, 34, 90, 1.5));
     app.tick(now);
-    // BUG: app.cpp injecting() tests `injectMs_ &&`, so an injected line handled at exactly now == 0 does not
-    // silence the live tracer: the next live line is accepted although the hold is 3 s.
-    BUG_CHECK(app.linesOk() == ok, "injected line at millis()==0 does not hold off the tracer (injectMs_ == 0 means none)");
-    // BUG: app.cpp updateHeading()/buildViewModel() test `lastSampleMs_ &&`, so a sample stamped at exactly 0 is
-    // never "fresh" until the next one arrives (for the sim and 1 Hz replays that is up to a second of "no data").
-    // Fix idea: a separate bool (or track "have a stamp") instead of 0 as a sentinel; same in LaptopBle::lastDraw_.
+    // fixed (found by this test): 0 used to mean "never" for the inject and sample stamps
+    CHECK(app.linesOk() == ok);
     bool freshAfterZeroSample;
     {
       Rig r2; App a2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.power);
@@ -414,7 +393,7 @@ static void test_time_wrap() {
       a2.tick(n2);
       freshAfterZeroSample = a2.buildViewModel(n2).fresh;
     }
-    BUG_CHECK(freshAfterZeroSample, "a sample received at millis()==0 is not shown as fresh");
+    CHECK(freshAfterZeroSample);
   }
   // the pure state machines directly: wrap in the middle of a press
   {

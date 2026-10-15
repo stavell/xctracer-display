@@ -64,6 +64,7 @@ class App {
   FlightSim sim_;
   bool simOn_ = false;
   uint32_t injectMs_ = 0, lastSampleMs_ = 0;
+  bool haveInject_ = false, haveSample_ = false;   // not 0-as-never: millis() is 0 once every 49.7 days
   uint32_t linesOk_ = 0, linesBad_ = 0;
 
   char lastRaw_[100] = "";

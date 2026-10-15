@@ -19,7 +19,7 @@ void App::begin(uint32_t) {
 }
 
 bool App::injecting(uint32_t now) const {
-  return simOn_ || (injectMs_ && now - injectMs_ < cfg_.injectHoldMs);
+  return simOn_ || (haveInject_ && now - injectMs_ < cfg_.injectHoldMs);
 }
 
 void App::ingestLine(const char* line, uint32_t now) {
@@ -30,6 +30,7 @@ void App::ingestLine(const char* line, uint32_t now) {
     linesOk_++;
     flight_.feed(s);
     lastSampleMs_ = now;
+    haveSample_ = true;
   } else {
     linesBad_++;
   }
@@ -58,6 +59,7 @@ void App::handle(const Command& c, uint32_t now) {
       break;
     case Command::XCTRC:
       injectMs_ = now;           // replayed data takes precedence over the live tracer
+      haveInject_ = true;
       ingestLine(c.text, now);
       break;
     default:
@@ -84,7 +86,7 @@ void App::finishCalibration(bool keep) {
 // Feed the heading selector from both sources and power the magnetometer only when it is needed.
 void App::updateHeading(uint32_t now) {
   const Sample& s = flight_.last();
-  bool fresh = flight_.hasData() && lastSampleMs_ && now - lastSampleMs_ < cfg_.freshMs;
+  bool fresh = flight_.hasData() && haveSample_ && now - lastSampleMs_ < cfg_.freshMs;
   heading_.feedGps(fresh && s.fix, s.speedKmh, s.course);
 
   bool want = calibrating_ || (page_ == ViewModel::PAGE_COMPASS && heading_.wantsMagnetometer());
@@ -108,7 +110,7 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   vm.filter[sizeof vm.filter - 1] = 0;
   vm.linesOk = linesOk_;
   vm.linesBad = linesBad_;
-  vm.fresh = flight_.hasData() && lastSampleMs_ && now - lastSampleMs_ < cfg_.freshMs;
+  vm.fresh = flight_.hasData() && haveSample_ && now - lastSampleMs_ < cfg_.freshMs;
   vm.sim = simOn_;
   vm.s = flight_.last();
   vm.avgVario = flight_.avgVario();
@@ -181,7 +183,7 @@ void App::tick(uint32_t now) {
   tracer_.update(now);
   if (simOn_) {
     Sample s;
-    if (sim_.step(now, s)) { flight_.feed(s); lastSampleMs_ = now; linesOk_++; }
+    if (sim_.step(now, s)) { flight_.feed(s); lastSampleMs_ = now; haveSample_ = true; linesOk_++; }
   }
   char line[200];
   while (tracer_.popLine(line, sizeof line)) {

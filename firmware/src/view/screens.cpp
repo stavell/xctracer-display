@@ -177,6 +177,7 @@ static void compassDial(int cx, int cy, int R, float heading, HeadingSource src)
 
 // Arrow centred on (ax, ay) pointing along screen angle th (radians clockwise from up), half length L.
 static void drawArrow(int ax, int ay, float th, int L) {
+  if (!isfinite(th)) return;                               // NaN -> int is undefined behaviour
   float ux = sinf(th), uy = -cosf(th), px = -uy, py = ux;
   int tx = ax - L * ux, ty = ay - L * uy;                  // tail
   int hx = ax + 3 * ux, hy = ay + 3 * uy;                  // base of the head
@@ -270,6 +271,7 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
     if (hypotf(dx, dy) > 3.0f) hdg = atan2f(dx, dy);
     else if (isfinite(vm.s.course)) hdg = vm.s.course * PI_F / 180.0f;
   }
+  if (!isfinite(hdg)) hdg = 0;                                    // never rotate by NaN
   const float ct = cosf(hdg), st = sinf(hdg);
   const int ox = mx + mw / 2, oy = my + mh / 2;                 // you, in the centre
 
