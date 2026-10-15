@@ -1,0 +1,44 @@
+#pragma once
+#include "core/types.h"
+
+// Everything derived from the stream of samples: 1 Hz history, averages, glide ratio, takeoff /
+// landing, circling and wind. Pure and deterministic: time comes from the samples' own time stamps
+// (so a replay at any speed behaves like real flight time), never from a wall clock.
+class FlightModel {
+ public:
+  static const int HIST = 90;      // seconds of history kept
+  static const int AVG_S = 20;     // vario averaging window
+  static const int WIND_S = 30;    // seconds of track used for each wind fit
+
+  void reset();
+  bool feed(const Sample& s);      // true when a new data second started
+
+  bool hasData() const { return have_; }
+  const Sample& last() const { return cur_; }
+  float avgVario() const;          // m/s over AVG_S seconds
+  float glide() const;             // NAN unless sinking with a GPS fix
+  bool flying() const { return flying_; }
+  uint32_t flightSec() const;
+  bool circling() const { return circling_; }
+  Wind wind() const;
+  int histCount() const { return n_; }
+  const TrackPoint& hist(int i) const { return h_[i]; }
+
+ private:
+  void tick();
+  void updateWind();
+
+  Sample cur_;
+  bool have_ = false;
+  TrackPoint h_[HIST];
+  int n_ = 0;
+  uint32_t clock_ = 1000;          // flight clock, ms, advanced by data time stamps
+  int lastKey_ = -1;               // seconds of day of the last sample
+  bool flying_ = false;
+  uint32_t flightStart_ = 0, fastSince_ = 0, slowSince_ = 0;
+  bool circling_ = false;
+  uint32_t lastTurn_ = 0;
+  bool windValid_ = false;
+  double wx_ = 0, wy_ = 0;
+  uint32_t windAt_ = 0;
+};

@@ -1,14 +1,14 @@
-#include "ui.h"
+#include "view/screens.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSansBold18pt7b.h>
 #include <Fonts/FreeSansBold24pt7b.h>
-#include "vario.h"
-#include "battery.h"
 
-static int W = 400, H = 240;   // logical size, follows the display rotation
+static int W = 400, H = 240;   // logical size, follows the canvas rotation
 static const int HDR = 24;
 static const uint16_t BLK = 0, WHT = 1;
 static const float PI_F = 3.14159265f;
@@ -19,10 +19,13 @@ static const float PI_F = 3.14159265f;
 #define F18B (&FreeSansBold18pt7b)
 #define F24B (&FreeSansBold24pt7b)
 
-static Adafruit_SharpMem* d;
-static uint8_t* snap = nullptr;
-static size_t bufLen = 0;
-static bool dirty = true;
+static Adafruit_GFX* d;
+
+static void begin(Adafruit_GFX& g) {
+  d = &g;
+  W = g.width();
+  H = g.height();
+}
 
 enum Align { AL, AC, AR };
 
@@ -39,6 +42,18 @@ static void text(int x, int y, const char* s, const GFXfont* f, Align a = AL, ui
   d->setCursor(cx, y);
   d->print(s);
   d->setTextSize(1);
+}
+
+// Centre a string on (cx, cy) using its real glyph bounds, so letters sit in the middle of boxes.
+static void textMid(int cx, int cy, const char* s, const GFXfont* f, uint16_t col = BLK) {
+  d->setFont(f);
+  d->setTextSize(1);
+  d->setTextColor(col);
+  int16_t x1, y1;
+  uint16_t w, h;
+  d->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+  d->setCursor(cx - (int)w / 2 - x1, cy - y1 - (int)h / 2);
+  d->print(s);
 }
 
 static int textW(const char* s, const GFXfont* f) {
@@ -64,26 +79,21 @@ static void hbar(int x, int y, int w, int h, float frac) {
   d->fillRect(x + 2, y + 2, (int)((w - 4) * frac), h - 4, BLK);
 }
 
-static void header(const char* title = nullptr) {
+static void header(const ViewModel& vm, const char* title = nullptr) {
   d->fillRect(0, 0, W, HDR, BLK);
   char b[16];
   if (title) {
     text(6, 17, title, F9, AL, WHT);
-  } else if (varioFresh()) {
-    int m = varioLocalMinutes();
-    snprintf(b, sizeof b, "%02d:%02d", m / 60, m % 60);
   } else {
-    snprintf(b, sizeof b, "--:--");
-  }
-  if (!title) {
+    if (vm.fresh && vm.localMinutes >= 0) snprintf(b, sizeof b, "%02d:%02d", vm.localMinutes / 60, vm.localMinutes % 60);
+    else snprintf(b, sizeof b, "--:--");
     text(6, 19, b, F12B, AL, WHT);
-    const VarioData& v = varioData();
-    if (varioFresh() && v.battPct >= 0) snprintf(b, sizeof b, "XC %d%%", v.battPct);
+    if (vm.fresh && vm.s.battPct >= 0) snprintf(b, sizeof b, "XC %d%%", vm.s.battPct);
     else snprintf(b, sizeof b, "XC --");
     text(76, 17, b, F9, AL, WHT);
-    if (varioSimOn()) text(128, 17, "SIM", F9, AL, WHT);
+    if (vm.sim) text(128, 17, "SIM", F9, AL, WHT);
   }
-  int pct = batteryPct();
+  int pct = vm.localBattPct < 0 ? 0 : (vm.localBattPct > 100 ? 100 : vm.localBattPct);
   snprintf(b, sizeof b, "%d%%", pct);
   text(W - 44, 17, b, F9, AR, WHT);
   d->drawRect(W - 40, 6, 30, 13, WHT);
@@ -147,11 +157,11 @@ static void compassDial(int cx, int cy, int R, float course) {
     int lx = cx + rl * sinf(th), ly = cy - rl * cosf(th);
     if (i == 0) {
       d->fillRect(lx - 12, ly - 12, 25, 25, BLK);
-      text(lx, ly + 6, "N", F12B, AC, WHT);
+      textMid(lx, ly, "N", F12B, WHT);
     } else if (i % 2 == 0) {
-      text(lx, ly + 6, L[i], F12B, AC);
+      textMid(lx, ly, L[i], F12B);
     } else {
-      text(lx, ly + 5, L[i], F9, AC);
+      textMid(lx, ly, L[i], F9);
     }
   }
   char b[8];
@@ -160,7 +170,7 @@ static void compassDial(int cx, int cy, int R, float course) {
 
 // The wind arrow lives in the compass corner the wind comes from and points the way it blows,
 // relative to the heading: top-right corner + arrow down-left = wind from front-right.
-static void windCorner(int cx, int cy, int R, float course, const VarioWind& w) {
+static void windCorner(int cx, int cy, int R, float course, const Wind& w) {
   if (!w.valid || !isfinite(course)) return;
   float from = fmodf(w.toDeg + 180.0f, 360.0f);
   float psi = fmodf(from - course + 360.0f, 360.0f);      // 0 = from straight ahead
@@ -178,19 +188,19 @@ static void windCorner(int cx, int cy, int R, float course, const VarioWind& w) 
   d->fillTriangle(ex, ey, hx + 9 * px, hy + 9 * py, hx - 9 * px, hy - 9 * py, BLK);
 }
 
-static void varioStatus() {
-  VarioState st = varioState();
-  const char* title = st == VS_CONNECTED ? "CONNECTED" : st == VS_CONNECTING ? "CONNECTING"
-                      : st == VS_SEARCHING ? "SEARCHING" : "NO VARIO";
+static void drawStatus(const ViewModel& vm) {
+  const char* title = vm.link == ViewModel::LINK_CONNECTED ? "CONNECTED"
+                      : vm.link == ViewModel::LINK_CONNECTING ? "CONNECTING"
+                      : vm.link == ViewModel::LINK_SEARCHING ? "SEARCHING" : "NO VARIO";
   int cx = W / 2;
   text(cx, 130, title, F18B, AC);
   char b[48];
-  if (varioHasSaved()) snprintf(b, sizeof b, "%.18s", varioDeviceName());
-  else snprintf(b, sizeof b, "filter: %.12s", varioFilter());
+  if (vm.hasSaved) snprintf(b, sizeof b, "%.18s", vm.device);
+  else snprintf(b, sizeof b, "filter: %.12s", vm.filter);
   text(cx, 162, b, F12B, AC);
-  if (st == VS_CONNECTED) {
+  if (vm.link == ViewModel::LINK_CONNECTED) {
     text(cx, 200, "waiting for data...", F9, AC);
-    snprintf(b, sizeof b, "%lu ok, %lu bad", (unsigned long)varioLines(), (unsigned long)varioBadLines());
+    snprintf(b, sizeof b, "%lu ok, %lu bad", (unsigned long)vm.linesOk, (unsigned long)vm.linesBad);
     text(cx, 220, b, F9, AC);
   }
   text(cx, H - 12, "hold: choose device", F9, AC);
@@ -204,7 +214,8 @@ static void cell(int x, int y, int w, const char* title, const char* value) {
   text(x + 4, y + 58, value, F24B);
 }
 
-static void liveScreen(const VarioData& v) {
+static void drawLiveBody(const ViewModel& vm) {
+  const Sample& v = vm.s;
   char b[24];
   const int barX = 3, barW = 9;              // thin vario on the left edge
   const int cx0 = 22, cellW = 107;           // two cells to the right of it
@@ -213,14 +224,14 @@ static void liveScreen(const VarioData& v) {
   // no GPS fix: speed and track read 0 (the title says NO FIX) instead of dashes
   float spd = isfinite(v.speedKmh) ? v.speedKmh : 0;
   float crs = isfinite(v.course) ? v.course : 0;
-  thinVario(barX, barW, v.vario, varioAvg());
+  thinVario(barX, barW, v.vario, vm.avgVario);
   cell(cx0, row1, cellW, v.fix ? "GPS km/h" : "NO FIX", fnum(b, sizeof b, spd, "%.0f"));
-  cell(cx0 + cellW + 4, row1, cellW, "GLIDE", fnum(b, sizeof b, varioGlide(), "%.1f"));
+  cell(cx0 + cellW + 4, row1, cellW, "GLIDE", fnum(b, sizeof b, vm.glide, "%.1f"));
   cell(cx0, row2, cellW, "ALT m", fnum(b, sizeof b, v.alt, "%.0f"));
   cell(cx0 + cellW + 4, row2, cellW, "VS m/s", fnum(b, sizeof b, v.vario, "%+.1f"));
 
   // compass with the wind arrow in a corner
-  VarioWind w = varioWind();
+  const Wind& w = vm.wind;
   const int R = 92, cx = cx0 + (W - cx0) / 2, cy = gridEnd + 8 + R + 6;
   compassDial(cx, cy, R, crs);
   windCorner(cx, cy, R, crs, w);
@@ -243,29 +254,6 @@ static void liveScreen(const VarioData& v) {
   }
 }
 
-// ---- public ----------------------------------------------------------------
-static void syncSize() { W = d->width(); H = d->height(); }
-
-void uiBegin(Adafruit_SharpMem* disp) {
-  d = disp;
-  syncSize();
-  bufLen = (size_t)W * H / 8;
-  snap = (uint8_t*)malloc(bufLen);
-  dirty = true;
-}
-
-void uiInvalidate() { dirty = true; }
-
-uint32_t uiIntervalMs() { return 500; }
-
-static void present() {
-  uint8_t* buf = d->getBuffer();
-  if (!dirty && snap && memcmp(buf, snap, bufLen) == 0) return;
-  d->refresh();
-  if (snap) memcpy(snap, buf, bufLen);
-  dirty = false;
-}
-
 static void powerBanner(uint32_t heldMs) {
   if (heldMs < 1500) return;
   int bw = W - 24, bx = 12, by = H / 2 - 36;
@@ -276,24 +264,23 @@ static void powerBanner(uint32_t heldMs) {
   hbar(bx + 14, by + 38, bw - 28, 18, (heldMs - 1500) / 1500.0f);
 }
 
-void uiDraw(uint32_t heldMs) {
-  syncSize();
+void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs) {
+  begin(g);
   d->fillRect(0, 0, W, H, WHT);
-  header();
-  if (varioFresh()) liveScreen(varioData());
-  else varioStatus();
+  header(vm);
+  if (vm.fresh) drawLiveBody(vm);
+  else drawStatus(vm);
   powerBanner(heldMs);
-  present();
 }
 
-void uiDrawList(int sel, uint32_t heldMs) {
-  syncSize();
+void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_t heldMs) {
+  begin(g);
   d->fillRect(0, 0, W, H, WHT);
-  header("SELECT VARIO");
+  header(vm, "SELECT VARIO");
   char b[40];
-  snprintf(b, sizeof b, "filter: %.16s", varioFilter());
+  snprintf(b, sizeof b, "filter: %.16s", lm.filter);
   text(6, HDR + 20, b, F9);
-  int n = varioListCount();
+  const int n = lm.count, sel = lm.selected;
   const int rowH = 42, y0 = HDR + 30;
   int rows = n + 1;
   int vis = (H - y0 - 30) / rowH;
@@ -306,7 +293,7 @@ void uiDrawList(int sel, uint32_t heldMs) {
     if (i == 0) {
       text(10, y + 27, "< back", F12B, AL, col);
     } else {
-      const ScanItem& it = varioListItem(i - 1);
+      const ListItem& it = lm.items[i - 1];
       char nm[20];
       snprintf(nm, sizeof nm, "%.17s", it.name);
       text(10, y + 18, nm, F12B, AL, col);
@@ -317,21 +304,16 @@ void uiDrawList(int sel, uint32_t heldMs) {
   if (n == 0) text(W / 2, y0 + 2 * rowH, "scanning...", F12B, AC);
   text(W / 2, H - 12, "press: next   hold: select", F9, AC);
   powerBanner(heldMs);
-  present();
 }
 
-void uiMessage(const char* l1, const char* l2) {
-  syncSize();
+void drawMessage(Adafruit_GFX& g, const char* l1, const char* l2) {
+  begin(g);
   d->fillRect(0, 0, W, H, WHT);
   text(W / 2, H / 2 - (l2 ? 8 : 0), l1, F18B, AC);
   if (l2) text(W / 2, H / 2 + 28, l2, F12B, AC);
-  dirty = true;
-  present();
 }
 
-void uiBlank() {
-  syncSize();
+void drawBlank(Adafruit_GFX& g) {
+  begin(g);
   d->fillRect(0, 0, W, H, WHT);
-  dirty = true;
-  present();
 }

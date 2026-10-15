@@ -113,12 +113,35 @@ The standalone sensor dashboard (environment, compass with calibration, motion, 
 gestures, sound) was removed from the firmware. It is kept under the git tag
 `sensor-dashboard`: `git checkout sensor-dashboard`.
 
-## Previewing the UI without the device
+## Architecture
 
-`firmware/preview/build.sh` compiles the real `src/ui.cpp` on the PC against the real
-Adafruit_GFX and a mock display, with canned flight data, and renders PNGs into
-`firmware/preview/out/` (live, tail, head, big numbers, no fix, status, device list).
-`ROT=0 ./build.sh` renders landscape. Use it before flashing any layout change.
+    firmware/src/
+      core/   pure logic, no Arduino: XCTRC parser, flight model (history, glide, circling, wind),
+              wind circle fit, flight simulator. Time comes from the data's own time stamps.
+      view/   draws a ViewModel onto any Adafruit_GFX canvas. No hardware, no BLE.
+      app/    the state machine (live / device list / power) behind the port interfaces in ports.h
+      hw/     the only code that touches hardware: Sharp panel (+VCOM), BLE central (tracer),
+              BLE peripheral (laptop), button, battery, power, config in flash
+      main.cpp  wiring only
+    firmware/emu/   PC emulator: the same core + view + app with mock ports
+
+The Bluetooth callbacks only copy bytes into queues; parsing and all maths run in the main loop.
+
+## Testing without the device
+
+`firmware/emu/build.sh` builds the emulator with address/undefined-behaviour sanitizers, runs the
+unit and app tests (parser, wind fit, flight model, button timing, injection precedence, device
+list, power-off) and renders the standard screens to `firmware/emu/out/*.png`
+(`ROT=0 ./build.sh` for landscape).
+
+Run a whole flight through the real app in seconds:
+
+    python host/make_lines.py igc flight.igc --start 4185 --seconds 900 > flight.txt
+    python host/make_lines.py capture host/xct_capture.log > live.txt
+    firmware/emu/build.sh replay flight.txt outdir --hz 3 --inject --mix live.txt --shot-every 20
+
+It reports parse counts, non-finite values, wind/circling coverage and the worst tick time, and
+saves frames. A watchdog aborts on an infinite loop.
 
 ## IGC replay
 

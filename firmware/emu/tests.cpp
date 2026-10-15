@@ -1,0 +1,218 @@
+// Unit tests for the pure layers and the app, run on the PC.
+#include <stdio.h>
+#include <string>
+#include "app/app.h"
+#include "core/flight.h"
+#include "core/sim.h"
+#include "core/wind.h"
+#include "core/xctrc.h"
+#include "mocks.h"
+
+static int failures = 0, checks = 0;
+#define CHECK(cond) do { checks++; if (!(cond)) { failures++; printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); } } while (0)
+#define NEAR(a, b, tol) CHECK(fabs((double)(a) - (double)(b)) <= (tol))
+
+static const double D2R = 0.017453292519943295;
+
+static std::string line(const char* body) {   // add the checksum
+  uint8_t cs = 0;
+  for (const char* p = body; *p; p++) cs ^= (uint8_t)*p;
+  char buf[200];
+  snprintf(buf, sizeof buf, "$%s*%02x", body, cs);
+  return buf;
+}
+
+static void test_xctrc() {
+  puts("xctrc parser");
+  Sample s;
+  // a line captured from the real tracer (no GPS fix indoors)
+  CHECK(xctrcParse("$XCTRC,2026,10,15,9,52,20,0,0.000000,0.000000,128.66,0.00,0.0,0.20,,,,997.88,85*7c", s));
+  CHECK(!s.fix); NEAR(s.alt, 128.66, 0.01); NEAR(s.vario, 0.20, 0.001); CHECK(s.battPct == 85);
+  CHECK(!isfinite(s.speedKmh)); CHECK(!isfinite(s.course));
+  CHECK(s.hh == 9 && s.mm == 52 && s.ss == 20);
+  CHECK(!xctrcParse("$XCTRC,2026,10,15,9,52,20,0,0.000000,0.000000,128.66,0.00,0.0,0.20,,,,997.88,85*7d", s));  // checksum
+  CHECK(!xctrcParse("$XCTRC,2026,10,15,9,52,20", s));
+  CHECK(!xctrcParse("", s));
+  CHECK(!xctrcParse("$GPGGA,1,2,3*00", s));
+  std::string fixed = line("XCTRC,2026,8,16,10,38,24,0,43.252650,26.927967,1387.00,34.13,12.5,-1.30,,,,967.62,85");
+  CHECK(xctrcParse(fixed.c_str(), s));
+  CHECK(s.fix); NEAR(s.speedKmh, 34.13, 0.01); NEAR(s.course, 12.5, 0.01);
+  // insane values become NaN instead of poisoning the maths
+  std::string bad = line("XCTRC,2026,8,16,10,38,24,0,43.25,26.92,9999999.0,1e30,nan,inf,,,,967.62,85");
+  CHECK(xctrcParse(bad.c_str(), s));
+  CHECK(!isfinite(s.alt)); CHECK(!isfinite(s.speedKmh)); CHECK(!isfinite(s.vario));
+}
+
+// a one-second track of a circle flown at `air` km/h in `windKmh` blowing toward `windTo`
+static void circle(TrackPoint* out, int n, double air, double windKmh, double windTo, double turnDegPerS, double startHdg) {
+  double hdg = startHdg;
+  for (int i = 0; i < n; i++, hdg += turnDegPerS) {
+    double ax = air / 3.6 * sin(hdg * D2R), ay = air / 3.6 * cos(hdg * D2R);
+    double wx = windKmh / 3.6 * sin(windTo * D2R), wy = windKmh / 3.6 * cos(windTo * D2R);
+    double gx = ax + wx, gy = ay + wy;
+    out[i] = {true, 43.0, 26.0, 1400, 1.5f, (float)(hypot(gx, gy) * 3.6), (float)fmod(atan2(gx, gy) / D2R + 360, 360)};
+  }
+}
+
+static void test_wind() {
+  puts("wind fit");
+  TrackPoint t[30];
+  circle(t, 30, 36, 12, 270, 18, 40);
+  WindFit f = fitWind(t, 30);
+  CHECK(f.ok);
+  NEAR(hypot(f.east, f.north) * 3.6, 12.0, 0.5);
+  NEAR(fmod(atan2(f.east, f.north) / D2R + 360, 360), 270.0, 2.0);
+  circle(t, 30, 36, 25, 45, -22, 200);   // opposite turn direction, stronger wind
+  f = fitWind(t, 30);
+  CHECK(f.ok);
+  NEAR(hypot(f.east, f.north) * 3.6, 25.0, 0.8);
+  NEAR(fmod(atan2(f.east, f.north) / D2R + 360, 360), 45.0, 2.0);
+  circle(t, 30, 36, 12, 270, 0, 90);     // straight flight: no fit
+  CHECK(!fitWind(t, 30).ok);
+  circle(t, 30, 36, 12, 270, 4, 90);     // only ~120 degrees of turn: not enough
+  CHECK(!fitWind(t, 30).ok);
+  circle(t, 30, 36, 12, 270, 18, 40);
+  t[7].fix = false;                       // a gap in the fix invalidates the window
+  CHECK(!fitWind(t, 30).ok);
+}
+
+static Sample smp(int sec, bool fix, double lat, double lon, float spd, float crs, float vs, float alt) {
+  Sample s;
+  s.fix = fix; s.lat = lat; s.lon = lon; s.speedKmh = fix ? spd : NAN; s.course = fix ? crs : NAN;
+  s.vario = vs; s.alt = alt; s.battPct = 85;
+  s.hh = 10 + sec / 3600; s.mm = (sec / 60) % 60; s.ss = sec % 60;
+  return s;
+}
+
+static void test_flight() {
+  puts("flight model");
+  FlightModel fm;
+  CHECK(!fm.hasData());
+  for (int i = 0; i < 40; i++) fm.feed(smp(i, true, 43, 26, 38, 90, -1.1f, 1500 - i));   // straight glide
+  NEAR(fm.avgVario(), -1.1, 0.01);
+  NEAR(fm.glide(), 38 / 3.6 / 1.1, 0.1);
+  CHECK(fm.flying()); CHECK(!fm.circling()); CHECK(!fm.wind().valid);
+  // same second twice does not tick the history
+  int n = fm.histCount();
+  CHECK(!fm.feed(smp(39, true, 43, 26, 38, 90, -1.1f, 1460)));
+  CHECK(fm.histCount() == n);
+  // circle in a 12 km/h wind toward 270
+  FlightModel c;
+  TrackPoint t[60];
+  circle(t, 60, 36, 12, 270, 18, 40);
+  for (int i = 0; i < 60; i++) c.feed(smp(i, true, 43, 26, t[i].speedKmh, t[i].course, 1.5f, 1400 + i));
+  CHECK(c.circling());
+  Wind w = c.wind();
+  CHECK(w.valid); NEAR(w.speedKmh, 12.0, 1.0); NEAR(w.toDeg, 270.0, 3.0);
+  CHECK(!isfinite(c.glide()));                // climbing: no glide ratio
+  // no GPS: nothing derived from position
+  FlightModel nf;
+  for (int i = 0; i < 40; i++) nf.feed(smp(i, false, 0, 0, 0, 0, 0.1f, 130));
+  CHECK(!nf.flying()); CHECK(!nf.wind().valid); CHECK(!isfinite(nf.glide()));
+  // a jump in the data clock (tracer restarted) must not break anything
+  nf.feed(smp(5000, true, 43, 26, 38, 90, -1.0f, 1000));
+  CHECK(nf.histCount() > 0);
+  // midnight wrap
+  FlightModel mw;
+  Sample a = smp(0, true, 43, 26, 38, 90, -1, 1500); a.hh = 23; a.mm = 59; a.ss = 59;
+  Sample b = a; b.hh = 0; b.mm = 0; b.ss = 0;
+  mw.feed(a); CHECK(mw.feed(b));
+}
+
+static void test_button() {
+  puts("button state machine");
+  auto run = [](uint32_t downMs) {
+    ButtonFsm f;
+    ButtonEvent last = BTN_NONE, ev;
+    uint32_t t = 100;
+    for (; t < 100 + downMs; t++) { ev = f.feed(true, t); if (ev != BTN_NONE) last = ev; }
+    for (uint32_t k = 0; k < 100; k++, t++) { ev = f.feed(false, t); if (ev != BTN_NONE) last = ev; }
+    return last;
+  };
+  CHECK(run(200) == BTN_SHORT);
+  CHECK(run(900) == BTN_LONG);
+  CHECK(run(2000) == BTN_NONE);     // armed zone: released = cancelled
+  CHECK(run(3500) == BTN_HOLD);
+  ButtonFsm f; int events = 0;      // contact bounce counts once
+  for (int i = 0; i < 6; i++) { if (f.feed(i % 2 == 0, 100 + i * 3) != BTN_NONE) events++; }
+  for (uint32_t t = 200; t < 400; t++) if (f.feed(false, t) != BTN_NONE) events++;
+  CHECK(events <= 1);
+}
+
+static void test_app() {
+  puts("app");
+  Rig r;
+  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.power);
+  app.begin(0);
+  uint32_t now = 0;
+  auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
+
+  run(1000);
+  CHECK(!app.viewModel(now).fresh);                       // nothing received: status screen
+  // live tracer lines
+  r.tracer.lines.push_back("$XCTRC,2026,10,15,9,52,20,0,0.000000,0.000000,128.66,0.00,0.0,0.20,,,,997.88,85*7c");
+  run(100);
+  CHECK(app.linesOk() == 1); CHECK(app.viewModel(now).fresh);
+  r.tracer.lines.push_back("garbage");
+  run(100);
+  CHECK(app.linesBad() == 1);
+  // injected data silences the live tracer
+  std::string inj = line("XCTRC,2026,8,16,10,38,24,0,43.252650,26.927967,1387.00,34.13,12.5,-1.30,,,,967.62,85");
+  r.laptop.inject(inj);
+  run(100);
+  uint32_t ok = app.linesOk();
+  r.tracer.lines.push_back(line("XCTRC,2026,10,15,9,52,21,0,0.000000,0.000000,128.66,0.00,0.0,0.20,,,,997.88,85"));
+  run(100);
+  CHECK(app.linesOk() == ok);                             // live line dropped
+  CHECK(app.viewModel(now).s.fix);
+  run(4000);                                              // injection stops: live data returns
+  r.tracer.lines.push_back(line("XCTRC,2026,10,15,9,52,22,0,0.000000,0.000000,128.66,0.00,0.0,0.20,,,,997.88,85"));
+  run(100);
+  CHECK(app.linesOk() == ok + 1);
+  // simulator
+  r.laptop.sim(true);
+  run(5000);
+  CHECK(app.simOn()); CHECK(app.viewModel(now).fresh); CHECK(app.viewModel(now).s.fix);
+  r.laptop.sim(false);
+  run(100);
+  CHECK(!app.simOn());
+  // local time zone
+  r.laptop.sim(false);
+  Command c; c.type = Command::TZ; c.value = 180; r.laptop.cmds.push_back(c);
+  r.laptop.inject(inj);
+  run(100);
+  CHECK(r.settings.tz == 180);
+  CHECK(app.viewModel(now).localMinutes == (10 * 60 + 38 + 180) % 1440);
+  // laptop-drawn frames own the screen; the app resumes afterwards
+  int before = r.panel.refreshes;
+  r.laptop.drawing = true;
+  run(500);
+  CHECK(r.panel.refreshes == before);
+  r.laptop.drawing = false;
+  run(1000);
+  CHECK(r.panel.refreshes > before);
+  // device list via a long press, navigate, select
+  r.tracer.addItem("XC-Tracer", -52); r.tracer.addItem("ATC_0CAA9D", -66);
+  r.input.press(now + 100, 900);                          // long press opens the list
+  run(1500);
+  CHECK(app.listOpen()); CHECK(r.tracer.opened);
+  r.input.press(now + 100, 150);                          // short: next row
+  run(600);
+  r.input.press(now + 100, 900);                          // long: select row 1 = first device
+  run(1500);
+  CHECK(!app.listOpen()); CHECK(r.tracer.connected == 0);
+  // hold 3 s = power off
+  r.input.press(now + 100, 3500);
+  run(4500);
+  CHECK(r.power.off);
+}
+
+int main() {
+  test_xctrc();
+  test_wind();
+  test_flight();
+  test_button();
+  test_app();
+  printf("\n%d checks, %d failures\n", checks, failures);
+  return failures ? 1 : 0;
+}
