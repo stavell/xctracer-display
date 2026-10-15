@@ -158,7 +158,12 @@ static void pushLine(char* s) {
   lines++;
 }
 
+static uint32_t injectMs = 0;
+static bool simOnFwd();   // defined with the simulator below
+static bool injecting() { return simOnFwd() || (injectMs && millis() - injectMs < 3000); }
+
 void varioInject(const char* line) {
+  injectMs = millis();
   char tmp[160];
   strncpy(tmp, line, sizeof tmp - 1);
   tmp[sizeof tmp - 1] = 0;
@@ -166,6 +171,7 @@ void varioInject(const char* line) {
 }
 
 static void onNotify(BLEClientCharacteristic*, uint8_t* data, uint16_t len) {
+  if (injecting()) { lineLen = 0; return; }   // replay / simulator in charge: ignore the live tracer
   for (uint16_t i = 0; i < len; i++) {
     char c = (char)data[i];
     if (c == '\n' || c == '\r') {
@@ -363,6 +369,7 @@ void varioSim(bool on) {
   histN = 0; flying = false; circling = false;
 }
 bool varioSimOn() { return simOn; }
+static bool simOnFwd() { return simOn; }
 
 // ---- public ---------------------------------------------------------------------------------
 void varioBegin() {
