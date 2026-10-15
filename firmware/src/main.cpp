@@ -11,6 +11,8 @@
 #include "hw/power_nrf.h"
 #include "hw/tracer_ble.h"
 #include "pins.h"
+#include "core/compass.h"
+#include "core/flight.h"
 #include "core/wind.h"
 #include "core/xctrc.h"
 #include "protocol.h"
@@ -74,6 +76,40 @@ static void runBench() {
   benchWindUs = t2 - t1;
 }
 
+// One-off timing of the whole data path: 120 s of a circling flight (wind fit, circling detection, thermal
+// finder and memory run every second) through a private FlightModel, plus a compass update.
+static FlightModel benchFm;
+static uint32_t benchFeedAvgUs = 0, benchFeedMaxUs = 0, benchCompassUs = 0;
+static bool benchDone = false;
+static void runFlightBench() {
+  if (benchDone) return;
+  benchDone = true;
+  uint32_t sum = 0, mx = 0;
+  const double D2R = 0.017453292519943295;
+  double x = 0, y = 0, hdg = 40;
+  for (int i = 0; i < 120; i++, hdg += 18) {
+    double gx = 10.0 * sin(hdg * D2R) - 3.33, gy = 10.0 * cos(hdg * D2R);
+    x += gx; y += gy;
+    Sample s;
+    s.fix = true; s.lat = 43 + y / 111320.0; s.lon = 26 + x / (111320.0 * cos(43 * D2R));
+    s.speedKmh = (float)(hypot(gx, gy) * 3.6); s.course = (float)fmod(atan2(gx, gy) / D2R + 360, 360);
+    s.vario = 2.5f; s.alt = 1400.0f + i; s.hh = 12; s.mm = i / 60; s.ss = i % 60;
+    uint32_t t0 = micros();
+    benchFm.feed(s);
+    uint32_t dt = micros() - t0;
+    sum += dt;
+    if (dt > mx) mx = dt;
+  }
+  benchFeedAvgUs = sum / 120;
+  benchFeedMaxUs = mx;
+  Compass c;
+  Vec3 a, mg;
+  a.x = 0.5f; a.y = 0.3f; a.z = 9.7f; mg.x = 20; mg.y = -10; mg.z = -35;
+  uint32_t t0 = micros();
+  for (int i = 0; i < 10; i++) c.update(a, mg);
+  benchCompassUs = (micros() - t0) / 10;
+}
+
 static uint32_t worstTickUs = 0;   // slowest app.tick() since the last status line
 
 static void debugLine(uint32_t now) {
@@ -82,14 +118,16 @@ static void debugLine(uint32_t now) {
   last = now;
   if (!Serial || Serial.availableForWrite() < 120) return;
   runBench();
+  runFlightBench();
   uint32_t v0 = micros();
   const ViewModel& vm = app.buildViewModel(now);
   benchVmUs = micros() - v0;
-  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus refresh=%luus parse=%luus windfit=%luus viewmodel=%luus\n",
+  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus refresh=%luus parse=%luus windfit=%luus viewmodel=%luus feed_avg=%luus feed_max=%luus compass=%luus\n",
                 (unsigned long)app.linesOk(), (unsigned long)app.linesBad(), vm.fresh, vm.s.fix,
                 vm.s.alt, vm.s.speedKmh, vm.s.vario, vm.wind.valid, vm.wind.speedKmh, vm.sim, (int)vm.link,
                 (int)vm.page, vm.markCount, vm.trailCount, (unsigned long)worstTickUs, (unsigned long)panel.refreshUs(),
-                (unsigned long)benchParseUs, (unsigned long)benchWindUs, (unsigned long)benchVmUs);
+                (unsigned long)benchParseUs, (unsigned long)benchWindUs, (unsigned long)benchVmUs,
+                (unsigned long)benchFeedAvgUs, (unsigned long)benchFeedMaxUs, (unsigned long)benchCompassUs);
   char desc[120];
   app.describeTracer(desc, sizeof desc);
   Serial.printf("dev %s\nraw %s\n", desc, app.lastRaw());
