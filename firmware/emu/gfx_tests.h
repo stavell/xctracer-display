@@ -2,10 +2,19 @@
 // Tests for gfx/bitmap1 and the FastSharp canvas: every fast path is compared byte for byte with a
 // per-pixel reference. Included by tests.cpp (uses its CHECK macro); runs under the sanitizers, and
 // all buffers are exactly sized heap vectors, so an out-of-bounds write aborts the run.
+#include <string>
 #include <vector>
+#include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSansBold9pt7b.h>
+#include <Fonts/FreeSansBold12pt7b.h>
+#include <Fonts/FreeSansBold18pt7b.h>
+#include <Fonts/FreeSansBold24pt7b.h>
+#include "gfx/atlas.h"
 #include "gfx/bitmap1.h"
+#include "gfx/font.h"
 #include "gfx/gray.h"
 #include "hw/fast_sharp.h"
+#include "view/screens.h"
 
 namespace gt {
 
@@ -430,6 +439,8 @@ static void testBlitGray() {
   CHECK(b.getPixel(0, 0) == 1 && b.getPixel(1, 0) == 0);
 }
 
+#include "font_tests.h"
+
 static void run(int& totalOps) {
   setvbuf(stdout, nullptr, _IOLBF, 0);
   testBitmapOps();
@@ -440,6 +451,10 @@ static void run(int& totalOps) {
   testFastSharpEdges();
   testFastSharpRandom(totalOps);
   testScreensIdentical();
+  testAtlasBlit();
+  testFontGlyphs();
+  testFontStrings();
+  testScreensFastText();
 }
 
 }  // namespace gt

@@ -13,6 +13,7 @@
 #include "view/prof.h"
 #ifdef DIAGNOSTICS
 #include <Fonts/FreeSansBold24pt7b.h>
+#include "view/screens.h"
 #endif
 
 static App* gApp;
@@ -85,7 +86,8 @@ static void runFlightBench() {
 }
 
 // Cost of the primitives the views are built from, timed on the real canvas. Result line: bench ...
-static char benchLine[160];
+static char benchLine[200];
+static char fontsLine[64];
 static bool benchPending = false;
 static uint32_t usNow() { return micros(); }
 
@@ -117,11 +119,29 @@ void diagnosticsBench() {
   for (int i = 0; i < 100; i++) { g.setCursor(10, 60); g.print("1234"); }
   uint32_t textUs = (micros() - t0) / 100;
   g.setFont(nullptr);
+  // The same string through the pre-rotated glyph sheets. The build is timed once, with the RAM it holds.
+  t0 = micros();
+  const Font1* big = nullptr;
+  for (int i = 0; i < 5; i++) {
+    if (i == 1) continue;                                  // Sans Bold 9 is not drawn anywhere
+    const Font1* f = viewFont(viewGfxFont(i), 1);
+    if (i == 4) big = f;
+  }
+  uint32_t buildUs = micros() - t0;
+  snprintf(fontsLine, sizeof fontsLine, "fonts build_us=%lu ram_bytes=%lu\n", (unsigned long)buildUs, (unsigned long)viewFontRam());
+  Serial.print(fontsLine);
+  uint32_t ftextUs = 0;
+  if (big) {
+    Bitmap1 bm = p.bitmap();
+    t0 = micros();
+    for (int i = 0; i < 100; i++) drawText(bm, 10, 60, "1234", *big, DRAW_CLEAR);
+    ftextUs = (micros() - t0) / 100;
+  }
   p.clear();
   p.invalidate();
-  snprintf(benchLine, sizeof benchLine, "bench pixel_ns=%lu hline_us=%lu vline_us=%lu dline_us=%lu fill_us=%lu text_us=%lu\n",
+  snprintf(benchLine, sizeof benchLine, "bench pixel_ns=%lu hline_us=%lu vline_us=%lu dline_us=%lu fill_us=%lu text_us=%lu ftext_us=%lu\n",
            (unsigned long)(pixelUs / 10), (unsigned long)hUs, (unsigned long)vUs,
-           (unsigned long)dUs, (unsigned long)fillUs, (unsigned long)textUs);
+           (unsigned long)dUs, (unsigned long)fillUs, (unsigned long)textUs, (unsigned long)ftextUs);
   Serial.print(benchLine);
   benchPending = true;                     // print again with the first status line: nobody listens at boot
 }
@@ -161,7 +181,7 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   Serial.printf(" lines=%d", panel.lastLines());
   Serial.print("\n");
 #ifdef DIAGNOSTICS
-  if (benchPending) { Serial.print(benchLine); benchPending = false; }
+  if (benchPending) { Serial.print(fontsLine); Serial.print(benchLine); benchPending = false; }
   char pl[200];
   profFormat(pl, sizeof pl);
   Serial.print(pl);

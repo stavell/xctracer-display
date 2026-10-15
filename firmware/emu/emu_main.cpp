@@ -203,9 +203,11 @@ static int cmdShots(const std::string& out, int rot) {
       strcpy(lm.items[0].name, "XC-Tracer"); lm.items[0].rssi = -52; strcpy(lm.items[0].id, "D6:75");
       strcpy(lm.items[1].name, "XC-Tracer"); lm.items[1].rssi = -83; strcpy(lm.items[1].id, "A1:0C");
       strcpy(lm.items[2].name, "Q-Series Soundbar"); lm.items[2].rssi = -78; strcpy(lm.items[2].id, "00:00");
-      drawList(p.gfx(), lm, vm, 0);
+      Bitmap1 bm = p.bitmap();
+      drawList(p.gfx(), lm, vm, 0, &bm);
     } else if (s == "calibrate") {
-      drawCalibrate(p.gfx(), vm, 0);
+      Bitmap1 bm = p.bitmap();
+      drawCalibrate(p.gfx(), vm, 0, &bm);
     } else {
       Bitmap1 bm = p.bitmap();
       drawLive(p.gfx(), vm, 0, &bm);

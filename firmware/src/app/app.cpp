@@ -179,7 +179,8 @@ const ViewModel& App::buildViewModel(uint32_t now) {
 void App::shutdown() {
   panel_.setRotation(cfg_.rotation);
   panel_.clear();
-  drawMessage(panel_.gfx(), "Powering off");
+  Bitmap1 bm = panel_.bitmap();
+  drawMessage(panel_.gfx(), "Powering off", nullptr, &bm);
   panel_.invalidate();
   panel_.present();
   power_.shutdown();             // blanks the panel, stops BLE and VCOM, enters System OFF
@@ -198,7 +199,8 @@ void App::drawLiveScreen(uint32_t now, uint32_t held) {
 
 void App::drawCalibrateScreen(uint32_t now, uint32_t held) {
   panel_.clear();
-  drawCalibrate(panel_.gfx(), buildViewModel(now), held);
+  Bitmap1 bm = panel_.bitmap();
+  drawCalibrate(panel_.gfx(), buildViewModel(now), held, &bm);
   panel_.present();
 }
 
@@ -210,7 +212,8 @@ void App::drawListScreen(uint32_t now, uint32_t held) {
   for (int i = 0; i < lm.count; i++) tracer_.listItem(i, lm.items[i]);
   lm.selected = listSel_;
   panel_.clear();
-  drawList(panel_.gfx(), lm, buildViewModel(now), held);
+  Bitmap1 bm = panel_.bitmap();
+  drawList(panel_.gfx(), lm, buildViewModel(now), held, &bm);
   panel_.present();
 }
 

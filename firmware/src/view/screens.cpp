@@ -1,6 +1,7 @@
 #include "view/screens.h"
 #include "view/prof.h"
 #include "gfx/gray.h"
+#include "gfx/font.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -22,16 +23,49 @@ static const float PI_F = 3.14159265f;
 #define F24B (&FreeSansBold24pt7b)
 
 static Adafruit_GFX* d;
+static const Bitmap1* fbm;          // the same canvas as a Bitmap1, when the caller has one: text goes fast
+static bool fastTextOn = true;
 
-static void begin(Adafruit_GFX& g) {
+void viewFastText(bool on) { fastTextOn = on; }
+
+static void begin(Adafruit_GFX& g, const Bitmap1* bm = nullptr) {
   d = &g;
+  fbm = fastTextOn ? bm : nullptr;
   W = g.width();
   H = g.height();
+}
+
+// Pre-rotated glyph sheets (gfx/font.h), built on first use for the canvas rotation and rebuilt (in
+// the same memory) if the rotation changes. nullptr means: use Adafruit_GFX.
+static Font1 fastFonts[5];
+static const GFXfont* const fastFontSrc[5] = {&FreeSans9pt7b, &FreeSansBold9pt7b, &FreeSansBold12pt7b,
+                                              &FreeSansBold18pt7b, &FreeSansBold24pt7b};
+const GFXfont* viewGfxFont(int i) { return i >= 0 && i < 5 ? fastFontSrc[i] : nullptr; }
+const Font1* viewFont(const GFXfont* f, int rot) {
+  for (int i = 0; i < 5; i++)
+    if (fastFontSrc[i] == f) return fastFonts[i].build(f, rot) ? &fastFonts[i] : nullptr;
+  return nullptr;
+}
+static const Font1* fastFont(const GFXfont* f) { return fbm ? viewFont(f, fbm->rotation) : nullptr; }
+
+size_t viewFontRam() {
+  size_t n = 0;
+  for (int i = 0; i < 5; i++) n += fastFonts[i].ramBytes();
+  return n;
 }
 
 enum Align { AL, AC, AR };
 
 static void text(int x, int y, const char* s, const GFXfont* f, Align a = AL, uint16_t col = BLK, int sc = 1) {
+  if (const Font1* ft = sc == 1 ? fastFont(f) : nullptr) {
+    int x1, y1, w, h;
+    textBounds(s, *ft, x1, y1, w, h, W);
+    int cx = x - x1;
+    if (a == AC) cx = x - w / 2 - x1;
+    else if (a == AR) cx = x - w - x1;
+    drawText(*fbm, cx, y, s, *ft, col ? DRAW_SET : DRAW_CLEAR, W);
+    return;
+  }
   d->setFont(f);
   d->setTextSize(sc);
   d->setTextColor(col);
@@ -48,6 +82,12 @@ static void text(int x, int y, const char* s, const GFXfont* f, Align a = AL, ui
 
 // Centre a string on (cx, cy) using its real glyph bounds, so letters sit in the middle of boxes.
 static void textMid(int cx, int cy, const char* s, const GFXfont* f, uint16_t col = BLK) {
+  if (const Font1* ft = fastFont(f)) {
+    int x1, y1, w, h;
+    textBounds(s, *ft, x1, y1, w, h, W);
+    drawText(*fbm, cx - w / 2 - x1, cy - y1 - h / 2, s, *ft, col ? DRAW_SET : DRAW_CLEAR, W);
+    return;
+  }
   d->setFont(f);
   d->setTextSize(1);
   d->setTextColor(col);
@@ -59,6 +99,7 @@ static void textMid(int cx, int cy, const char* s, const GFXfont* f, uint16_t co
 }
 
 static int textW(const char* s, const GFXfont* f) {
+  if (const Font1* ft = fastFont(f)) return textWidth(s, *ft, W);
   d->setFont(f);
   int16_t x1, y1;
   uint16_t w, h;
@@ -754,7 +795,7 @@ static void powerBanner(uint32_t heldMs) {
 }
 
 void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm) {
-  begin(g);
+  begin(g, bm);
   PROF_BEGIN(P_LIVE);
   PROF_BEGIN(P_HEADER);
   header(vm);
@@ -765,8 +806,8 @@ void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitma
   PROF_END(P_LIVE);
 }
 
-void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_t heldMs) {
-  begin(g);
+void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm) {
+  begin(g, bm);
   header(vm, "SELECT VARIO");
   char b[40];
   snprintf(b, sizeof b, "filter: %.16s", lm.filter);
@@ -799,8 +840,8 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
   powerBanner(heldMs);
 }
 
-void drawCalibrate(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs) {
-  begin(g);
+void drawCalibrate(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm) {
+  begin(g, bm);
   header(vm, "CALIBRATE");
   text(W / 2, 74, "Turn the unit slowly", F9, AC);
   text(W / 2, 96, "in every direction:", F9, AC);
@@ -819,8 +860,8 @@ void drawCalibrate(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs) {
   powerBanner(heldMs);
 }
 
-void drawMessage(Adafruit_GFX& g, const char* l1, const char* l2) {
-  begin(g);
+void drawMessage(Adafruit_GFX& g, const char* l1, const char* l2, const Bitmap1* bm) {
+  begin(g, bm);
   text(W / 2, H / 2 - (l2 ? 8 : 0), l1, F18B, AC);
   if (l2) text(W / 2, H / 2 + 28, l2, F12B, AC);
 }
