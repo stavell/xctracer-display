@@ -1,5 +1,7 @@
 # Handheld BLE display
 
+See `NOTES.md` for measurements, findings and the open-items list.
+
 A handheld device whose screen is driven entirely over BLE from a laptop script.
 The firmware is a thin display terminal. Layout and logic live on the host.
 
@@ -134,7 +136,8 @@ gestures, sound) was removed from the firmware. It is kept under the git tag
       main.cpp  wiring only
     firmware/emu/   PC emulator: the same core + view + app with mock ports
 
-The Bluetooth callbacks only copy bytes into queues; parsing and all maths run in the main loop.
+The Bluetooth callbacks only copy bytes into queues; parsing and all maths run in the main loop. The
+view never clears the canvas: the app calls `IPanel::clear()` first (a full-screen `fillRect` costs 142 ms).
 
 ## Testing without the device
 

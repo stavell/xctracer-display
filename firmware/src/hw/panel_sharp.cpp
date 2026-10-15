@@ -25,7 +25,9 @@ void SharpPanel::present() {
 }
 
 void SharpPanel::refresh() {
+  uint32_t t0 = micros();
   display_.refresh();
+  refreshUs_ = micros() - t0;
   if (snap_) memcpy(snap_, display_.getBuffer(), BUF_LEN);
   dirty_ = false;
 }

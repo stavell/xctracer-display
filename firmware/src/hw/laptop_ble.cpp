@@ -65,7 +65,7 @@ void LaptopBle::handle(const uint8_t* d, uint16_t len) {
     case CMD_CLEAR:
       lastDraw_ = millis();
       panel_.setRotation(0);
-      panel_.gfx().fillRect(0, 0, W, H, 1);
+      panel_.clear();
       blit_.open = false;
       break;
     case CMD_BLIT:

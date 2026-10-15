@@ -13,6 +13,7 @@ class IPanel {
   virtual ~IPanel() {}
   virtual Adafruit_GFX& gfx() = 0;
   virtual void setRotation(uint8_t r) = 0;
+  virtual void clear() = 0;         // fast white fill of the whole canvas (never fillRect: it is per-pixel and slow)
   virtual void present() = 0;       // refresh the panel only if the picture changed
   virtual void invalidate() = 0;    // the next present() always refreshes
   virtual void refresh() = 0;       // unconditional refresh (laptop-drawn frames)

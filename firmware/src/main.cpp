@@ -53,10 +53,10 @@ static void debugLine(uint32_t now) {
   last = now;
   if (!Serial || Serial.availableForWrite() < 120) return;
   const ViewModel& vm = app.buildViewModel(now);
-  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus\n",
+  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus refresh=%luus\n",
                 (unsigned long)app.linesOk(), (unsigned long)app.linesBad(), vm.fresh, vm.s.fix,
                 vm.s.alt, vm.s.speedKmh, vm.s.vario, vm.wind.valid, vm.wind.speedKmh, vm.sim, (int)vm.link,
-                (int)vm.page, vm.markCount, vm.trailCount, (unsigned long)worstTickUs);
+                (int)vm.page, vm.markCount, vm.trailCount, (unsigned long)worstTickUs, (unsigned long)panel.refreshUs());
   worstTickUs = 0;
 }
 

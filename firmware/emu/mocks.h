@@ -13,6 +13,7 @@ class MockPanel : public IPanel {
   MockPanel() : disp_(nullptr, 0, 400, 240, 0) { memset(snap_, 0xAA, sizeof snap_); }
   Adafruit_GFX& gfx() override { return disp_; }
   void setRotation(uint8_t r) override { disp_.setRotation(r); }
+  void clear() override { disp_.clearDisplay(); }
   void present() override {
     if (!dirty_ && memcmp(disp_.getBuffer(), snap_, sizeof snap_) == 0) return;
     refresh();

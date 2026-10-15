@@ -1,7 +1,6 @@
 #include "hw/power_nrf.h"
 #include <bluefruit.h>
 #include "pins.h"
-#include "view/screens.h"
 
 static void waitRelease(uint8_t pin) {
   while (digitalRead(pin) == LOW) delay(10);
@@ -22,7 +21,7 @@ void PowerNrf::shutdown() {
   laptop_.stopAdvertising();
   Bluefruit.Scanner.stop();
   delay(800);
-  drawBlank(panel_.gfx());          // never leave a picture on a panel whose VCOM is stopped
+  panel_.clear();                   // never leave a picture on a panel whose VCOM is stopped
   panel_.invalidate();
   panel_.present();
   panel_.stopVcom();

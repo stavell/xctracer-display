@@ -440,7 +440,6 @@ static void powerBanner(uint32_t heldMs) {
 
 void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs) {
   begin(g);
-  d->fillRect(0, 0, W, H, WHT);
   header(vm);
   if (vm.fresh) drawLiveBody(vm);
   else drawStatus(vm);
@@ -449,7 +448,6 @@ void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs) {
 
 void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_t heldMs) {
   begin(g);
-  d->fillRect(0, 0, W, H, WHT);
   header(vm, "SELECT VARIO");
   char b[40];
   snprintf(b, sizeof b, "filter: %.16s", lm.filter);
@@ -482,12 +480,6 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
 
 void drawMessage(Adafruit_GFX& g, const char* l1, const char* l2) {
   begin(g);
-  d->fillRect(0, 0, W, H, WHT);
   text(W / 2, H / 2 - (l2 ? 8 : 0), l1, F18B, AC);
   if (l2) text(W / 2, H / 2 + 28, l2, F12B, AC);
-}
-
-void drawBlank(Adafruit_GFX& g) {
-  begin(g);
-  d->fillRect(0, 0, W, H, WHT);
 }
