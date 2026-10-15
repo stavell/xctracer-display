@@ -45,21 +45,27 @@ void setup() {
 }
 
 // Status line over USB serial every 2 s, only when a terminal is attached (never blocks).
+static uint32_t worstTickUs = 0;   // slowest app.tick() since the last status line
+
 static void debugLine(uint32_t now) {
   static uint32_t last = 0;
   if (now - last < 2000) return;
   last = now;
   if (!Serial || Serial.availableForWrite() < 120) return;
   const ViewModel& vm = app.buildViewModel(now);
-  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d\n",
+  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus\n",
                 (unsigned long)app.linesOk(), (unsigned long)app.linesBad(), vm.fresh, vm.s.fix,
                 vm.s.alt, vm.s.speedKmh, vm.s.vario, vm.wind.valid, vm.wind.speedKmh, vm.sim, (int)vm.link,
-                (int)vm.page, vm.markCount, vm.trailCount);
+                (int)vm.page, vm.markCount, vm.trailCount, (unsigned long)worstTickUs);
+  worstTickUs = 0;
 }
 
 void loop() {
   uint32_t now = millis();
+  uint32_t t0 = micros();
   app.tick(now);
+  uint32_t dt = micros() - t0;
+  if (dt > worstTickUs) worstTickUs = dt;
   debugLine(now);
   delay(10);
 }

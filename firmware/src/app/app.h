@@ -8,7 +8,7 @@ struct AppConfig {
   uint8_t rotation = 1;              // 1 = portrait, 3 = portrait flipped
   uint32_t hostGraceMs = 10000;      // laptop frames keep the screen this long after the last draw command
   uint32_t freshMs = 3000;           // data older than this counts as no data
-  uint32_t drawEveryMs = 500;        // live screen redraw cadence
+  uint32_t drawEveryMs = 333;        // live screen redraw cadence (3 Hz, the tracer's data rate)
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
 };
 
