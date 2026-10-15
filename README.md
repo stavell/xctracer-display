@@ -55,13 +55,18 @@ Run from `firmware/`:
     ../.venv/bin/pio run -t upload     # flash (1200 bps touch, nrfutil DFU over USB)
 
 Serial is USB CDC at 115200 on `/dev/cu.usbmodem*`. `ready` prints once at boot, so a
-monitor opened after boot will not see it. Python that reads from the board should use
+monitor opened after boot will not see it. Python that reads from the board's serial port can use
 `.venv/bin/python -I`.
 
 ## Status
 
 - Done: toolchain, build, flash, bring-up sketch (text, rectangle, filled block on the display).
   User switch prints `pressed` / `released` over serial.
+- Done: BLE display terminal. Firmware advertises `SharpDisplay` (service `D15A0001-...`,
+  command characteristic `D15A0002-...`). Wire protocol is in `firmware/src/protocol.h`.
+  Verified on hardware: full 400x240 frame from the laptop renders correctly.
+- Host client: `host/display_link.py` (bleak + Pillow). Demo: `host/send_test.py`
+  (run without `-I`, it imports from its own folder).
 - Original demo source was not found on this machine. It is not needed.
 
 ## Design decisions
@@ -70,7 +75,8 @@ monitor opened after boot will not see it. Python that reads from the board shou
 - The device is a BLE peripheral with a custom GATT service. It shows "waiting for host" until
   the first frame arrives and keeps the last frame if the link drops (the memory LCD holds
   the image at near-zero power).
-- Planned commands: `CLEAR`, `BLIT` (x, y, w, h, 1-bit data, optional RLE), `FLUSH`.
+- Commands: `CLEAR`, `BLIT` (x, y, w, h), `DATA` (1-bit pixels, MSB-first, 1 = black), `FLUSH`.
+  No RLE yet; add it only if frame time matters.
 - The host renders with Pillow to 1-bit and sends changed rectangles. It finds the device by
   name or service UUID (macOS has no MAC addresses).
 - Power: slow advertising when disconnected, relaxed connection interval, redraw only when
