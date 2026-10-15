@@ -3,6 +3,7 @@
 #include "app/button_fsm.h"
 #include "core/home.h"
 #include "core/xctrc.h"
+#include "view/prof.h"
 #include "view/screens.h"
 
 App::App(IPanel& panel, IInput& input, IBattery& battery, ITracer& tracer, ILaptop& laptop,
@@ -178,9 +179,13 @@ void App::shutdown() {
 }
 
 void App::drawLiveScreen(uint32_t now, uint32_t held) {
+  PROF_BEGIN(P_CLEAR);
   panel_.clear();
+  PROF_END(P_CLEAR);
   drawLive(panel_.gfx(), buildViewModel(now), held);
+  PROF_BEGIN(P_PRESENT);
   panel_.present();
+  PROF_END(P_PRESENT);
 }
 
 void App::drawCalibrateScreen(uint32_t now, uint32_t held) {

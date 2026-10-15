@@ -11,7 +11,7 @@ mkdir -p out
 # 64-bit host: keep the full-width pgm_read_pointer from our stub (the library's is 32-bit)
 grep -v "define pgm_read_pointer" "$G/Adafruit_GFX.cpp" > out/Adafruit_GFX_host.cpp
 SRC="../src/core/xctrc.cpp ../src/core/wind.cpp ../src/core/windekf.cpp ../src/core/thermal.cpp ../src/core/compass.cpp ../src/core/heading.cpp ../src/core/heading_smoother.cpp ../src/core/flight.cpp ../src/core/windprofile.cpp ../src/core/home.cpp ../src/core/sim.cpp ../src/core/linediff.cpp ../src/core/devmatch.cpp ../src/app/command_decode.cpp
-     ../src/view/screens.cpp ../src/app/app.cpp out/Adafruit_GFX_host.cpp"
+     ../src/view/screens.cpp ../src/view/prof.cpp ../src/app/app.cpp out/Adafruit_GFX_host.cpp"
 FLAGS="-std=c++17 -g -O1 -DARDUINO=100 -Wall -Wno-unused-function -Istubs -I../src -I.
        -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all"
 c++ $FLAGS -I"$G" $SRC emu_main.cpp -o out/emu

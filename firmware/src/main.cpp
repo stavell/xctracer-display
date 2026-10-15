@@ -53,6 +53,7 @@ void setup() {
   laptop.begin();
 
   diagnosticsBegin(app, panel, compassHw);
+  diagnosticsBench();                         // DIAGNOSTICS only
   app.begin(millis());
 }
 

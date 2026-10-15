@@ -1,4 +1,5 @@
 #include "view/screens.h"
+#include "view/prof.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -305,6 +306,7 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
   for (float z : zoom) if (z <= smax) { s = z; break; }
 
   // trail, oldest first, clipped to the frame; anything older than 90 s is dashed
+  PROF_BEGIN(P_TRAIL);
   dashPhase = 0;
   const float cx0 = mx + 4, cy0 = my + 4, cx1 = mx + mw - 4, cy1 = my + mh - 4;
   for (int i = 1; i < n; i++) {
@@ -314,6 +316,8 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
               climbWidth(vm.trail[i].vario), (n - 1 - i) > 90);
   }
 
+  PROF_END(P_TRAIL);
+  PROF_BEGIN(P_MARKS);
   // remembered thermals: a fixed-size ring (no fill, the trail stays visible), the newest one heavier
   char lb[16];
   static int gSx[ViewModel::MARKS_MAX], gSy[ViewModel::MARKS_MAX];
@@ -368,6 +372,7 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
     text(lx, ly, lb, F9);
   }
 
+  PROF_END(P_MARKS);
   // you: a small arrow pointing up
   d->fillTriangle(ox, oy - 9, ox - 6, oy + 6, ox + 6, oy + 6, BLK);
   d->fillTriangle(ox, oy - 3, ox - 2, oy + 3, ox + 2, oy + 3, WHT);
@@ -581,28 +586,45 @@ static void drawLiveBody(const ViewModel& vm) {
   // no GPS fix: speed and track read 0 (the title says NO FIX) instead of dashes
   float spd = isfinite(v.speedKmh) ? v.speedKmh : 0;
   float crs = isfinite(vm.heading) ? vm.heading : 0;
+  PROF_BEGIN(P_VARIO);
   thinVario(barX, barW, v.vario, vm.avgVario);
+  PROF_END(P_VARIO);
+  PROF_BEGIN(P_CELLS);
   cell(cx0, row1, cellW, v.fix ? "GPS km/h" : "NO FIX", fnum(b, sizeof b, spd, "%.0f"));
   cell(cx0 + cellW + 4, row1, cellW, "GLIDE", fnum(b, sizeof b, vm.glide, "%.1f"));
   cell(cx0, row2, cellW, "ALT m", fnum(b, sizeof b, v.alt, "%.0f"));
   cell(cx0 + cellW + 4, row2, cellW, "VS m/s", fnum(b, sizeof b, v.vario, "%+.1f"));
+  PROF_END(P_CELLS);
 
   // compass with the wind arrow in a corner
   const Wind& w = vm.wind;
   const int R = 92, cx = cx0 + (W - cx0) / 2, cy = gridEnd + 8 + R + 6;
   const int pageH = H - 6 - 25 - 5 - (gridEnd + 2);
   if (vm.page == ViewModel::PAGE_THERMAL) {
+    PROF_BEGIN(P_THERMAL);
     drawThermalMap(vm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+    PROF_END(P_THERMAL);
   } else if (vm.page == ViewModel::PAGE_PROFILE) {
+    PROF_BEGIN(P_WPROFILE);
     drawWindProfile(vm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+    PROF_END(P_WPROFILE);
   } else if (vm.page == ViewModel::PAGE_HOME) {
+    PROF_BEGIN(P_HOME);
     drawHome(vm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+    PROF_END(P_HOME);
   } else {
+    PROF_BEGIN(P_DIAL);
     compassDial(cx, cy, R, vm.heading, vm.headingSrc);
-    if (vm.headingSrc == HDG_GPS) windCorner(cx, cy, R, crs, w);
+    PROF_END(P_DIAL);
+    if (vm.headingSrc == HDG_GPS) {
+      PROF_BEGIN(P_WCORNER);
+      windCorner(cx, cy, R, crs, w);
+      PROF_END(P_WCORNER);
+    }
   }
 
   // wind as one line: "15 km/h NNW"
+  PROF_BEGIN(P_WLINE);
   const int ly = H - 6;
   if (w.valid) {
     float from = fmodf(w.toDeg + 180.0f, 360.0f);
@@ -618,6 +640,7 @@ static void drawLiveBody(const ViewModel& vm) {
     text(cx0, ly, "0", F18B);
     text(cx0 + textW("0", F18B) + 5, ly, "km/h", F12B);
   }
+  PROF_END(P_WLINE);
 }
 
 static void powerBanner(uint32_t heldMs) {
@@ -632,10 +655,14 @@ static void powerBanner(uint32_t heldMs) {
 
 void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs) {
   begin(g);
+  PROF_BEGIN(P_LIVE);
+  PROF_BEGIN(P_HEADER);
   header(vm);
+  PROF_END(P_HEADER);
   if (vm.fresh) drawLiveBody(vm);
   else drawStatus(vm);
   powerBanner(heldMs);
+  PROF_END(P_LIVE);
 }
 
 void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_t heldMs) {

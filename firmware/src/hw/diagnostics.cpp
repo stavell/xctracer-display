@@ -10,6 +10,10 @@
 #include "core/flight.h"
 #include "core/wind.h"
 #include "core/xctrc.h"
+#include "view/prof.h"
+#ifdef DIAGNOSTICS
+#include <Fonts/FreeSansBold24pt7b.h>
+#endif
 
 static App* gApp;
 static SharpPanel* gPanel;
@@ -79,7 +83,50 @@ static void runFlightBench() {
   for (int i = 0; i < 10; i++) c.update(a, mg);
   benchCompassUs = (micros() - t0) / 10;
 }
+
+// Cost of the primitives the views are built from, timed on the real canvas. Result line: bench ...
+static char benchLine[160];
+static bool benchPending = false;
+static uint32_t usNow() { return micros(); }
+
+void diagnosticsBench() {
+  profSetClock(usNow);                     // draw-time sections, printed by diagnosticsTick
+  SharpPanel& p = *gPanel;
+  p.setRotation(1);
+  p.clear();
+  Adafruit_GFX& g = p.gfx();
+  uint32_t t0 = micros();
+  for (int i = 0; i < 10000; i++) g.drawPixel(i % 200 + 10, (i / 200) % 100 + 10, i & 1 ? 0 : 1);
+  uint32_t pixelUs = micros() - t0;
+  t0 = micros();
+  for (int i = 0; i < 100; i++) g.drawLine(10, 100 + (i & 3), 209, 100 + (i & 3), 0);      // horizontal
+  uint32_t hUs = (micros() - t0) / 100;
+  t0 = micros();
+  for (int i = 0; i < 100; i++) g.drawLine(100 + (i & 3), 150, 100 + (i & 3), 349, 0);     // vertical
+  uint32_t vUs = (micros() - t0) / 100;
+  t0 = micros();
+  for (int i = 0; i < 100; i++) g.drawLine(10, 100 + (i & 3), 209, 299 + (i & 3), 0);      // diagonal
+  uint32_t dUs = (micros() - t0) / 100;
+  t0 = micros();
+  for (int i = 0; i < 50; i++) g.fillRect(0, 0, 100, 20, i & 1 ? 0 : 1);
+  uint32_t fillUs = (micros() - t0) / 50;
+  g.setFont(&FreeSansBold24pt7b);
+  g.setTextSize(1);
+  g.setTextColor(0);
+  t0 = micros();
+  for (int i = 0; i < 100; i++) { g.setCursor(10, 60); g.print("1234"); }
+  uint32_t textUs = (micros() - t0) / 100;
+  g.setFont(nullptr);
+  p.clear();
+  p.invalidate();
+  snprintf(benchLine, sizeof benchLine, "bench pixel_ns=%lu hline_us=%lu vline_us=%lu dline_us=%lu fill_us=%lu text_us=%lu\n",
+           (unsigned long)(pixelUs / 10), (unsigned long)hUs, (unsigned long)vUs,
+           (unsigned long)dUs, (unsigned long)fillUs, (unsigned long)textUs);
+  Serial.print(benchLine);
+  benchPending = true;                     // print again with the first status line: nobody listens at boot
+}
 #else
+void diagnosticsBench() {}
 static uint32_t benchParseUs = 0, benchWindUs = 0, benchVmUs = 0, benchFeedAvgUs = 0, benchFeedMaxUs = 0, benchCompassUs = 0;
 static void runBench() {}
 static void runFlightBench() {}
@@ -113,6 +160,14 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
 #endif
   Serial.printf(" lines=%d", panel.lastLines());
   Serial.print("\n");
+#ifdef DIAGNOSTICS
+  if (benchPending) { Serial.print(benchLine); benchPending = false; }
+  char pl[200];
+  profFormat(pl, sizeof pl);
+  Serial.print(pl);
+  Serial.print("\n");
+  profResetMax();
+#endif
   char desc[120];
   app.describeTracer(desc, sizeof desc);
   // reset cause (POWER->RESETREAS at boot: 0x1 pin, 0x2 watchdog, 0x4 soft reset incl. hard fault,

@@ -21,6 +21,8 @@
 #include "core/windekf.h"
 #include "core/xctrc.h"
 #include "mocks.h"
+#include "view/prof.h"
+#include "view/screens.h"
 
 static int failures = 0, checks = 0;
 #define CHECK(cond) do { checks++; if (!(cond)) { failures++; printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); } } while (0)
@@ -1228,12 +1230,84 @@ static void test_app_anim_cadence() {
 
 #include "robust_tests.h"
 
+static uint32_t fakeUs = 0;
+static uint32_t fakeClock() { return fakeUs += 7; }   // every call advances 7 us
+
+static void test_prof() {
+  puts("prof");
+  static ViewModel vm;
+  vm.fresh = true; vm.link = ViewModel::LINK_CONNECTED;
+  vm.s.fix = true; vm.s.alt = 1400; vm.s.vario = 1.5f; vm.s.speedKmh = 30; vm.s.course = 90;
+  vm.heading = 90; vm.headingSrc = HDG_GPS;
+  vm.wind.valid = true; vm.wind.speedKmh = 12; vm.wind.toDeg = 90;
+  vm.localMinutes = 600; vm.localBattPct = 80;
+  vm.trailCount = 60;
+  for (int i = 0; i < vm.trailCount; i++) {
+    vm.trail[i].x = 40 * sinf(i * 0.3f); vm.trail[i].y = 40 * cosf(i * 0.3f); vm.trail[i].vario = 1.5f;
+  }
+  vm.markCount = 1; vm.marks[0].x = 30; vm.marks[0].y = 20; vm.marks[0].avgClimb = 2.1f;
+  MockPanel p;
+  p.setRotation(1);
+
+  // no clock: nothing recorded
+  profSetClock(nullptr);
+  profReset();
+  p.clear(); vm.page = ViewModel::PAGE_COMPASS; drawLive(p.gfx(), vm, 0);
+  p.clear(); vm.page = ViewModel::PAGE_THERMAL; drawLive(p.gfx(), vm, 0);
+  uint32_t total = 0;
+  for (int i = 0; i < P_COUNT; i++) total += gProf[i].count + gProf[i].sum + gProf[i].max;
+  CHECK(total == 0);
+
+  // fake clock: compass frame then thermal frame
+  profSetClock(fakeClock);
+  profReset();
+  p.clear(); vm.page = ViewModel::PAGE_COMPASS; drawLive(p.gfx(), vm, 0);
+  CHECK(gProf[P_LIVE].count == 1); CHECK(gProf[P_HEADER].count == 1); CHECK(gProf[P_CELLS].count == 1);
+  CHECK(gProf[P_VARIO].count == 1); CHECK(gProf[P_DIAL].count == 1); CHECK(gProf[P_WCORNER].count == 1);
+  CHECK(gProf[P_WLINE].count == 1);
+  CHECK(gProf[P_THERMAL].count == 0);
+  p.clear(); vm.page = ViewModel::PAGE_THERMAL; drawLive(p.gfx(), vm, 0);
+  CHECK(gProf[P_LIVE].count == 2); CHECK(gProf[P_THERMAL].count == 1);
+  CHECK(gProf[P_TRAIL].count == 1); CHECK(gProf[P_MARKS].count == 1);
+  CHECK(gProf[P_DIAL].count == 1);
+  // plausible: each section takes at least one clock step and nested ones fit inside their parent
+  for (int i = P_LIVE; i <= P_WLINE; i++) {
+    if (gProf[i].count == 0) continue;
+    CHECK(gProf[i].last >= 7); CHECK(gProf[i].max >= gProf[i].last); CHECK(gProf[i].sum >= gProf[i].max);
+  }
+  CHECK(gProf[P_TRAIL].last + gProf[P_MARKS].last <= gProf[P_THERMAL].last);
+  CHECK(gProf[P_THERMAL].last < gProf[P_LIVE].last);
+  CHECK(gProf[P_HEADER].last + gProf[P_CELLS].last + gProf[P_VARIO].last <= gProf[P_LIVE].sum);
+
+  // App sections and the report line
+  profResetMax();
+  CHECK(gProf[P_LIVE].max == 0 && gProf[P_LIVE].count == 2);
+  char buf[300];
+  profFormat(buf, sizeof buf);
+  CHECK(strncmp(buf, "prof live=", 10) == 0);
+  CHECK(strstr(buf, " thermal=") != nullptr); CHECK(strstr(buf, " clear=") == nullptr);   // no App frame yet
+
+  // App frame: clear and present are timed around the panel calls
+  {
+    Rig r;
+    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    app.begin(0);
+    r.laptop.sim(true);
+    for (uint32_t now = 0; now < 3000; now += 10) app.tick(now);
+    CHECK(gProf[P_CLEAR].count > 0); CHECK(gProf[P_PRESENT].count == gProf[P_CLEAR].count);
+    CHECK(gProf[P_CLEAR].last >= 7);
+  }
+  profSetClock(nullptr);
+  profReset();
+}
+
 int main() {
   test_spsc_ring();
   test_linediff();
   test_devmatch();
   test_command_decode();
   test_show_raw();
+  test_prof();
   test_xctrc();
   test_wind();
   test_flight();
