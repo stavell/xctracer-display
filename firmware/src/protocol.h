@@ -13,3 +13,4 @@
 #define CMD_SET_TZ  0x11   // [0x11, minutes:i16le] local time offset from UTC
 #define CMD_SIM     0x12   // [0x12, 0|1] built-in flight simulator for bench testing
 #define CMD_XCTRC   0x13   // [0x13, ascii $XCTRC line] injected as if received from the vario (log replay)
+#define CMD_PAGE    0x14   // [0x14, 0|1] 0 = compass page, 1 = thermal assistant page

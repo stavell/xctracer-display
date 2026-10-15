@@ -353,6 +353,13 @@ static void test_app() {
   r.input.press(now + 100, 900);                          // long: select row 1 = first device
   run(1500);
   CHECK(!app.listOpen()); CHECK(r.tracer.connected == 0);
+  // the laptop can switch pages too
+  { Command pc; pc.type = Command::PAGE; pc.value = 1; r.laptop.cmds.push_back(pc); }
+  run(100);
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_THERMAL);
+  { Command pc; pc.type = Command::PAGE; pc.value = 0; r.laptop.cmds.push_back(pc); }
+  run(100);
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_COMPASS);
   // short press toggles the thermal map page
   CHECK(app.buildViewModel(now).page == ViewModel::PAGE_COMPASS);
   r.input.press(now + 100, 150);

@@ -2,6 +2,7 @@
   python igc_replay.py flight.igc --find            list the strongest climbs with start offsets
   python igc_replay.py flight.igc --start 4300      replay from 4300 s after the first fix
   python igc_replay.py flight.igc --start 4300 --speed 3   three times faster
+  python igc_replay.py flight.igc --start 4300 --page thermal   also switch the box to the thermal page
 The box ignores the live tracer while a replay is feeding it."""
 import argparse
 import asyncio
@@ -10,6 +11,7 @@ from display_link import DisplayLink, CMD_UUID
 from igc import read_igc, xctrc_line
 
 CMD_XCTRC = 0x13
+CMD_PAGE = 0x14
 
 
 def clock(t):
@@ -33,12 +35,14 @@ def find_climbs(fx, win=150, top=6):
     return sorted(picked, key=lambda x: x[1])
 
 
-async def replay(path, start, speed):
+async def replay(path, start, speed, page):
     date, fx = read_igc(path)
     t0 = fx[0].t
     i0 = next((i for i, f in enumerate(fx) if f.t - t0 >= start), 0)
     print(f"replaying from {clock(fx[i0].t)} ({len(fx) - i0} s of flight) at {speed:g}x. Ctrl-C to stop.", flush=True)
     async with DisplayLink() as link:
+        if page:
+            await link.client.write_gatt_char(CMD_UUID, bytes([CMD_PAGE, 1 if page == "thermal" else 0]), response=True)
         t_start = time.monotonic()
         for k, f in enumerate(fx[i0:]):
             line = xctrc_line(date, f)
@@ -56,6 +60,7 @@ def main():
     ap.add_argument("--find", action="store_true")
     ap.add_argument("--start", type=int, default=0, help="seconds after the first fix")
     ap.add_argument("--speed", type=float, default=1.0, help="replay speed factor (1 = real time)")
+    ap.add_argument("--page", choices=["compass", "thermal"], help="switch the box to this page when connected")
     a = ap.parse_args()
     if a.find:
         date, fx = read_igc(a.igc)
@@ -64,7 +69,7 @@ def main():
             print(f"--start {fx[i].t - t0 - 120:5d}   {clock(fx[i].t)}   +{gain:.0f} m in 150 s")
         return
     try:
-        asyncio.run(replay(a.igc, a.start, a.speed))
+        asyncio.run(replay(a.igc, a.start, a.speed, a.page))
     except KeyboardInterrupt:
         pass
 

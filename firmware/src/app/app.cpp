@@ -40,6 +40,10 @@ void App::handle(const Command& c, uint32_t now) {
     case Command::TZ:
       settings_.setTzMinutes(c.value);
       break;
+    case Command::PAGE:
+      page_ = c.value ? ViewModel::PAGE_THERMAL : ViewModel::PAGE_COMPASS;
+      redraw_ = true;
+      break;
     case Command::FILTER:
       tracer_.setFilter(c.text);
       break;
