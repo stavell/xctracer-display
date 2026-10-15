@@ -72,6 +72,12 @@ static void onCmdWrite(uint16_t, BLECharacteristic*, uint8_t* d, uint16_t len) {
     case CMD_FLUSH:
       flushPending = true;
       break;
+    case CMD_SET_TZ:
+      if (len >= 3) varioSetTz((int16_t)(d[1] | (d[2] << 8)));
+      break;
+    case CMD_SIM:
+      if (len >= 2) varioSim(d[1] != 0);
+      break;
     case CMD_SET_FILTER: {
       uint16_t n = min<uint16_t>(len - 1, sizeof(pendingFilter) - 1);
       memcpy(pendingFilter, d + 1, n);
@@ -142,7 +148,8 @@ static void powerOnGate() {
 }
 
 // ---- main ------------------------------------------------------------------------
-static Page page = PAGE_VARIO;
+static Page page = PAGE_VARIO_STD;
+static bool autoThermal = false;   // temporarily showing the thermal screen while circling
 static bool listOpen = false;
 static int listSel = 0;
 static bool wasLocal = false;
@@ -231,7 +238,7 @@ void loop() {
       sensorsSetPage(page);
       lastDraw = 0;
     } else if (ev == BTN_LONG) {
-      if (page == PAGE_VARIO) {
+      if (isVarioPage(page)) {
         varioListOpen();
         listOpen = true;
         listSel = 0;
@@ -244,12 +251,15 @@ void loop() {
       }
       lastDraw = 0;
     }
+    if (isVarioPage(page)) autoThermal = varioCircling() && varioFresh();
+    else autoThermal = false;
     sensorsUpdate();
     uint32_t held = button.heldMs();
     uint32_t every = held >= Button::ARM_MS ? 150 : uiIntervalMs(page);
     if (millis() - lastDraw >= every || lastDraw == 0) {
       lastDraw = millis();
-      uiDraw(page, held);
+      Page shown = (autoThermal && isVarioPage(page)) ? PAGE_VARIO_THERMAL : page;
+      uiDraw(shown, held);
     }
   } else if (!local && flushPending) {
     flushPending = false;

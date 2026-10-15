@@ -10,3 +10,5 @@
 #define CMD_DATA  0x03
 #define CMD_FLUSH 0x04
 #define CMD_SET_FILTER 0x10   // [0x10, ascii glob...] name filter for the vario scan, e.g. "XC*"
+#define CMD_SET_TZ  0x11   // [0x11, minutes:i16le] local time offset from UTC
+#define CMD_SIM     0x12   // [0x12, 0|1] built-in flight simulator for bench testing

@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 
-enum Page { PAGE_VARIO, PAGE_ENV, PAGE_COMPASS, PAGE_MOTION, PAGE_LIGHT, PAGE_SOUND, PAGE_COUNT };
+enum Page { PAGE_VARIO_STD, PAGE_VARIO_SIMPLE, PAGE_VARIO_THERMAL, PAGE_ENV, PAGE_COMPASS, PAGE_MOTION, PAGE_LIGHT, PAGE_SOUND, PAGE_COUNT };
 
 struct Readings {
   float tempC = NAN, hum = NAN, pressHpa = NAN, altM = NAN;
@@ -27,6 +27,7 @@ struct CalState {
   float spanX = 0, spanY = 0, spanZ = 0;   // uT covered so far
 };
 
+inline bool isVarioPage(Page p) { return p <= PAGE_VARIO_THERMAL; }
 void sensorsBegin();
 void sensorsSetPage(Page p);     // powers sensors up/down for the page
 void sensorsSleep();             // everything off
