@@ -17,7 +17,9 @@ class IPanel {
   virtual void clear() = 0;         // fast white fill of the whole canvas (never fillRect: it is per-pixel and slow)
   virtual void present() = 0;       // refresh the panel only if the picture changed
   virtual void invalidate() = 0;    // the next present() always refreshes
-  virtual void refresh() = 0;       // unconditional refresh (laptop-drawn frames)
+  virtual void refresh() = 0;       // unconditional refresh
+  // Copy a full native-layout frame (400x240, 1 bpp, LSB = leftmost pixel, 1 = white) and refresh.
+  virtual void showRaw(const uint8_t* frame) = 0;
 };
 
 class IInput {                      // the single user switch

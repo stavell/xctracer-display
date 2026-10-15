@@ -1,4 +1,6 @@
 #include "hw/laptop_ble.h"
+#include <string.h>
+#include "app/command_decode.h"
 #include "protocol.h"
 
 static LaptopBle* self = nullptr;
@@ -6,6 +8,7 @@ static const uint16_t W = 400, H = 240;   // host frames are always 400x240 land
 
 void LaptopBle::begin() {
   self = this;
+  memset(frame_, 0xFF, sizeof frame_);
   svc_.begin();
   chr_.setProperties(CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
   chr_.setPermission(SECMODE_OPEN, SECMODE_OPEN);
@@ -28,49 +31,36 @@ void LaptopBle::onConnect(uint16_t h) { if (self) self->conn_ = h; }
 void LaptopBle::onDisconnect(uint16_t, uint8_t) { if (self) self->conn_ = BLE_CONN_HANDLE_INVALID; }
 void LaptopBle::onWrite(uint16_t, BLECharacteristic*, uint8_t* data, uint16_t len) { if (self) self->handle(data, len); }
 
-void LaptopBle::push(const Command& c) {
-  uint8_t nh = (qh_ + 1) % QN;
-  if (nh == qt_) return;       // full: drop
-  q_[qh_] = c;
-  qh_ = nh;
-}
-
-bool LaptopBle::pop(Command& out) {
-  if (qt_ == qh_) return false;
-  out = q_[qt_];
-  qt_ = (qt_ + 1) % QN;
-  return true;
-}
-
+// Panel native layout (Adafruit_SharpMem::drawPixel, rotation 0): byte (y*400 + x)/8, bit (x & 7),
+// LSB = leftmost pixel, set = white. Host data: MSB first, 1 = black.
 void LaptopBle::blitByte(uint8_t b) {
   uint16_t stride = (blit_.w + 7) / 8;
   uint32_t total = (uint32_t)stride * blit_.h;
   if (blit_.pos >= total) return;
   uint16_t row = blit_.pos / stride;
   uint16_t col = (blit_.pos % stride) * 8;
-  Adafruit_GFX& g = panel_.gfx();
   for (uint8_t i = 0; i < 8; i++) {
     uint16_t px = col + i;
     if (px >= blit_.w) break;
-    g.drawPixel(blit_.x + px, blit_.y + row, (b & (0x80 >> i)) ? 0 : 1);
+    uint16_t x = blit_.x + px, y = blit_.y + row;
+    uint8_t* p = &frame_[((uint32_t)y * W + x) / 8];
+    uint8_t m = (uint8_t)(1u << (x & 7));
+    if (b & (0x80 >> i)) *p &= (uint8_t)~m; else *p |= m;
   }
   blit_.pos++;
 }
 
-// BLE callback context: draw commands paint directly, the rest is copied into the queue.
+// BLE callback context: draw commands fill the private frame, the rest is decoded and queued.
 void LaptopBle::handle(const uint8_t* d, uint16_t len) {
   if (len == 0) return;
-  Command c;
   switch (d[0]) {
     case CMD_CLEAR:
       lastDraw_ = millis();
-      panel_.setRotation(0);
-      panel_.clear();
+      memset(frame_, 0xFF, sizeof frame_);
       blit_.open = false;
-      break;
+      return;
     case CMD_BLIT:
       lastDraw_ = millis();
-      panel_.setRotation(0);
       if (len < 9) return;
       blit_.x = d[1] | (d[2] << 8);
       blit_.y = d[3] | (d[4] << 8);
@@ -79,37 +69,18 @@ void LaptopBle::handle(const uint8_t* d, uint16_t len) {
       blit_.pos = 0;
       blit_.open = blit_.x < W && blit_.y < H && blit_.w && blit_.h &&
                    blit_.x + blit_.w <= W && blit_.y + blit_.h <= H;
-      break;
+      return;
     case CMD_DATA:
       if (!blit_.open) return;
       for (uint16_t i = 1; i < len; i++) blitByte(d[i]);
-      break;
+      return;
     case CMD_FLUSH:
       lastDraw_ = millis();
       flushPending_ = true;
-      break;
-    case CMD_SET_TZ:
-      if (len >= 3) { c.type = Command::TZ; c.value = (int16_t)(d[1] | (d[2] << 8)); push(c); }
-      break;
-    case CMD_SIM:
-      if (len >= 2) { c.type = Command::SIM; c.value = d[1] != 0; push(c); }
-      break;
-    case CMD_CAL:
-      if (len >= 2) { c.type = Command::CAL; c.value = d[1]; push(c); }
-      break;
-    case CMD_PAGE:
-      if (len >= 2) { c.type = Command::PAGE; c.value = d[1] != 0; push(c); }
-      break;
-    case CMD_XCTRC:
-    case CMD_SET_FILTER: {
-      size_t n = (size_t)(len - 1) < sizeof(c.text) - 1 ? (size_t)(len - 1) : sizeof(c.text) - 1;
-      c.type = d[0] == CMD_XCTRC ? Command::XCTRC : Command::FILTER;
-      memcpy(c.text, d + 1, n);
-      c.text[n] = 0;
-      push(c);
-      break;
-    }
+      return;
   }
+  Command c;
+  if (decodeCommand(d, len, c)) q_.push(c);
 }
 
 bool LaptopBle::hostDrawing(uint32_t now) {
@@ -117,11 +88,9 @@ bool LaptopBle::hostDrawing(uint32_t now) {
   return t && now - t < grace_;
 }
 
+// Loop context: the only place the frame reaches the panel.
 void LaptopBle::service(uint32_t) {
-  if (flushPending_) {
-    flushPending_ = false;
-    panel_.refresh();
-  }
+  if (flushPending_.exchange(false)) panel_.showRaw(frame_);
 }
 
 void LaptopBle::disconnect() {

@@ -2,10 +2,14 @@
 #include <stdio.h>
 #include <string>
 #include "app/app.h"
+#include "app/command_decode.h"
 #include "core/compass.h"
+#include "core/devmatch.h"
 #include "core/flight.h"
 #include "core/heading.h"
 #include "core/sim.h"
+#include "core/spsc_ring.h"
+#include "protocol.h"
 #include "core/thermal.h"
 #include "core/wind.h"
 #include "core/xctrc.h"
@@ -560,7 +564,124 @@ static void test_app() {
   CHECK(r.power.off);
 }
 
+static void test_spsc_ring() {
+  SpscRing<int, 4> q;
+  int v = -1;
+  CHECK(!q.pop(v));
+  for (int i = 0; i < 4; i++) CHECK(q.push(i + 10));
+  CHECK(!q.push(99));                      // full: dropped
+  for (int i = 0; i < 4; i++) { CHECK(q.pop(v)); CHECK(v == i + 10); }
+  CHECK(!q.pop(v));
+  // wrap-around: many more items than slots, interleaved, order kept
+  int next = 0, expect = 0;
+  bool ok = true;
+  for (int round = 0; round < 100000; round++) {
+    int burst = 1 + round % 4;
+    for (int k = 0; k < burst; k++) if (!q.push(next++)) { ok = false; }
+    for (int k = 0; k < burst; k++) { if (!q.pop(v) || v != expect++) ok = false; }
+  }
+  CHECK(ok);
+  CHECK(!q.pop(v));
+  struct Big { char s[160]; };
+  SpscRing<Big, 8> b;
+  Big x, y;
+  strcpy(x.s, "$XCTRC,test");
+  CHECK(b.push(x) && b.pop(y) && strcmp(y.s, "$XCTRC,test") == 0);
+}
+
+static DevAddr mk(uint8_t last, uint8_t type) {
+  DevAddr a;
+  a.addr[0] = last;
+  a.type = type;
+  return a;
+}
+
+static void test_devmatch() {
+  CHECK(globMatch("*", "anything"));
+  CHECK(globMatch("", "anything"));
+  CHECK(globMatch("", ""));
+  CHECK(globMatch("XC*", "XCTracer-1234"));
+  CHECK(globMatch("xc*", "XCTracer"));
+  CHECK(globMatch("XCTRACER", "xctracer"));
+  CHECK(!globMatch("XC*", "My XCTracer"));
+  CHECK(globMatch("*Tracer*", "My XCTracer 2"));
+  CHECK(globMatch("XC?racer", "XCTracer"));
+  CHECK(!globMatch("XC?racer", "XCracer"));
+  CHECK(!globMatch("XC?", "XCTR"));
+  CHECK(!globMatch("abc", "abcd"));
+  CHECK(!globMatch("abcd", "abc"));
+  CHECK(globMatch("a*b*c", "aXXbYYc"));
+  CHECK(!globMatch("XC*", ""));
+
+  DevAddr saved = mk(1, ADDR_RANDOM_STATIC);
+  CHECK(!shouldAutoConnect(false, saved, "XCT", saved, "XCT"));               // nothing saved
+  CHECK(!shouldAutoConnect(true, saved, "XCT", mk(2, ADDR_RANDOM_STATIC), "XCT"));   // same name, other unit
+  CHECK(shouldAutoConnect(true, saved, "XCT", saved, "XCT"));
+  CHECK(shouldAutoConnect(true, saved, "XCT", saved, "renamed"));             // exact address wins
+  DevAddr priv = mk(1, ADDR_RANDOM_PRIVATE_RESOLVABLE);
+  CHECK(shouldAutoConnect(true, priv, "XCT", mk(9, ADDR_RANDOM_PRIVATE_RESOLVABLE), "XCT"));
+  CHECK(!shouldAutoConnect(true, priv, "XCT", mk(9, ADDR_RANDOM_PRIVATE_RESOLVABLE), "Other"));
+  DevAddr priv2 = mk(1, ADDR_RANDOM_PRIVATE_NON_RESOLVABLE);
+  CHECK(shouldAutoConnect(true, priv2, "XCT", mk(9, ADDR_PUBLIC), "XCT"));
+  CHECK(!shouldAutoConnect(true, mk(1, ADDR_PUBLIC), "XCT", mk(9, ADDR_PUBLIC), "XCT"));
+
+  int8_t rssi[5] = {-70, -40, -90, -40, -55};
+  int order[5];
+  orderByRssi(rssi, 5, order);
+  CHECK(order[0] == 1 && order[1] == 3 && order[2] == 4 && order[3] == 0 && order[4] == 2);
+  orderByRssi(rssi, 0, order);   // empty is fine
+}
+
+static void test_command_decode() {
+  Command c;
+  { uint8_t d[] = {CMD_SET_TZ, 0x78, 0x00}; CHECK(decodeCommand(d, 3, c) && c.type == Command::TZ && c.value == 120); }
+  { uint8_t d[] = {CMD_SET_TZ, 0x88, 0xFF}; CHECK(decodeCommand(d, 3, c) && c.value == -120); }   // signed
+  { uint8_t d[] = {CMD_SET_TZ, 0x78}; CHECK(!decodeCommand(d, 2, c)); }
+  { uint8_t d[] = {CMD_SIM, 5}; CHECK(decodeCommand(d, 2, c) && c.type == Command::SIM && c.value == 1); }
+  { uint8_t d[] = {CMD_SIM, 0}; CHECK(decodeCommand(d, 2, c) && c.value == 0); }
+  { uint8_t d[] = {CMD_SIM}; CHECK(!decodeCommand(d, 1, c)); }
+  { uint8_t d[] = {CMD_CAL, 2}; CHECK(decodeCommand(d, 2, c) && c.type == Command::CAL && c.value == 2); }
+  { uint8_t d[] = {CMD_CAL}; CHECK(!decodeCommand(d, 1, c)); }
+  { uint8_t d[] = {CMD_PAGE, 1}; CHECK(decodeCommand(d, 2, c) && c.type == Command::PAGE && c.value == 1); }
+  { uint8_t d[] = {CMD_PAGE}; CHECK(!decodeCommand(d, 1, c)); }
+  { uint8_t d[] = {CMD_XCTRC, '$', 'X', 'C'}; CHECK(decodeCommand(d, 4, c) && c.type == Command::XCTRC && strcmp(c.text, "$XC") == 0); }
+  { uint8_t d[] = {CMD_SET_FILTER, 'X', 'C', '*'}; CHECK(decodeCommand(d, 4, c) && c.type == Command::FILTER && strcmp(c.text, "XC*") == 0); }
+  { uint8_t d[] = {CMD_SET_FILTER}; CHECK(decodeCommand(d, 1, c) && c.type == Command::FILTER && c.text[0] == 0); }   // empty = match all
+  {
+    uint8_t d[300];
+    memset(d, 'A', sizeof d);
+    d[0] = CMD_XCTRC;
+    Command big;
+    CHECK(decodeCommand(d, 244, big));
+    CHECK(strlen(big.text) == sizeof(big.text) - 1 && big.text[sizeof(big.text) - 1] == 0);
+  }
+  CHECK(!decodeCommand(nullptr, 0, c));
+  { uint8_t d[] = {0x7F, 1, 2}; CHECK(!decodeCommand(d, 3, c)); }
+  { uint8_t d[] = {CMD_CLEAR}; CHECK(!decodeCommand(d, 1, c)); }
+  { uint8_t d[9] = {CMD_BLIT}; CHECK(!decodeCommand(d, 9, c)); }
+  { uint8_t d[] = {CMD_DATA, 1, 2}; CHECK(!decodeCommand(d, 3, c)); }
+  { uint8_t d[] = {CMD_FLUSH}; CHECK(!decodeCommand(d, 1, c)); }
+}
+
+static void test_show_raw() {
+  MockPanel p;
+  static uint8_t frame[400 * 240 / 8];
+  memset(frame, 0xFF, sizeof frame);
+  frame[(5 * 400 + 11) / 8] &= (uint8_t)~(1u << (11 & 7));   // pixel (11,5) black
+  int before = p.refreshes;
+  p.setRotation(0);
+  p.showRaw(frame);
+  CHECK(p.refreshes == before + 1);
+  CHECK(p.rawPixel(11, 5) == 0);
+  CHECK(p.rawPixel(12, 5) == 1);
+  CHECK(p.rawPixel(10, 5) == 1);
+}
+
 int main() {
+  test_spsc_ring();
+  test_devmatch();
+  test_command_decode();
+  test_show_raw();
   test_xctrc();
   test_wind();
   test_flight();
