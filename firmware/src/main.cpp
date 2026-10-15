@@ -44,7 +44,21 @@ void setup() {
   app.begin(millis());
 }
 
+// Status line over USB serial every 2 s, only when a terminal is attached (never blocks).
+static void debugLine(uint32_t now) {
+  static uint32_t last = 0;
+  if (now - last < 2000) return;
+  last = now;
+  if (!Serial || Serial.availableForWrite() < 120) return;
+  ViewModel vm = app.viewModel(now);
+  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d\n",
+                (unsigned long)app.linesOk(), (unsigned long)app.linesBad(), vm.fresh, vm.s.fix,
+                vm.s.alt, vm.s.speedKmh, vm.s.vario, vm.wind.valid, vm.wind.speedKmh, vm.sim, (int)vm.link);
+}
+
 void loop() {
-  app.tick(millis());
+  uint32_t now = millis();
+  app.tick(now);
+  debugLine(now);
   delay(10);
 }
