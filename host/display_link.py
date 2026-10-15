@@ -27,7 +27,7 @@ class DisplayLink:
     async def __aenter__(self):
         dev = await BleakScanner.find_device_by_filter(
             lambda d, ad: SERVICE_UUID in [u.lower() for u in ad.service_uuids],
-            timeout=15,
+            timeout=40,
         )
         if dev is None:
             raise RuntimeError("SharpDisplay not found")
