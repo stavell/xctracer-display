@@ -30,4 +30,13 @@ struct Wind {
 // the wind drift since then, so a thermal stays put while you circle in it.
 struct AirPoint {
   float x, y, vario;
+  float turn = 0;           // |heading change| in degrees per second at this point (0 if unknown)
+};
+
+// A remembered thermal, relative to the current position (metres east / north) after wind drift.
+struct ThermalRel {
+  float x, y;
+  float avgClimb;        // m/s
+  float gain;            // metres gained in it
+  uint32_t ageS;         // seconds since the climb ended
 };

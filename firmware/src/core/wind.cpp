@@ -21,6 +21,19 @@ WindFit fitWind(const TrackPoint* pts, int n) {
     vy[i] = ms * cos(s.course * D2R);
     ang[i] = fmod(fmod(s.course, 360.0) + 360.0, 360.0);
   }
+  // the window must be turning at both ends: a window that starts or ends in a straight glide mixes in
+  // vectors from a different airspeed and bends the fit
+  auto turningPairs = [&](int from, int to) {
+    int c = 0;
+    for (int i = from; i < to; i++) {
+      double dc = fmod(fabs(pts[i].course - pts[i - 1].course), 360.0);
+      if (dc > 180) dc = 360 - dc;
+      if (dc >= 5.0) c++;
+    }
+    return c;
+  };
+  if (turningPairs(1, 6) < 4 || turningPairs(n - 5, n) < 4) return res;
+
   // angular coverage = 360 - largest gap between the sorted headings
   for (int i = 1; i < n; i++) {
     double a = ang[i];

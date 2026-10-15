@@ -11,7 +11,22 @@ static float wrap180(float a) {   // safe for any input: NaN stays NaN, no loops
   return a;
 }
 
-void FlightModel::reset() { *this = FlightModel(); }
+void FlightModel::reset() {
+  // member by member: a temporary FlightModel would put the whole history on the stack
+  cur_ = Sample();
+  have_ = false;
+  n_ = 0;
+  clock_ = 1000;
+  lastKey_ = -1;
+  flying_ = false;
+  flightStart_ = fastSince_ = slowSince_ = 0;
+  circling_ = false;
+  lastTurn_ = 0;
+  windValid_ = false;
+  wx_ = wy_ = 0;
+  windAt_ = 0;
+  mem_.reset();
+}
 
 bool FlightModel::feed(const Sample& s) {
   cur_ = s;
@@ -49,6 +64,21 @@ void FlightModel::tick() {
   if (circling_ && now - lastTurn_ > 16000) circling_ = false;    // straight again for 16 s
 
   updateWind();
+  updateThermals();
+}
+
+void FlightModel::updateThermals() {
+  mem_.expire(clock_);
+  if (n_ < 20 || !h_[n_ - 1].fix) return;
+  int cnt = airTrail(scratch_, HIST);
+  Thermal found;
+  if (!findThermal(scratch_, cnt, found)) return;
+  mem_.update(h_[n_ - 1].lat, h_[n_ - 1].lon, found, clock_, windValid_ ? wx_ : 0, windValid_ ? wy_ : 0);
+}
+
+int FlightModel::thermals(ThermalRel* out, int maxN) const {
+  if (n_ < 1 || !h_[n_ - 1].fix) return 0;
+  return mem_.relative(out, maxN, h_[n_ - 1].lat, h_[n_ - 1].lon, clock_, windValid_ ? wx_ : 0, windValid_ ? wy_ : 0);
 }
 
 void FlightModel::updateWind() {
@@ -84,6 +114,11 @@ int FlightModel::airTrail(AirPoint* out, int maxN) const {
     out[cnt].x = (float)((h_[i].lon - lon0) * kx + wx * age);
     out[cnt].y = (float)((h_[i].lat - lat0) * ky + wy * age);
     out[cnt].vario = isfinite(h_[i].vario) ? h_[i].vario : 0;
+    out[cnt].turn = 0;
+    if (i > 0 && h_[i].fix && h_[i - 1].fix) {
+      float dc = fabsf(wrap180(h_[i].course - h_[i - 1].course));
+      if (isfinite(dc)) out[cnt].turn = dc;
+    }
     cnt++;
   }
   return cnt;

@@ -102,10 +102,14 @@ lat = lon = 0 means no GPS fix. Speed is assumed km/h (unverified until a fix is
   (needs about 200 degrees of heading change; radius = airspeed must be 14-72 km/h), smoothed
   over ~8 s, kept on screen afterwards with its age.
 - Two pages, short press toggles: the compass page, and the thermal assistant page where a heading-up
-  map replaces the compass (you stay in the centre, your direction of travel is up): the last 60 s of
-  track in the air-mass frame (shifted by the wind drift, so
-  a thermal holds still while you circle), line thickness growing with climb rate, rotating north marker,
-  wind arrow relative to your heading, scale bar. The four top cells and the wind line stay.
+  map replaces the compass (you stay in the centre, your direction of travel is up). It shows the last
+  3 minutes of track in the air-mass frame (shifted by the wind drift, so a thermal holds still while you
+  circle; solid and thicker where you climbed, dashed after 90 s) and markers for up to 6 remembered
+  thermals with their average climb. A marker is the lift-weighted centre of the circling part of a climb
+  (at least 15 m gained); it drifts with the wind and expires after 15 minutes; the same thermal
+  re-detected within 50 m updates its marker. The newest marker gets an arrow and the distance at the
+  frame edge when it is off the map, and the zoom stays wide enough to show it. North marker rotates,
+  the wind arrow is relative to your heading. The four top cells and the wind line stay.
 - Hold ~1 s: device list. Hold 3 s: power off (banner at 1.5 s). Hold 1 s at boot to power on.
 - Every float shown goes through `fnum()` in `ui.cpp`: non-finite values print `--`.
 - The laptop can still draw frames (`host/dashboard.py`); the vario UI resumes 10 s after the

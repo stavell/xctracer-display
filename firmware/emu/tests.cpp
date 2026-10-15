@@ -4,6 +4,7 @@
 #include "app/app.h"
 #include "core/flight.h"
 #include "core/sim.h"
+#include "core/thermal.h"
 #include "core/wind.h"
 #include "core/xctrc.h"
 #include "mocks.h"
@@ -170,6 +171,106 @@ static void test_air_trail() {
   CHECK(nf.airTrail(tr, 60) == 0);
 }
 
+static void test_thermal() {
+  puts("thermal finder");
+  // glide 40 s, circle (radius 30 m, centre at (100, 50)) climbing 2.5 m/s for 60 s, glide 30 s
+  AirPoint tr[200];
+  int n = 0;
+  for (int i = 0; i < 40; i++) tr[n++] = {(float)(-i * 10.0), 0, -1.1f};
+  for (int i = 0; i < 60; i++) {
+    double a = i * 18 * D2R;
+    tr[n++] = {(float)(100 + 30 * cos(a)), (float)(50 + 30 * sin(a)), 2.5f};
+  }
+  for (int i = 0; i < 30; i++) tr[n++] = {(float)(130 + i * 10.0), 50, -1.1f};
+  Thermal th;
+  CHECK(findThermal(tr, n, th));
+  NEAR(th.x, 100, 6); NEAR(th.y, 50, 6);
+  NEAR(th.avgClimb, 2.5, 0.1);
+  CHECK(th.gain > 100); CHECK(th.ageS >= 28 && th.ageS <= 31);
+  // a straight climb on the way in must not pull the centre sideways: 25 s in lift while flying, then circles
+  AirPoint ap[200];
+  int k = 0;
+  for (int i = 0; i < 25; i++) ap[k++] = {(float)(-150 + i * 6.0), 0, 2.0f, 0.0f};          // approach, not turning
+  for (int i = 0; i < 60; i++) {
+    double a = i * 18 * D2R;
+    ap[k++] = {(float)(100 + 30 * cos(a)), (float)(50 + 30 * sin(a)), 2.5f, 18.0f};
+  }
+  CHECK(findThermal(ap, k, th));
+  NEAR(th.x, 100, 3); NEAR(th.y, 50, 3);
+  // pure glide: no thermal
+  AirPoint g[100];
+  for (int i = 0; i < 100; i++) g[i] = {(float)(i * 10.0), 0, -1.0f};
+  CHECK(!findThermal(g, 100, th));
+  // a 5 s bump is not a thermal
+  for (int i = 40; i < 45; i++) g[i].vario = 3.0f;
+  CHECK(!findThermal(g, 100, th));
+  // two thermals: the stronger one wins unless the later one is nearly as good
+  AirPoint two[300];
+  int m = 0;
+  for (int i = 0; i < 40; i++) two[m++] = {(float)i, 0, -1.0f};
+  for (int i = 0; i < 40; i++) two[m++] = {(float)(200 + 20 * cos(i * 0.4)), (float)(20 * sin(i * 0.4)), 3.0f};   // 120 m gain
+  for (int i = 0; i < 40; i++) two[m++] = {(float)(400 + i), 0, -1.0f};
+  for (int i = 0; i < 40; i++) two[m++] = {(float)(600 + 20 * cos(i * 0.4)), (float)(20 * sin(i * 0.4)), 1.0f};   // 40 m gain
+  CHECK(findThermal(two, m, th));
+  NEAR(th.x, 200, 10);
+  // empty and tiny inputs
+  CHECK(!findThermal(two, 0, th));
+  CHECK(!findThermal(two, 3, th));
+}
+
+// A thermal that drifts with the wind: a pilot circles it (radius 30 m, climbing 2.5 m/s) for `lapSec`
+// seconds, starting at second `t0`; returns the true centre of the air column at the final second.
+struct Drift { double x = 0, y = 0; };
+
+static void test_thermal_memory() {
+  puts("thermal memory");
+  const double wxm = -12 / 3.6, wym = 0;                  // 12 km/h toward 270
+  const double kx = 111320.0 * cos(43 * D2R), ky = 111320.0;
+  FlightModel fm;
+  double cx = 0, cy = 0;                                  // centre of the air column, ground metres
+  double px = -400, py = 0;                               // pilot, ground metres
+  double lastx = px, lasty = py;
+  int sec = 0;
+  auto feed = [&](double x, double y, float vs) {
+    double vx = x - lastx, vy = y - lasty;
+    lastx = x; lasty = y;
+    double lat = 43 + y / ky, lon = 26 + x / kx;
+    fm.feed(smp(sec, true, lat, lon, (float)(hypot(vx, vy) * 3.6), (float)fmod(atan2(vx, vy) / D2R + 360, 360), vs, 1400 + sec));
+    sec++;
+  };
+  // 20 s glide in, 90 s circling in the thermal
+  for (int i = 0; i < 20; i++) { px += 8 + wxm; py += wym; cx += wxm; cy += wym; feed(px, py, -1.1f); }
+  double a = 0;
+  double colX = 0, colY = 0;                              // the thermal column's centre moves with the wind
+  colX = px + 0; colY = py + 0;
+  for (int i = 0; i < 90; i++) {
+    a += 18 * D2R;
+    colX += wxm; colY += wym;
+    feed(colX + 30 * cos(a), colY + 30 * sin(a), 2.5f);
+  }
+  // 40 s glide away across the wind
+  double gx = lastx, gy = lasty;
+  for (int i = 0; i < 40; i++) { gx += 0; gy += 10; feed(gx, gy, -1.1f); }
+  ThermalRel tr[ThermalMemory::MAX];
+  int n = fm.thermals(tr, ThermalMemory::MAX);
+  CHECK(n == 1);
+  // where the column is now relative to the pilot: it drifted 40 more seconds with the wind
+  double trueX = colX + wxm * 40 - lastx, trueY = colY + wym * 40 - lasty;
+  printf("  mark at (%.0f, %.0f) m, true (%.0f, %.0f) m, strength %+.1f m/s, gain %.0f m, age %u s\n",
+         tr[0].x, tr[0].y, trueX, trueY, tr[0].avgClimb, tr[0].gain, tr[0].ageS);
+  { Wind w = fm.wind(); printf("  wind estimate %.2f km/h toward %.1f (true 12.00 toward 270.0)\n", w.speedKmh, w.toDeg); }
+  NEAR(tr[0].x, trueX, 20); NEAR(tr[0].y, trueY, 20);
+  NEAR(tr[0].avgClimb, 2.5, 0.2);
+  CHECK(tr[0].ageS >= 35 && tr[0].ageS <= 45);
+  // keep gliding 16 minutes: the mark expires
+  for (int i = 0; i < 16 * 60; i++) { gx += 0; gy += 10; feed(gx, gy, -1.1f); }
+  CHECK(fm.thermals(tr, ThermalMemory::MAX) == 0);
+  // after losing the fix there is nothing to be relative to
+  FlightModel nf;
+  for (int i = 0; i < 30; i++) nf.feed(smp(i, false, 0, 0, 0, 0, 2.5f, 100));
+  CHECK(nf.thermals(tr, ThermalMemory::MAX) == 0);
+}
+
 static void test_button() {
   puts("button state machine");
   auto run = [](uint32_t downMs) {
@@ -199,11 +300,11 @@ static void test_app() {
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
 
   run(1000);
-  CHECK(!app.viewModel(now).fresh);                       // nothing received: status screen
+  CHECK(!app.buildViewModel(now).fresh);                       // nothing received: status screen
   // live tracer lines
   r.tracer.lines.push_back("$XCTRC,2026,10,15,9,52,20,0,0.000000,0.000000,128.66,0.00,0.0,0.20,,,,997.88,85*7c");
   run(100);
-  CHECK(app.linesOk() == 1); CHECK(app.viewModel(now).fresh);
+  CHECK(app.linesOk() == 1); CHECK(app.buildViewModel(now).fresh);
   r.tracer.lines.push_back("garbage");
   run(100);
   CHECK(app.linesBad() == 1);
@@ -215,7 +316,7 @@ static void test_app() {
   r.tracer.lines.push_back(line("XCTRC,2026,10,15,9,52,21,0,0.000000,0.000000,128.66,0.00,0.0,0.20,,,,997.88,85"));
   run(100);
   CHECK(app.linesOk() == ok);                             // live line dropped
-  CHECK(app.viewModel(now).s.fix);
+  CHECK(app.buildViewModel(now).s.fix);
   run(4000);                                              // injection stops: live data returns
   r.tracer.lines.push_back(line("XCTRC,2026,10,15,9,52,22,0,0.000000,0.000000,128.66,0.00,0.0,0.20,,,,997.88,85"));
   run(100);
@@ -223,7 +324,7 @@ static void test_app() {
   // simulator
   r.laptop.sim(true);
   run(5000);
-  CHECK(app.simOn()); CHECK(app.viewModel(now).fresh); CHECK(app.viewModel(now).s.fix);
+  CHECK(app.simOn()); CHECK(app.buildViewModel(now).fresh); CHECK(app.buildViewModel(now).s.fix);
   r.laptop.sim(false);
   run(100);
   CHECK(!app.simOn());
@@ -233,7 +334,7 @@ static void test_app() {
   r.laptop.inject(inj);
   run(100);
   CHECK(r.settings.tz == 180);
-  CHECK(app.viewModel(now).localMinutes == (10 * 60 + 38 + 180) % 1440);
+  CHECK(app.buildViewModel(now).localMinutes == (10 * 60 + 38 + 180) % 1440);
   // laptop-drawn frames own the screen; the app resumes afterwards
   int before = r.panel.refreshes;
   r.laptop.drawing = true;
@@ -253,13 +354,13 @@ static void test_app() {
   run(1500);
   CHECK(!app.listOpen()); CHECK(r.tracer.connected == 0);
   // short press toggles the thermal map page
-  CHECK(app.viewModel(now).page == ViewModel::PAGE_COMPASS);
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_COMPASS);
   r.input.press(now + 100, 150);
   run(600);
-  CHECK(app.viewModel(now).page == ViewModel::PAGE_THERMAL);
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_THERMAL);
   r.input.press(now + 100, 150);
   run(600);
-  CHECK(app.viewModel(now).page == ViewModel::PAGE_COMPASS);
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_COMPASS);
   // hold 3 s = power off
   r.input.press(now + 100, 3500);
   run(4500);
@@ -271,6 +372,8 @@ int main() {
   test_wind();
   test_flight();
   test_air_trail();
+  test_thermal();
+  test_thermal_memory();
   test_button();
   test_app();
   printf("\n%d checks, %d failures\n", checks, failures);

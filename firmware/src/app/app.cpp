@@ -52,12 +52,14 @@ void App::handle(const Command& c, uint32_t now) {
   }
 }
 
-ViewModel App::viewModel(uint32_t now) const {
-  ViewModel vm;
+const ViewModel& App::buildViewModel(uint32_t now) {
+  ViewModel& vm = vm_;
   vm.link = tracer_.link();
   vm.hasSaved = tracer_.hasSaved();
   strncpy(vm.device, tracer_.deviceName(), sizeof vm.device - 1);
+  vm.device[sizeof vm.device - 1] = 0;
   strncpy(vm.filter, tracer_.filter(), sizeof vm.filter - 1);
+  vm.filter[sizeof vm.filter - 1] = 0;
   vm.linesOk = linesOk_;
   vm.linesBad = linesBad_;
   vm.fresh = flight_.hasData() && lastSampleMs_ && now - lastSampleMs_ < cfg_.freshMs;
@@ -66,13 +68,19 @@ ViewModel App::viewModel(uint32_t now) const {
   vm.avgVario = flight_.avgVario();
   vm.glide = flight_.glide();
   vm.wind = flight_.wind();
+  vm.localMinutes = -1;
   if (flight_.hasData()) {
     int m = vm.s.hh * 60 + vm.s.mm + settings_.tzMinutes();
     vm.localMinutes = ((m % 1440) + 1440) % 1440;
   }
   vm.localBattPct = battery_.percent();
   vm.page = page_;
-  if (page_ == ViewModel::PAGE_THERMAL) vm.trailCount = flight_.airTrail(vm.trail, ViewModel::TRAIL_MAX);
+  vm.trailCount = 0;
+  vm.markCount = 0;
+  if (page_ == ViewModel::PAGE_THERMAL) {
+    vm.trailCount = flight_.airTrail(vm.trail, ViewModel::TRAIL_MAX);
+    vm.markCount = flight_.thermals(vm.marks, ViewModel::MARKS_MAX);
+  }
   return vm;
 }
 
@@ -85,7 +93,7 @@ void App::shutdown() {
 }
 
 void App::drawLiveScreen(uint32_t now, uint32_t held) {
-  drawLive(panel_.gfx(), viewModel(now), held);
+  drawLive(panel_.gfx(), buildViewModel(now), held);
   panel_.present();
 }
 
@@ -96,7 +104,7 @@ void App::drawListScreen(uint32_t now, uint32_t held) {
   if (lm.count > 8) lm.count = 8;
   for (int i = 0; i < lm.count; i++) tracer_.listItem(i, lm.items[i]);
   lm.selected = listSel_;
-  drawList(panel_.gfx(), lm, viewModel(now), held);
+  drawList(panel_.gfx(), lm, buildViewModel(now), held);
   panel_.present();
 }
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "core/thermal.h"
 #include "core/types.h"
 
 // Everything derived from the stream of samples: 1 Hz history, averages, glide ratio, takeoff /
@@ -6,7 +7,7 @@
 // (so a replay at any speed behaves like real flight time), never from a wall clock.
 class FlightModel {
  public:
-  static const int HIST = 90;      // seconds of history kept
+  static const int HIST = 180;     // seconds of dense track kept (3 min); thermals are remembered separately
   static const int AVG_S = 20;     // vario averaging window
   static const int WIND_S = 30;    // seconds of track used for each wind fit
 
@@ -23,12 +24,15 @@ class FlightModel {
   Wind wind() const;
   // Last maxN seconds of track in the air-mass frame (wind-compensated when a wind estimate exists).
   int airTrail(AirPoint* out, int maxN) const;
+  // Remembered thermals relative to the current position, newest first (positions drift with the wind).
+  int thermals(ThermalRel* out, int maxN) const;
   int histCount() const { return n_; }
   const TrackPoint& hist(int i) const { return h_[i]; }
 
  private:
   void tick();
   void updateWind();
+  void updateThermals();
 
   Sample cur_;
   bool have_ = false;
@@ -43,4 +47,6 @@ class FlightModel {
   bool windValid_ = false;
   double wx_ = 0, wy_ = 0;
   uint32_t windAt_ = 0;
+  ThermalMemory mem_;
+  AirPoint scratch_[HIST];         // working space for the thermal finder (too big for the stack)
 };

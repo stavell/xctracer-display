@@ -1,4 +1,5 @@
 #pragma once
+#include "core/thermal.h"
 #include "core/types.h"
 
 // Everything the screens need, as plain data. Built by the app, consumed by the view.
@@ -20,9 +21,12 @@ struct ViewModel {
 
   enum Page { PAGE_COMPASS, PAGE_THERMAL };
   Page page = PAGE_COMPASS;
-  static const int TRAIL_MAX = 60;
+  static const int TRAIL_MAX = 180;      // 3 minutes of dense track
   AirPoint trail[TRAIL_MAX];      // wind-compensated track, filled for the thermal page
   int trailCount = 0;
+  static const int MARKS_MAX = ThermalMemory::MAX;
+  ThermalRel marks[MARKS_MAX];     // remembered thermals, newest first
+  int markCount = 0;
   bool mapHeadingUp = true;       // thermal map: your direction of travel is up (false = north is up)
 };
 

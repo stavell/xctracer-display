@@ -27,7 +27,7 @@ class App {
   uint32_t linesBad() const { return linesBad_; }
   bool simOn() const { return simOn_; }
   bool listOpen() const { return listOpen_; }
-  ViewModel viewModel(uint32_t nowMs) const;
+  const ViewModel& buildViewModel(uint32_t nowMs);   // fills and returns the member (it is far too big for the stack)
 
  private:
   void handle(const Command& c, uint32_t now);
@@ -52,6 +52,7 @@ class App {
   uint32_t injectMs_ = 0, lastSampleMs_ = 0;
   uint32_t linesOk_ = 0, linesBad_ = 0;
 
+  ViewModel vm_;
   ViewModel::Page page_ = ViewModel::PAGE_COMPASS;
   bool wasLocal_ = true;
   bool listOpen_ = false;

@@ -209,22 +209,47 @@ static void drawStatus(const ViewModel& vm) {
   text(cx, H - 12, "hold: choose device", F9, AC);
 }
 
-// Line with a given thickness (parallel offsets), for the climb-rate coloured trace.
-static void thickLine(int x0, int y0, int x1, int y1, int w) {
-  if (w <= 1) { d->drawLine(x0, y0, x1, y1, BLK); return; }
+static int dashPhase = 0;
+
+// Solid w x w squares stamped along the segment (no gaps); optionally dashed for the older memory.
+static void thickLine(int x0, int y0, int x1, int y1, int w, bool dashed) {
+  if (w <= 1 && !dashed) { d->drawLine(x0, y0, x1, y1, BLK); return; }
   float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
   int steps = (int)ceilf(fmaxf(fabsf(dx), fabsf(dy)));
   if (steps < 1) steps = 1;
-  int o = w / 2;                                         // stamp solid w x w squares along the segment
-  for (int i = 0; i <= steps; i++)
+  int o = w / 2;
+  for (int i = 0; i <= steps; i++) {
+    if (dashed && ((dashPhase++ / 3) & 1)) continue;     // 3 px on, 3 px off
     d->fillRect(x0 + (int)lroundf(dx * i / steps) - o, y0 + (int)lroundf(dy * i / steps) - o, w, w, BLK);
+  }
 }
 
 static int climbWidth(float v) { return v < 0.2f ? 1 : (v < 1.0f ? 2 : (v < 2.5f ? 3 : 4)); }
 
-// Thermal assistant: map of the last 60 s in the air-mass frame (wind-compensated), thicker where you
-// were climbing. Heading-up by default: you stay at a fixed point and your direction of travel is up.
-// The zoom steps through fixed levels so the picture does not breathe.
+// Liang-Barsky: clip a segment to a rectangle; false if nothing of it is inside.
+static bool clipSeg(float& x0, float& y0, float& x1, float& y1, float xmin, float ymin, float xmax, float ymax) {
+  float dx = x1 - x0, dy = y1 - y0, t0 = 0, t1 = 1;
+  float p[4] = {-dx, dx, -dy, dy}, q[4] = {x0 - xmin, xmax - x0, y0 - ymin, ymax - y0};
+  for (int i = 0; i < 4; i++) {
+    if (p[i] == 0) { if (q[i] < 0) return false; continue; }
+    float r = q[i] / p[i];
+    if (p[i] < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+    else { if (r < t0) return false; if (r < t1) t1 = r; }
+  }
+  float nx0 = x0 + t0 * dx, ny0 = y0 + t0 * dy, nx1 = x0 + t1 * dx, ny1 = y0 + t1 * dy;
+  x0 = nx0; y0 = ny0; x1 = nx1; y1 = ny1;
+  return true;
+}
+
+static float gRR[ViewModel::TRAIL_MAX], gUU[ViewModel::TRAIL_MAX];   // static: far too big for the 4 KB loop stack
+
+static float gMr[ViewModel::MARKS_MAX], gMu[ViewModel::MARKS_MAX];
+
+// Thermal assistant. Heading-up map: the last 3 minutes of track in the air-mass frame (shifted by the
+// wind drift; the last 90 s solid and thicker where you were climbing, older track dashed) plus markers
+// for the thermals you remember, each with its average climb. The newest marker, the thermal you last
+// worked, also gets an arrow at the frame edge with the distance when it is off the map, and the zoom
+// stays wide enough to show it. Fixed zoom levels, so the picture does not breathe.
 static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) {
   d->drawRect(mx, my, mw, mh, BLK);
   const int n = vm.trailCount;
@@ -241,31 +266,100 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
   const float ct = cosf(hdg), st = sinf(hdg);
   const int ox = mx + mw / 2, oy = my + mh / 2;                 // you, in the centre
 
-  // screen offsets in metres: r to the right, u up
-  float rr[ViewModel::TRAIL_MAX], uu[ViewModel::TRAIL_MAX];
+  for (int i = 0; i < n; i++) {                                 // screen offsets in metres: r right, u up
+    gRR[i] = vm.trail[i].x * ct - vm.trail[i].y * st;
+    gUU[i] = vm.trail[i].y * ct + vm.trail[i].x * st;
+  }
+  const int nm = vm.markCount;
+  for (int i = 0; i < nm; i++) {
+    gMr[i] = vm.marks[i].x * ct - vm.marks[i].y * st;
+    gMu[i] = vm.marks[i].y * ct + vm.marks[i].x * st;
+  }
+
+  // zoom: fit the last 30 s, plus the newest thermal when it is within 800 m
   float smax = 1e9f;
   const int margin = 14;
-  for (int i = 0; i < n; i++) {
-    rr[i] = vm.trail[i].x * ct - vm.trail[i].y * st;
-    uu[i] = vm.trail[i].y * ct + vm.trail[i].x * st;
-    if (fabsf(rr[i]) > 1) smax = fminf(smax, (mw / 2 - margin) / fabsf(rr[i]));
-    if (uu[i] > 1) smax = fminf(smax, (oy - my - margin) / uu[i]);
-    if (uu[i] < -1) smax = fminf(smax, (my + mh - oy - margin) / -uu[i]);
-  }
+  auto fit = [&](float r, float u) {
+    if (fabsf(r) > 1) smax = fminf(smax, (mw / 2 - margin) / fabsf(r));
+    if (fabsf(u) > 1) smax = fminf(smax, (mh / 2 - margin) / fabsf(u));
+  };
+  for (int i = n > 30 ? n - 30 : 0; i < n; i++) fit(gRR[i], gUU[i]);
+  if (nm > 0 && hypotf(gMr[0], gMu[0]) <= 800) fit(gMr[0], gMu[0]);
   static const float zoom[] = {2.2f, 1.6f, 1.1f, 0.7f, 0.45f, 0.28f, 0.18f, 0.11f};
   float s = zoom[7];
   for (float z : zoom) if (z <= smax) { s = z; break; }
-  auto px = [&](int i) { return ox + (int)lroundf(rr[i] * s); };
-  auto py = [&](int i) { return oy - (int)lroundf(uu[i] * s); };
 
-  for (int i = 1; i < n; i++) thickLine(px(i - 1), py(i - 1), px(i), py(i), climbWidth(vm.trail[i].vario));
-  // you: a small arrow pointing up (or the ring marker for a north-up map)
+  // trail, oldest first, clipped to the frame; anything older than 90 s is dashed
+  dashPhase = 0;
+  const float cx0 = mx + 4, cy0 = my + 4, cx1 = mx + mw - 4, cy1 = my + mh - 4;
+  for (int i = 1; i < n; i++) {
+    float x0 = ox + gRR[i - 1] * s, y0 = oy - gUU[i - 1] * s, x1 = ox + gRR[i] * s, y1 = oy - gUU[i] * s;
+    if (!clipSeg(x0, y0, x1, y1, cx0, cy0, cx1, cy1)) continue;
+    thickLine((int)lroundf(x0), (int)lroundf(y0), (int)lroundf(x1), (int)lroundf(y1),
+              climbWidth(vm.trail[i].vario), (n - 1 - i) > 90);
+  }
+
+  // remembered thermals: a fixed-size ring (no fill, the trail stays visible), the newest one heavier
+  char lb[16];
+  static int gSx[ViewModel::MARKS_MAX], gSy[ViewModel::MARKS_MAX];
+  static bool gIn[ViewModel::MARKS_MAX];
+  for (int i = nm - 1; i >= 0; i--) {
+    float tx = ox + gMr[i] * s, ty = oy - gMu[i] * s;
+    gSx[i] = (int)lroundf(tx);
+    gSy[i] = (int)lroundf(ty);
+    gIn[i] = tx > mx + 14 && tx < mx + mw - 14 && ty > my + 14 && ty < my + mh - 14;
+    if (gIn[i]) {
+      int rad = i == 0 ? 10 : 7;
+      d->drawCircle(gSx[i], gSy[i], rad, BLK);
+      if (i == 0) { d->drawCircle(gSx[i], gSy[i], rad - 1, BLK); d->fillCircle(gSx[i], gSy[i], 3, BLK); }
+      else d->fillCircle(gSx[i], gSy[i], 2, BLK);
+    } else if (i == 0) {                                        // newest thermal off the map: edge arrow + distance
+      float vx = tx - ox, vy = ty - oy, len = hypotf(vx, vy);
+      if (len > 1) {
+        float ux = vx / len, uy = vy / len;
+        float t = fminf(fabsf(ux) > 1e-3f ? (mw / 2 - 16) / fabsf(ux) : 1e9f, fabsf(uy) > 1e-3f ? (mh / 2 - 16) / fabsf(uy) : 1e9f);
+        int ex = ox + (int)lroundf(ux * t), ey = oy + (int)lroundf(uy * t);
+        d->fillCircle(ex, ey, 14, WHT);
+        d->fillCircle(ex, ey, 11, BLK);                          // badge with a white arrow pointing outward
+        float th2 = atan2f(ux, -uy);
+        float sx = sinf(th2), cy = -cosf(th2), qx = -cy, qy = sx;
+        int hx = ex + (int)lroundf(4 * sx), hy = ey + (int)lroundf(4 * cy);
+        d->fillTriangle(ex + (int)lroundf(9 * sx), ey + (int)lroundf(9 * cy),
+                        hx + (int)lroundf(6 * qx), hy + (int)lroundf(6 * qy),
+                        hx - (int)lroundf(6 * qx), hy - (int)lroundf(6 * qy), WHT);
+        float dist = hypotf(vm.marks[0].x, vm.marks[0].y);
+        if (dist >= 1000) snprintf(lb, sizeof lb, "%.1f km", dist / 1000.0f);
+        else snprintf(lb, sizeof lb, "%d m", (int)(dist + 0.5f));
+        int lx = ex - (int)lroundf(ux * 34), ly = ey - (int)lroundf(uy * 22);
+        lx = lx < mx + 28 ? mx + 28 : (lx > mx + mw - 28 ? mx + mw - 28 : lx);
+        ly = ly < my + 12 ? my + 12 : (ly > my + mh - 12 ? my + mh - 12 : ly);
+        textMid(lx, ly, lb, F9);
+      }
+    }
+  }
+  // strength labels, newest first; a label that would land on another one is skipped
+  int lxs[ViewModel::MARKS_MAX], lys[ViewModel::MARKS_MAX], nl = 0;
+  for (int i = 0; i < nm; i++) {
+    if (!gIn[i]) continue;
+    snprintf(lb, sizeof lb, "%+.1f", vm.marks[i].avgClimb);
+    int w = textW(lb, F9), rad = i == 0 ? 10 : 7;
+    int lx = gSx[i] + rad + 3, ly = gSy[i] + 5;                 // right of the ring, baseline
+    if (lx + w > mx + mw - 4) lx = gSx[i] - rad - 3 - w;        // no room: left of it
+    bool clash = false;
+    for (int k = 0; k < nl; k++) if (abs(lx - lxs[k]) < 36 && abs(ly - lys[k]) < 15) clash = true;
+    if (clash) continue;
+    lxs[nl] = lx; lys[nl] = ly; nl++;
+    d->fillRect(lx - 2, ly - 13, w + 4, 16, WHT);               // keep it legible over the trail
+    text(lx, ly, lb, F9);
+  }
+
+  // you: a small arrow pointing up
   d->fillTriangle(ox, oy - 9, ox - 6, oy + 6, ox + 6, oy + 6, BLK);
   d->fillTriangle(ox, oy - 3, ox - 2, oy + 3, ox + 2, oy + 3, WHT);
 
   // north marker (top-left) and wind arrow (top-right), both in the map's frame
   float nth = -hdg;                                              // screen direction of north
-  int nax = mx + 28, nay = my + 30;                              // far enough in that the label stays inside
+  int nax = mx + 28, nay = my + 30;
   drawArrow(nax, nay, nth, 11);
   textMid(nax + (int)lroundf(21 * sinf(nth)), nay - (int)lroundf(21 * cosf(nth)), "N", F9);
   if (vm.wind.valid) drawArrow(mx + mw - 22, my + 24, vm.wind.toDeg * PI_F / 180.0f - hdg, 14);
@@ -274,10 +368,10 @@ static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) 
   int bm = bars[0];
   for (int bsel : bars) if (bsel * s >= 30 && bsel * s <= 90) { bm = bsel; break; }
   int bl = (int)lroundf(bm * s), by = my + mh - 8;
+  d->fillRect(mx + 5, by - 19, bl + 6, 25, WHT);                 // keep the scale bar readable over the trail
   d->drawFastHLine(mx + 8, by, bl, BLK);
   d->drawFastVLine(mx + 8, by - 3, 7, BLK);
   d->drawFastVLine(mx + 8 + bl, by - 3, 7, BLK);
-  char lb[12];
   snprintf(lb, sizeof lb, "%d m", bm);
   text(mx + 8, by - 7, lb, F9);
 }
