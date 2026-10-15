@@ -8,6 +8,13 @@
 //        --shot-every S  save a frame every S virtual seconds (default 30)
 //        --rot R         display rotation (default 1)
 //        --thermal       switch to the thermal map page (one short press) at the start
+//   emu soak [lines.txt] [--runs N] [--seed S]     long session through the real App (about a minute; NOT part of
+//        the default build.sh run): the whole flight N times (default 3, ~3 h of flight each) in virtual time as
+//        fast as the PC goes, with link drops, live no-fix lines, page switches, compass calibration
+//        start / save / cancel and simulator toggles. Reports wall time, worst tick and memory (every global
+//        new/delete is counted); exits non-zero when an invariant breaks. See soak.h.
+//        Run:  .venv/bin/python host/make_lines.py igc flight.igc > lines.txt && firmware/emu/build.sh soak lines.txt
+//        Without lines.txt a synthetic 3 h flight from FlightSim is used.
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +29,7 @@
 #include "core/thermal.h"
 #include "mocks.h"
 #include "view/screens.h"
+#include "soak.h"
 
 static void watchdog(int) {
   fputs("WATCHDOG: the emulator is stuck (infinite loop?)\n", stderr);
@@ -203,6 +211,7 @@ static int cmdReplay(int argc, char** argv) {
 
 int main(int argc, char** argv) {
   signal(SIGALRM, watchdog);
+  if (argc >= 2 && !strcmp(argv[1], "soak")) return cmdSoak(argc, argv, readLines);
   alarm(120);
   if (argc >= 3 && !strcmp(argv[1], "shots")) return cmdShots(argv[2], argc > 3 ? atoi(argv[3]) : 1);
   if (argc >= 4 && !strcmp(argv[1], "replay")) return cmdReplay(argc, argv);
