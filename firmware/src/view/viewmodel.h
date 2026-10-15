@@ -17,6 +17,12 @@ struct ViewModel {
   Wind wind;
   int localMinutes = -1;         // minutes since midnight, local time; -1 = unknown
   int localBattPct = 0;
+
+  enum Page { PAGE_COMPASS, PAGE_THERMAL };
+  Page page = PAGE_COMPASS;
+  static const int TRAIL_MAX = 60;
+  AirPoint trail[TRAIL_MAX];      // wind-compensated track, filled for the thermal page
+  int trailCount = 0;
 };
 
 struct ListItem {

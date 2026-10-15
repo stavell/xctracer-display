@@ -119,6 +119,57 @@ static void test_flight() {
   mw.feed(a); CHECK(mw.feed(b));
 }
 
+static void test_air_trail() {
+  puts("air trail (wind-compensated map)");
+  // circle at 36 km/h airspeed (radius = v / omega ~ 32 m) drifting with a 12 km/h wind toward 270
+  FlightModel fm;
+  double x = 0, y = 0, hdg = 40;
+  const double wx = 12 / 3.6 * sin(270 * D2R), wy = 12 / 3.6 * cos(270 * D2R);
+  for (int i = 0; i < 100; i++, hdg += 18) {
+    double gx = 36 / 3.6 * sin(hdg * D2R) + wx, gy = 36 / 3.6 * cos(hdg * D2R) + wy;
+    x += gx; y += gy;
+    double lat = 43 + y / 111320.0, lon = 26 + x / (111320.0 * cos(43 * D2R));
+    fm.feed(smp(i, true, lat, lon, (float)(hypot(gx, gy) * 3.6), (float)fmod(atan2(gx, gy) / D2R + 360, 360), 1.5f, 1400 + i));
+  }
+  CHECK(fm.wind().valid);
+  AirPoint tr[60];
+  int n = fm.airTrail(tr, 60);
+  CHECK(n == 60);
+  CHECK(fabs(tr[n - 1].x) < 0.01 && fabs(tr[n - 1].y) < 0.01);   // current position is the origin
+  // spread of the distance from the centroid: ~0 for a circle that stays put
+  auto spread = [](const double* px, const double* py, int m) {
+    double cx = 0, cy = 0;
+    for (int i = 0; i < m; i++) { cx += px[i]; cy += py[i]; }
+    cx /= m; cy /= m;
+    double mean = 0, var = 0;
+    for (int i = 0; i < m; i++) mean += hypot(px[i] - cx, py[i] - cy);
+    mean /= m;
+    for (int i = 0; i < m; i++) { double e = hypot(px[i] - cx, py[i] - cy) - mean; var += e * e; }
+    return sqrt(var / m);
+  };
+  double ax[60], ay[60], gx[60], gy[60];
+  const double kx = 111320.0 * cos(43 * D2R);
+  for (int i = 0; i < n; i++) {
+    ax[i] = tr[i].x; ay[i] = tr[i].y;
+    const TrackPoint& p = fm.hist(fm.histCount() - n + i);
+    gx[i] = (p.lon - fm.hist(fm.histCount() - 1).lon) * kx;
+    gy[i] = (p.lat - fm.hist(fm.histCount() - 1).lat) * 111320.0;
+  }
+  double sa = spread(ax, ay, n), sg = spread(gx, gy, n);
+  printf("  radius spread: wind-compensated %.1f m, ground track %.1f m\n", sa, sg);
+  CHECK(sa < 4.0);                 // compensated: circles overlap
+  CHECK(sg > 5 * sa);              // uncompensated: a drifting spiral
+  // without a wind estimate the trail falls back to the ground track
+  FlightModel nw;
+  for (int i = 0; i < 20; i++) nw.feed(smp(i, true, 43 + i * 1e-5, 26, 38, 0, -1, 1500));
+  CHECK(!nw.wind().valid);
+  CHECK(nw.airTrail(tr, 60) == 20);
+  // no fix at the end: no trail
+  FlightModel nf;
+  for (int i = 0; i < 20; i++) nf.feed(smp(i, false, 0, 0, 0, 0, 0, 130));
+  CHECK(nf.airTrail(tr, 60) == 0);
+}
+
 static void test_button() {
   puts("button state machine");
   auto run = [](uint32_t downMs) {
@@ -201,6 +252,14 @@ static void test_app() {
   r.input.press(now + 100, 900);                          // long: select row 1 = first device
   run(1500);
   CHECK(!app.listOpen()); CHECK(r.tracer.connected == 0);
+  // short press toggles the thermal map page
+  CHECK(app.viewModel(now).page == ViewModel::PAGE_COMPASS);
+  r.input.press(now + 100, 150);
+  run(600);
+  CHECK(app.viewModel(now).page == ViewModel::PAGE_THERMAL);
+  r.input.press(now + 100, 150);
+  run(600);
+  CHECK(app.viewModel(now).page == ViewModel::PAGE_COMPASS);
   // hold 3 s = power off
   r.input.press(now + 100, 3500);
   run(4500);
@@ -211,6 +270,7 @@ int main() {
   test_xctrc();
   test_wind();
   test_flight();
+  test_air_trail();
   test_button();
   test_app();
   printf("\n%d checks, %d failures\n", checks, failures);

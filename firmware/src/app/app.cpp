@@ -71,6 +71,8 @@ ViewModel App::viewModel(uint32_t now) const {
     vm.localMinutes = ((m % 1440) + 1440) % 1440;
   }
   vm.localBattPct = battery_.percent();
+  vm.page = page_;
+  if (page_ == ViewModel::PAGE_THERMAL) vm.trailCount = flight_.airTrail(vm.trail, ViewModel::TRAIL_MAX);
   return vm;
 }
 
@@ -142,6 +144,10 @@ void App::tick(uint32_t now) {
       drawListScreen(now, held);
     }
   } else {
+    if (ev == BTN_SHORT) {
+      page_ = page_ == ViewModel::PAGE_COMPASS ? ViewModel::PAGE_THERMAL : ViewModel::PAGE_COMPASS;
+      redraw_ = true;
+    }
     if (ev == BTN_LONG) {
       tracer_.listOpen();
       listOpen_ = true;

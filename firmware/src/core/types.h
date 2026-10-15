@@ -25,3 +25,9 @@ struct Wind {
   float toDeg = 0;                  // direction the wind blows TOWARD, 0 = north
   uint32_t ageS = 0;                // flight seconds since the last accepted fit
 };
+
+// A past position in the air-mass frame: metres east / north of the current position after removing
+// the wind drift since then, so a thermal stays put while you circle in it.
+struct AirPoint {
+  float x, y, vario;
+};

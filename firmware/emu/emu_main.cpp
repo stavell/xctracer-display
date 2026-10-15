@@ -7,6 +7,7 @@
 //                        with no GPS fix next to a replay, the situation seen on the device)
 //        --shot-every S  save a frame every S virtual seconds (default 30)
 //        --rot R         display rotation (default 1)
+//        --thermal       switch to the thermal map page (one short press) at the start
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,7 @@
 #include <string>
 #include <vector>
 #include "app/app.h"
+#include "core/flight.h"
 #include "mocks.h"
 #include "view/screens.h"
 
@@ -36,10 +38,44 @@ static std::vector<std::string> readLines(const std::string& path) {
   return v;
 }
 
+// A view model filled from a FlightModel that has flown a drifting thermal circle (like the unit test).
+static ViewModel thermalVm(bool withWind) {
+  FlightModel fm;
+  const double D2R = 0.017453292519943295;
+  double x = 0, y = 0, hdg = 40;
+  const double wx = 12 / 3.6 * sin(270 * D2R), wy = 12 / 3.6 * cos(270 * D2R);
+  for (int i = 0; i < 100; i++, hdg += 18) {
+    double vsp = i < 45 ? -1.1 : (i < 75 ? 2.6 - 0.8 * ((i / 5) % 2) : 0.4);     // glide, then climb, then weak
+    double ax = 36 / 3.6 * sin(hdg * D2R), ay = 36 / 3.6 * cos(hdg * D2R);
+    double gx = ax + (withWind ? wx : 0) * 1.0, gy = ay + (withWind ? wy : 0) * 1.0;
+    x += gx; y += gy;
+    Sample s;
+    s.fix = true; s.lat = 43 + y / 111320.0; s.lon = 26 + x / (111320.0 * cos(43 * D2R));
+    s.speedKmh = (float)(hypot(gx, gy) * 3.6); s.course = (float)fmod(atan2(gx, gy) / D2R + 360, 360);
+    s.vario = (float)vsp; s.alt = (float)(1400 + i); s.battPct = 85; s.hh = 12; s.mm = i / 60; s.ss = i % 60;
+    fm.feed(s);
+  }
+  ViewModel vm;
+  vm.fresh = true; vm.link = ViewModel::LINK_CONNECTED; vm.hasSaved = true; strcpy(vm.device, "XC-Tracer");
+  vm.s = fm.last(); vm.avgVario = fm.avgVario(); vm.glide = fm.glide(); vm.wind = fm.wind();
+  vm.localMinutes = 13 * 60 + 52; vm.localBattPct = 76;
+  vm.page = ViewModel::PAGE_THERMAL;
+  vm.trailCount = fm.airTrail(vm.trail, ViewModel::TRAIL_MAX);
+  return vm;
+}
+
 static int cmdShots(const std::string& out, int rot) {
   struct Sc { const char* name; };
-  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list"};
+  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal"};
   for (const char* n : names) {
+    if (!strncmp(n, "thermal", 7)) {
+      ViewModel tv = thermalVm(strcmp(n, "thermal_nowind") != 0);
+      MockPanel tp;
+      tp.setRotation(rot);
+      drawLive(tp.gfx(), tv, 0);
+      tp.dump((out + "/" + n + ".pgm").c_str());
+      continue;
+    }
     ViewModel vm;
     vm.fresh = true;
     vm.link = ViewModel::LINK_CONNECTED;
@@ -81,6 +117,7 @@ static int cmdReplay(int argc, char** argv) {
   bool inject = false;
   std::string mix;
   int shotEvery = 30, rot = 1;
+  bool thermal = false;
   for (int i = 4; i < argc; i++) {
     std::string a = argv[i];
     if (a == "--hz" && i + 1 < argc) hz = atof(argv[++i]);
@@ -88,6 +125,7 @@ static int cmdReplay(int argc, char** argv) {
     else if (a == "--mix" && i + 1 < argc) mix = argv[++i];
     else if (a == "--shot-every" && i + 1 < argc) shotEvery = atoi(argv[++i]);
     else if (a == "--rot" && i + 1 < argc) rot = atoi(argv[++i]);
+    else if (a == "--thermal") thermal = true;
   }
   std::vector<std::string> L = readLines(file), M = mix.empty() ? std::vector<std::string>() : readLines(mix);
   if (L.empty()) { fprintf(stderr, "no lines in %s\n", file.c_str()); return 2; }
@@ -97,6 +135,7 @@ static int cmdReplay(int argc, char** argv) {
   cfg.rotation = rot;
   App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.power, cfg);
   app.begin(0);
+  if (thermal) r.input.press(300, 120);
 
   uint32_t endMs = (uint32_t)(L.size() * 1000.0 / hz) + 5000;
   size_t next = 0, mixNext = 0;

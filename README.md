@@ -101,6 +101,10 @@ lat = lon = 0 means no GPS fix. Speed is assumed km/h (unverified until a fix is
 - Wind: least-squares circle fit of ground-velocity vectors over the last 30 s while turning
   (needs about 200 degrees of heading change; radius = airspeed must be 14-72 km/h), smoothed
   over ~8 s, kept on screen afterwards with its age.
+- Two pages, short press toggles: the compass page, and the thermal assistant page where a north-up
+  map replaces the compass: the last 60 s of track in the air-mass frame (shifted by the wind drift, so
+  a thermal holds still while you circle), line thickness growing with climb rate, absolute wind arrow,
+  scale bar. The four top cells and the wind line stay.
 - Hold ~1 s: device list. Hold 3 s: power off (banner at 1.5 s). Hold 1 s at boot to power on.
 - Every float shown goes through `fnum()` in `ui.cpp`: non-finite values print `--`.
 - The laptop can still draw frames (`host/dashboard.py`); the vario UI resumes 10 s after the

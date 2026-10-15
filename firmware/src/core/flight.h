@@ -21,6 +21,8 @@ class FlightModel {
   uint32_t flightSec() const;
   bool circling() const { return circling_; }
   Wind wind() const;
+  // Last maxN seconds of track in the air-mass frame (wind-compensated when a wind estimate exists).
+  int airTrail(AirPoint* out, int maxN) const;
   int histCount() const { return n_; }
   const TrackPoint& hist(int i) const { return h_[i]; }
 

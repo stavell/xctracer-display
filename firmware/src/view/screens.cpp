@@ -168,6 +168,16 @@ static void compassDial(int cx, int cy, int R, float course) {
   text(cx, cy + 8, fnum(b, sizeof b, course, "%.0f"), F18B, AC);
 }
 
+// Arrow centred on (ax, ay) pointing along screen angle th (radians clockwise from up), half length L.
+static void drawArrow(int ax, int ay, float th, int L) {
+  float ux = sinf(th), uy = -cosf(th), px = -uy, py = ux;
+  int tx = ax - L * ux, ty = ay - L * uy;                  // tail
+  int hx = ax + 3 * ux, hy = ay + 3 * uy;                  // base of the head
+  int ex = ax + L * ux, ey = ay + L * uy;                  // tip
+  for (int k = -1; k <= 1; k++) d->drawLine(tx + k * px, ty + k * py, hx + k * px, hy + k * py, BLK);
+  d->fillTriangle(ex, ey, hx + 9 * px, hy + 9 * py, hx - 9 * px, hy - 9 * py, BLK);
+}
+
 // The wind arrow lives in the compass corner the wind comes from and points the way it blows,
 // relative to the heading: top-right corner + arrow down-left = wind from front-right.
 static void windCorner(int cx, int cy, int R, float course, const Wind& w) {
@@ -178,14 +188,7 @@ static void windCorner(int cx, int cy, int R, float course, const Wind& w) {
   int front = (psi < 90.0f || psi >= 270.0f) ? -1 : 1;     // -1 = top
   int off = (int)(0.86f * (R + 10));
   int ax = cx + right * off, ay = cy + front * off;
-  float th = (psi + 180.0f) * PI_F / 180.0f;               // screen direction the wind blows
-  float ux = sinf(th), uy = -cosf(th), px = -uy, py = ux;
-  const int L = 17;                                        // half length of the arrow
-  int tx = ax - L * ux, ty = ay - L * uy;                  // tail
-  int hx = ax + 3 * ux, hy = ay + 3 * uy;                  // base of the head
-  int ex = ax + L * ux, ey = ay + L * uy;                  // tip
-  for (int k = -1; k <= 1; k++) d->drawLine(tx + k * px, ty + k * py, hx + k * px, hy + k * py, BLK);
-  d->fillTriangle(ex, ey, hx + 9 * px, hy + 9 * py, hx - 9 * px, hy - 9 * py, BLK);
+  drawArrow(ax, ay, (psi + 180.0f) * PI_F / 180.0f, 17);   // points the way the wind blows
 }
 
 static void drawStatus(const ViewModel& vm) {
@@ -204,6 +207,63 @@ static void drawStatus(const ViewModel& vm) {
     text(cx, 220, b, F9, AC);
   }
   text(cx, H - 12, "hold: choose device", F9, AC);
+}
+
+// Line with a given thickness (parallel offsets), for the climb-rate coloured trace.
+static void thickLine(int x0, int y0, int x1, int y1, int w) {
+  if (w <= 1) { d->drawLine(x0, y0, x1, y1, BLK); return; }
+  float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
+  int steps = (int)ceilf(fmaxf(fabsf(dx), fabsf(dy)));
+  if (steps < 1) steps = 1;
+  int o = w / 2;                                         // stamp solid w x w squares along the segment
+  for (int i = 0; i <= steps; i++)
+    d->fillRect(x0 + (int)lroundf(dx * i / steps) - o, y0 + (int)lroundf(dy * i / steps) - o, w, w, BLK);
+}
+
+static int climbWidth(float v) { return v < 0.2f ? 1 : (v < 1.0f ? 2 : (v < 2.5f ? 3 : 4)); }
+
+// Thermal assistant: north-up map of the last 60 s in the air-mass frame (wind-compensated), thicker
+// where you were climbing. Zoom steps through fixed levels so the picture does not breathe.
+static void drawThermalMap(const ViewModel& vm, int mx, int my, int mw, int mh) {
+  d->drawRect(mx, my, mw, mh, BLK);
+  const int n = vm.trailCount;
+  if (n < 2) { text(mx + mw / 2, my + mh / 2 + 6, "no GPS track", F12B, AC); return; }
+
+  float minx = 1e9f, maxx = -1e9f, miny = 1e9f, maxy = -1e9f;
+  for (int i = 0; i < n; i++) {
+    minx = fminf(minx, vm.trail[i].x); maxx = fmaxf(maxx, vm.trail[i].x);
+    miny = fminf(miny, vm.trail[i].y); maxy = fmaxf(maxy, vm.trail[i].y);
+  }
+  float rx = fmaxf(maxx - minx, 20.0f), ry = fmaxf(maxy - miny, 20.0f);
+  static const float zoom[] = {2.2f, 1.6f, 1.1f, 0.7f, 0.45f, 0.28f, 0.18f, 0.11f};
+  float s = zoom[7];
+  for (float z : zoom) if (rx * z <= mw - 30 && ry * z <= mh - 30) { s = z; break; }
+  float cxm = (minx + maxx) / 2, cym = (miny + maxy) / 2;       // centre the map on the trace
+  const int ox = mx + mw / 2, oy = my + mh / 2;
+  auto px = [&](const AirPoint& p) { return ox + (int)lroundf((p.x - cxm) * s); };
+  auto py = [&](const AirPoint& p) { return oy - (int)lroundf((p.y - cym) * s); };
+
+  for (int i = 1; i < n; i++)
+    thickLine(px(vm.trail[i - 1]), py(vm.trail[i - 1]), px(vm.trail[i]), py(vm.trail[i]), climbWidth(vm.trail[i].vario));
+  const AirPoint& now = vm.trail[n - 1];                         // where you are: ring with a dot
+  d->fillCircle(px(now), py(now), 6, BLK);
+  d->fillCircle(px(now), py(now), 3, WHT);
+  d->fillCircle(px(now), py(now), 1, BLK);
+
+  // north marker, absolute wind arrow, scale bar
+  d->fillTriangle(mx + 14, my + 5, mx + 8, my + 15, mx + 20, my + 15, BLK);
+  text(mx + 14, my + 32, "N", F9, AC);
+  if (vm.wind.valid) drawArrow(mx + mw - 22, my + 24, vm.wind.toDeg * PI_F / 180.0f, 14);
+  static const int bars[] = {10, 20, 50, 100, 200, 500};
+  int bm = bars[0];
+  for (int b : bars) if (b * s >= 30 && b * s <= 90) { bm = b; break; }
+  int bl = (int)lroundf(bm * s), by = my + mh - 8;
+  d->drawFastHLine(mx + 8, by, bl, BLK);
+  d->drawFastVLine(mx + 8, by - 3, 7, BLK);
+  d->drawFastVLine(mx + 8 + bl, by - 3, 7, BLK);
+  char lb[12];
+  snprintf(lb, sizeof lb, "%d m", bm);
+  text(mx + 8, by - 7, lb, F9);
 }
 
 // Portrait layout, 240 x 400. Priorities: GPS speed + glide, altitude + vertical speed, compass + wind.
@@ -233,8 +293,12 @@ static void drawLiveBody(const ViewModel& vm) {
   // compass with the wind arrow in a corner
   const Wind& w = vm.wind;
   const int R = 92, cx = cx0 + (W - cx0) / 2, cy = gridEnd + 8 + R + 6;
-  compassDial(cx, cy, R, crs);
-  windCorner(cx, cy, R, crs, w);
+  if (vm.page == ViewModel::PAGE_THERMAL) {
+    drawThermalMap(vm, cx0, gridEnd + 2, W - cx0 - 2, H - 6 - 25 - 5 - (gridEnd + 2));
+  } else {
+    compassDial(cx, cy, R, crs);
+    windCorner(cx, cy, R, crs, w);
+  }
 
   // wind as one line: "15 km/h NNW"
   const int ly = H - 6;

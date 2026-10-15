@@ -52,6 +52,7 @@ class App {
   uint32_t injectMs_ = 0, lastSampleMs_ = 0;
   uint32_t linesOk_ = 0, linesBad_ = 0;
 
+  ViewModel::Page page_ = ViewModel::PAGE_COMPASS;
   bool wasLocal_ = true;
   bool listOpen_ = false;
   int listSel_ = 0;

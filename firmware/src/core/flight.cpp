@@ -71,6 +71,24 @@ Wind FlightModel::wind() const {
   return w;
 }
 
+int FlightModel::airTrail(AirPoint* out, int maxN) const {
+  if (n_ < 2 || !h_[n_ - 1].fix) return 0;
+  const double D2R = 0.017453292519943295;
+  double lat0 = h_[n_ - 1].lat, lon0 = h_[n_ - 1].lon;
+  double kx = 111320.0 * cos(lat0 * D2R), ky = 111320.0;
+  double wx = windValid_ ? wx_ : 0, wy = windValid_ ? wy_ : 0;
+  int cnt = 0;
+  for (int i = (n_ > maxN ? n_ - maxN : 0); i < n_; i++) {
+    if (!h_[i].fix) continue;
+    double age = n_ - 1 - i;                  // seconds before now: the air has moved age * wind since
+    out[cnt].x = (float)((h_[i].lon - lon0) * kx + wx * age);
+    out[cnt].y = (float)((h_[i].lat - lat0) * ky + wy * age);
+    out[cnt].vario = isfinite(h_[i].vario) ? h_[i].vario : 0;
+    cnt++;
+  }
+  return cnt;
+}
+
 float FlightModel::avgVario() const {
   int n = n_ < AVG_S ? n_ : AVG_S;
   if (!n) return isfinite(cur_.vario) ? cur_.vario : 0;
