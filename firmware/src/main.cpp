@@ -6,7 +6,7 @@
 #include "pins.h"
 #include "protocol.h"
 #include "button.h"
-#include "sensors.h"
+#include "battery.h"
 #include "ui.h"
 #include "vario.h"
 
@@ -31,6 +31,7 @@ static struct {
   uint32_t pos;
 } blit;
 static volatile bool flushPending = false;
+static volatile uint32_t lastHostDrawMs = 0;   // last time the laptop sent a draw command
 static char pendingFilter[24];
 static volatile bool filterPending = false;
 
@@ -52,10 +53,12 @@ static void onCmdWrite(uint16_t, BLECharacteristic*, uint8_t* d, uint16_t len) {
   if (len == 0) return;
   switch (d[0]) {
     case CMD_CLEAR:
+      lastHostDrawMs = millis();
       display.fillRect(0, 0, W, H, WHITE);
       blit.open = false;
       break;
     case CMD_BLIT:
+      lastHostDrawMs = millis();
       if (len < 9) return;
       blit.x = d[1] | (d[2] << 8);
       blit.y = d[3] | (d[4] << 8);
@@ -70,6 +73,7 @@ static void onCmdWrite(uint16_t, BLECharacteristic*, uint8_t* d, uint16_t len) {
       for (uint16_t i = 1; i < len; i++) drawBlitByte(d[i]);
       break;
     case CMD_FLUSH:
+      lastHostDrawMs = millis();
       flushPending = true;
       break;
     case CMD_SET_TZ:
@@ -89,22 +93,15 @@ static void onCmdWrite(uint16_t, BLECharacteristic*, uint8_t* d, uint16_t len) {
 }
 
 // ---- link state ---------------------------------------------------------------
-static volatile bool hostConnected = false;
 static volatile uint16_t connHandle = BLE_CONN_HANDLE_INVALID;
-static uint32_t lastDisconnectMs = 0;
-static bool everConnected = false;
 
-static void onConnect(uint16_t h) { connHandle = h; hostConnected = true; everConnected = true; }
-static void onDisconnect(uint16_t, uint8_t) {
-  hostConnected = false;
-  connHandle = BLE_CONN_HANDLE_INVALID;
-  lastDisconnectMs = millis();
-}
+static void onConnect(uint16_t h) { connHandle = h; }
+static void onDisconnect(uint16_t, uint8_t) { connHandle = BLE_CONN_HANDLE_INVALID; }
 
+// The vario UI owns the screen unless the laptop has been drawing recently.
 static bool localActive() {
-  if (hostConnected) return false;
-  if (!everConnected) return true;
-  return millis() - lastDisconnectMs >= HOST_GRACE_MS;
+  uint32_t t = lastHostDrawMs;
+  return !(t && millis() - t < HOST_GRACE_MS);
 }
 
 // ---- power ---------------------------------------------------------------------
@@ -122,7 +119,6 @@ static void sleepNow() {
 
 static void powerOff() {
   uiMessage("Powering off");
-  sensorsSleep();
   if (connHandle != BLE_CONN_HANDLE_INVALID) {
     Bluefruit.disconnect(connHandle);
     delay(150);
@@ -167,7 +163,6 @@ void setup() {
   display.begin();
   display.setRotation(0);
   uiBegin(&display);
-  sensorsBegin();
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
   Bluefruit.begin(1, 1);
@@ -201,13 +196,7 @@ void loop() {
   bool local = localActive();
   if (local != wasLocal) {
     wasLocal = local;
-    if (local) {
-      sensorsSetPage(page);
-      uiInvalidate();
-      lastDraw = 0;
-    } else {
-      sensorsSleep();
-    }
+    if (local) { uiInvalidate(); lastDraw = 0; }
   }
 
   if (filterPending) {
@@ -233,33 +222,21 @@ void loop() {
     }
   } else if (local) {
     if (ev == BTN_SHORT) {
-      if (page == PAGE_COMPASS && calState().active) calFinish(false);
-      else page = (Page)((page + 1) % PAGE_COUNT);
-      sensorsSetPage(page);
+      page = (Page)((page + 1) % PAGE_COUNT);
       lastDraw = 0;
     } else if (ev == BTN_LONG) {
-      if (isVarioPage(page)) {
-        varioListOpen();
-        listOpen = true;
-        listSel = 0;
-      } else if (page == PAGE_COMPASS) {
-        if (calState().active) calFinish(true);
-        else calStart();
-      } else {
-        page = (Page)((page + PAGE_COUNT - 1) % PAGE_COUNT);
-        sensorsSetPage(page);
-      }
+      varioListOpen();
+      listOpen = true;
+      listSel = 0;
       lastDraw = 0;
     }
-    if (isVarioPage(page)) autoThermal = varioCircling() && varioFresh();
-    else autoThermal = false;
-    sensorsUpdate();
+    autoThermal = varioCircling() && varioFresh();
+    batteryUpdate();
     uint32_t held = button.heldMs();
     uint32_t every = held >= Button::ARM_MS ? 150 : uiIntervalMs(page);
     if (millis() - lastDraw >= every || lastDraw == 0) {
       lastDraw = millis();
-      Page shown = (autoThermal && isVarioPage(page)) ? PAGE_VARIO_THERMAL : page;
-      uiDraw(shown, held);
+      uiDraw(autoThermal ? PAGE_VARIO_THERMAL : page, held);
     }
   } else if (!local && flushPending) {
     flushPending = false;

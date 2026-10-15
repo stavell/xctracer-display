@@ -82,3 +82,28 @@ monitor opened after boot will not see it. Python that reads from the board's se
 - Power: slow advertising when disconnected, relaxed connection interval, redraw only when
   data arrives. Keep VCOM toggling independent of BLE logic.
 - Out of scope for now: buttons, sleep modes, sensors, a reverse channel.
+
+## Vario display (current firmware)
+
+The box is an XC Tracer Mini III GPS display. It is a BLE central: it finds the tracer by
+name filter (default `*`, set with `host/ctl.py filter`), remembers it in flash (address or
+name) and reconnects at boot. The tracer streams `$XCTRC` lines on service `0xFFE0`,
+characteristic `0xFFE1` (3 Hz, checksummed):
+
+    $XCTRC,Y,M,D,h,m,s,cs,lat,lon,alt,speed,course,vario,,,,pressure,battery%*CS
+
+lat = lon = 0 means no GPS fix. Speed is assumed km/h (unverified until a fix is available).
+
+- Screens (short press cycles): Standard, Simple, Thermal (the Maxx II layouts). The thermal
+  screen shows automatically while circling and switches back 16 s after straight flight.
+- Hold ~1 s: device list. Hold 3 s: power off (banner at 1.5 s). Hold 1 s at boot to power on.
+- Every float shown goes through `fnum()` in `ui.cpp`: non-finite values print `--`.
+- The laptop can still draw frames (`host/dashboard.py`); the vario UI resumes 10 s after the
+  last draw command.
+- Bench: `python host/ctl.py sim on` runs a built-in glide/thermal/glide flight.
+  `python host/ctl.py tz 180` sets the clock offset from UTC (minutes).
+- `host/xct_probe.py` captures the raw tracer stream (log in `host/xct_capture.log`).
+
+The standalone sensor dashboard (environment, compass with calibration, motion, light and
+gestures, sound) was removed from the firmware. It is kept under the git tag
+`sensor-dashboard`: `git checkout sensor-dashboard`.
