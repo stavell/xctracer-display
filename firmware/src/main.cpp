@@ -152,8 +152,6 @@ static void powerOnGate() {
 }
 
 // ---- main ------------------------------------------------------------------------
-static Page page = PAGE_VARIO_STD;
-static bool autoThermal = false;   // temporarily showing the thermal screen while circling
 static bool listOpen = false;
 static int listSel = 0;
 static bool wasLocal = false;
@@ -229,22 +227,18 @@ void loop() {
       uiDrawList(listSel, button.heldMs());
     }
   } else if (local) {
-    if (ev == BTN_SHORT) {
-      page = (Page)((page + 1) % PAGE_COUNT);
-      lastDraw = 0;
-    } else if (ev == BTN_LONG) {
+    if (ev == BTN_LONG) {
       varioListOpen();
       listOpen = true;
       listSel = 0;
       lastDraw = 0;
     }
-    autoThermal = varioCircling() && varioFresh();
     batteryUpdate();
     uint32_t held = button.heldMs();
-    uint32_t every = held >= Button::ARM_MS ? 150 : uiIntervalMs(page);
+    uint32_t every = held >= Button::ARM_MS ? 150 : uiIntervalMs();
     if (millis() - lastDraw >= every || lastDraw == 0) {
       lastDraw = millis();
-      uiDraw(autoThermal ? PAGE_VARIO_THERMAL : page, held);
+      uiDraw(held);
     }
   } else if (!local && flushPending) {
     flushPending = false;

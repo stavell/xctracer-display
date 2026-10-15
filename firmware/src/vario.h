@@ -63,7 +63,16 @@ float varioAvg();                          // m/s over VARIO_AVG_S
 float varioGlide();                        // NAN when not sinking / no GPS
 bool varioFlying();
 uint32_t varioFlightSec();
-bool varioCircling();                      // sustained turning (thermalling)
+bool varioCircling();
+
+// wind from a least-squares circle fit to the ground-velocity vectors while turning
+struct VarioWind {
+  bool valid;        // an estimate exists
+  float speedKmh;
+  float toDeg;       // direction the wind blows TOWARD, 0 = north
+  uint32_t ageS;     // seconds since the last accepted fit
+};
+VarioWind varioWind();                      // sustained turning (thermalling)
 int varioHistCount();
 const VarioSecond& varioHist(int i);       // 0 = oldest
 int varioLocalMinutes();                   // minutes since midnight, local (UTC + tz)

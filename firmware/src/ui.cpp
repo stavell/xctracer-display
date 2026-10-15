@@ -61,18 +61,22 @@ static void hbar(int x, int y, int w, int h, float frac) {
   d->fillRect(x + 2, y + 2, (int)((w - 4) * frac), h - 4, BLK);
 }
 
-static const char* NAMES[PAGE_COUNT] = {"VARIO", "VARIO SIMPLE", "VARIO THERMAL"};
-
-static void header(const char* title, int cur) {
+static void header() {
   d->fillRect(0, 0, W, HDR, BLK);
-  text(8, 17, title, F9, AL, WHT);
-  for (int i = 0; cur >= 0 && i < PAGE_COUNT; i++) {
-    int x = 270 + i * 11 - (PAGE_COUNT - 1) * 5;
-    if (i == cur) d->fillCircle(x, 12, 3, WHT);
-    else d->drawCircle(x, 12, 3, WHT);
+  char b[16];
+  if (varioFresh()) {
+    int m = varioLocalMinutes();
+    snprintf(b, sizeof b, "%02d:%02d", m / 60, m % 60);
+  } else {
+    snprintf(b, sizeof b, "--:--");
   }
+  text(8, 19, b, F12B, AL, WHT);
+  const VarioData& v = varioData();
+  if (varioFresh() && v.battPct >= 0) snprintf(b, sizeof b, "XC %d%%", v.battPct);
+  else snprintf(b, sizeof b, "XC --");
+  text(150, 17, b, F9, AL, WHT);
+  if (varioSimOn()) text(230, 17, "SIM", F9, AL, WHT);
   int pct = batteryPct();
-  char b[8];
   snprintf(b, sizeof b, "%d%%", pct);
   text(W - 48, 17, b, F9, AR, WHT);
   d->drawRect(W - 42, 6, 30, 13, WHT);
@@ -89,39 +93,68 @@ static float barPos(float v) {   // -1..1, fine resolution near zero
   return v < 0 ? -p : p;
 }
 
-static void varioBar(float v, float avg) {
-  const int x = 8, w = 40, top = HDR + 8, bot = H - 8;
+// thin vertical vario: instant value filled from the centre, tick marks on the left,
+// hollow triangle on the right for the averaged value
+static void thinVario(int x, int w, float v, float avg) {
+  const int top = HDR + 6, bot = H - 6;
   const int cy = (top + bot) / 2, half = (bot - top) / 2;
   d->drawRect(x, top, w, bot - top, BLK);
   for (int k = -4; k <= 4; k++) {
     int y = cy - (int)(half * barPos((float)k));
-    d->drawFastHLine(k == 0 ? x : x + w - 9, y, k == 0 ? w : 9, BLK);
+    d->drawFastHLine(x - (k == 0 ? 6 : 4), y, k == 0 ? 6 : 4, BLK);
   }
+  d->drawFastHLine(x, cy, w, BLK);
   if (isfinite(v)) {
     int y = cy - (int)(half * barPos(v));
-    if (v >= 0) d->fillRect(x + 2, y, w - 14, cy - y + 1, BLK);
-    else d->fillRect(x + 2, cy, w - 14, y - cy + 1, BLK);
+    if (v >= 0) d->fillRect(x + 2, y, w - 4, cy - y + 1, BLK);
+    else d->fillRect(x + 2, cy, w - 4, y - cy + 1, BLK);
   }
   int ya = cy - (int)(half * barPos(avg));
-  d->fillTriangle(x + w + 1, ya, x + w + 13, ya - 7, x + w + 13, ya + 7, WHT);
-  d->drawTriangle(x + w + 1, ya, x + w + 13, ya - 7, x + w + 13, ya + 7, BLK);
+  d->fillTriangle(x + w + 1, ya, x + w + 10, ya - 6, x + w + 10, ya + 6, WHT);
+  d->drawTriangle(x + w + 1, ya, x + w + 10, ya - 6, x + w + 10, ya + 6, BLK);
 }
 
-static void courseRose(int cx, int cy, int r, float course) {
+// Heading-up compass: the pointer at the top is the direction of travel, N rides on the ring,
+// the thick arrow shows where the wind blows toward.
+static void compassWind(int cx, int cy, int r, float course, const VarioWind& wnd) {
   d->drawCircle(cx, cy, r, BLK);
   d->drawCircle(cx, cy, r - 1, BLK);
-  d->fillTriangle(cx - 5, cy - r - 1, cx + 5, cy - r - 1, cx, cy - r + 8, BLK);   // travel direction
-  if (!isfinite(course)) { text(cx, cy + 6, "--", F12B, AC); return; }
-  float th = -course * PI_F / 180.0f;
-  int nx = cx + (r - 12) * sinf(th), ny = cy - (r - 12) * cosf(th);
-  d->fillCircle(nx, ny, 9, BLK);
-  text(nx, ny + 5, "N", F9, AC, WHT);
-  char b[8];
-  text(cx, cy + 6, fnum(b, sizeof b, course, "%.0f"), F12B, AC);
+  d->fillTriangle(cx - 6, cy - r - 2, cx + 6, cy - r - 2, cx, cy - r + 9, BLK);   // direction of travel
+  if (isfinite(course)) {
+    for (int a = 0; a < 360; a += 30) {   // ticks rotate with the ground track
+      float th = (a - course) * PI_F / 180.0f;
+      d->drawLine(cx + (r - 2) * sinf(th), cy - (r - 2) * cosf(th),
+                  cx + (r - 8) * sinf(th), cy - (r - 8) * cosf(th), BLK);
+    }
+    float th = -course * PI_F / 180.0f;
+    int nx = cx + (r - 17) * sinf(th), ny = cy - (r - 17) * cosf(th);
+    d->fillCircle(nx, ny, 10, BLK);
+    text(nx, ny + 5, "N", F9, AC, WHT);
+  }
+  if (wnd.valid && isfinite(course) && isfinite(wnd.toDeg)) {
+    float th = (wnd.toDeg - course) * PI_F / 180.0f;
+    float ux = sinf(th), uy = -cosf(th);       // screen direction of the wind
+    float px = -uy, py = ux;                   // perpendicular
+    int tx = cx - 20 * ux, ty = cy - 20 * uy;  // tail
+    int hx = cx + 24 * ux, hy = cy + 24 * uy;  // base of the head
+    int ex = cx + 40 * ux, ey = cy + 40 * uy;  // tip
+    for (int k = -1; k <= 1; k++) d->drawLine(tx + k * px, ty + k * py, hx + k * px, hy + k * py, BLK);
+    d->fillTriangle(ex, ey, hx + 9 * px, hy + 9 * py, hx - 9 * px, hy - 9 * py, BLK);
+  }
+  if (isfinite(course)) {   // numeric track, boxed so the arrow does not hide it
+    char b[8];
+    fnum(b, sizeof b, course, "%.0f");
+    int tw = textW(b, F12B);
+    d->fillRect(cx - tw / 2 - 3, cy + r - 40, tw + 6, 22, WHT);
+    text(cx, cy + r - 22, b, F12B, AC);
+  } else {
+    text(cx, cy + 6, "--", F12B, AC);
+  }
 }
 
-static void fmtTime(char* b, size_t n, uint32_t s) {
-  snprintf(b, n, "%lu:%02lu:%02lu", (unsigned long)(s / 3600), (unsigned long)((s / 60) % 60), (unsigned long)(s % 60));
+static const char* cardinal16(float deg) {
+  static const char* n[] = {"N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"};
+  return n[((int)((deg + 11.25f) / 22.5f)) % 16];
 }
 
 static void varioStatus() {
@@ -140,117 +173,35 @@ static void varioStatus() {
   text(200, 228, "hold: choose device", F9, AC);
 }
 
-static void varioHeaderInfo() {   // tracer battery next to the title
-  const VarioData& v = varioData();
-  char b[16];
-  if (v.battPct >= 0) snprintf(b, sizeof b, "XC %d%%", v.battPct);
-  else snprintf(b, sizeof b, "XC --");
-  text(150, 17, b, F9, AL, WHT);
-  if (varioSimOn()) text(250, 17, "SIM", F9, AL, WHT);
-}
-
-static void liveCommon(const VarioData& v, bool compact) {
-  float avg = varioAvg();
-  varioBar(v.vario, avg);
+static void liveScreen(const VarioData& v) {
   char b[24], t[24];
-  text(66, 42, "AVG m/s", F9);
-  text(66, 108, fnum(b, sizeof b, avg, "%+.1f"), F24B, AL, BLK, 2);
-  snprintf(t, sizeof t, "now %s", fnum(b, sizeof b, v.vario, "%+.1f"));
-  text(66, 134, t, F12B);
-  text(66, 160, "ALT m", F9);
-  text(66, 198, fnum(b, sizeof b, v.alt, "%.0f"), F24B);
-  courseRose(332, 66, 38, v.course);
-  text(332, 138, fnum(b, sizeof b, v.speedKmh, "%.0f"), F18B, AC);
-  text(332, 154, "km/h", F9, AC);
-  if (!compact) {
-    snprintf(t, sizeof t, "GR %s", fnum(b, sizeof b, varioGlide(), "%.1f"));
-    text(332, 182, t, F12B, AC);
-    fmtTime(b, sizeof b, varioFlightSec());
-    text(66, 232, b, F12B);
-    int m = varioLocalMinutes();
-    snprintf(b, sizeof b, "%02d:%02d", m / 60, m % 60);
-    text(396, 232, b, F12B, AR);
-  }
-}
-
-static void varioThermal(const VarioData& v) {
   float avg = varioAvg();
-  varioBar(v.vario, avg);
-  char b[24], t[24];
-  fnum(b, sizeof b, avg, "%+.1f");
-  text(66, 62, b, F24B);
-  text(66 + textW(b, F24B) + 6, 62, "m/s", F9);
-  // thermal assistant: last 60 s as dots around the current position, north up
-  const int cx = 170, cy = 148, R = 74;
-  const float pxPerM = 1.4f;
-  d->drawCircle(cx, cy, R, BLK);
-  int n = varioHistCount();
-  if (n < 2 || !varioHist(n - 1).fix) {
-    text(cx, cy + 6, "no GPS", F12B, AC);
-  } else {
-    const VarioSecond& now = varioHist(n - 1);
-    float coslat = cosf((float)now.lat * PI_F / 180.0f);
-    float sx = 0, sy = 0, sw = 0;
-    int cnt = 0;
-    for (int i = max(0, n - 60); i < n; i++) {
-      const VarioSecond& h = varioHist(i);
-      if (!h.fix) continue;
-      float dx = (float)(h.lon - now.lon) * 111320.0f * coslat;
-      float dy = (float)(h.lat - now.lat) * 111320.0f;
-      int px = cx + (int)(dx * pxPerM), py = cy - (int)(dy * pxPerM);
-      if ((px - cx) * (px - cx) + (py - cy) * (py - cy) > (R - 4) * (R - 4)) continue;
-      float vv = isfinite(h.vario) ? h.vario : 0;
-      if (vv >= 0) d->fillCircle(px, py, min(2 + (int)(vv * 1.5f), 7), BLK);
-      else d->drawCircle(px, py, min(2 + (int)(-vv), 5), BLK);
-      if (vv > 0.5f) { sx += dx * vv; sy += dy * vv; sw += vv; cnt++; }
-    }
-    if (cnt >= 3) {   // lift-weighted centre of the thermal, 40 m circle
-      int tx = cx + (int)(sx / sw * pxPerM), ty = cy - (int)(sy / sw * pxPerM);
-      d->drawCircle(tx, ty, (int)(20 * pxPerM), BLK);
-      d->drawCircle(tx, ty, (int)(20 * pxPerM) + 1, BLK);
-    }
-    float th = (isfinite(now.course) ? now.course : 0) * PI_F / 180.0f;   // own heading
-    d->fillTriangle(cx + 9 * sinf(th), cy - 9 * cosf(th),
-                    cx + 6 * sinf(th + 2.5f), cy - 6 * cosf(th + 2.5f),
-                    cx + 6 * sinf(th - 2.5f), cy - 6 * cosf(th - 2.5f), BLK);
-  }
-  text(cx, cy - R - 3, "N", F9, AC);
-  // altitude, speed
-  snprintf(t, sizeof t, "%s m", fnum(b, sizeof b, v.alt, "%.0f"));
-  text(396, 62, t, F18B, AR);
-  snprintf(t, sizeof t, "%s km/h", fnum(b, sizeof b, v.speedKmh, "%.0f"));
-  text(396, 92, t, F12B, AR);
-  // altitude trace, last 30 s
-  const int gx = 268, gy = 130, gw = 128, gh = 100;
-  d->drawRect(gx, gy, gw, gh, BLK);
-  text(gx, gy - 4, "ALT 30s", F9);
-  int m = min(n, 30);
-  if (m >= 2) {
-    float lo = 1e9f, hi = -1e9f;
-    for (int i = n - m; i < n; i++) {
-      float a = varioHist(i).alt;
-      if (!isfinite(a)) continue;
-      lo = min(lo, a); hi = max(hi, a);
-    }
-    if (hi < lo) return;   // no finite altitude in the window
-    if (hi - lo < 10) { float mid = (hi + lo) / 2; lo = mid - 5; hi = mid + 5; }
-    int px = -1, py = 0;
-    for (int i = n - m; i < n; i++) {
-      float a = varioHist(i).alt;
-      if (!isfinite(a)) continue;
-      int x = gx + 2 + (int)((gw - 4) * (float)(i - (n - m)) / 29.0f);
-      int y = gy + gh - 3 - (int)((gh - 6) * (a - lo) / (hi - lo));
-      if (px >= 0) d->drawLine(px, py, x, y, BLK);
-      px = x; py = y;
+  // left column: altitude, vertical speed, ground speed + glide ratio
+  text(8, 40, "ALTITUDE m", F9);
+  text(8, 98, fnum(b, sizeof b, v.alt, "%.0f"), F24B, AL, BLK, 2);
+  text(8, 120, "VERTICAL SPEED m/s", F9);
+  text(8, 174, fnum(b, sizeof b, v.vario, "%+.1f"), F24B, AL, BLK, 2);
+  text(8, 196, "GPS km/h", F9);
+  text(8, 230, fnum(b, sizeof b, v.speedKmh, "%.0f"), F24B);
+  text(112, 196, "GLIDE", F9);
+  text(112, 230, fnum(b, sizeof b, varioGlide(), "%.1f"), F24B);
+  // thin vario between the columns
+  thinVario(214, 16, v.vario, avg);
+  // right column: compass with wind arrow, wind speed and direction
+  VarioWind w = varioWind();
+  compassWind(322, 98, 60, v.course, w);
+  text(250, 184, w.valid ? "WIND km/h" : "WIND  (circle to measure)", F9);
+  text(250, 228, w.valid ? fnum(b, sizeof b, w.speedKmh, "%.0f") : "--", F24B);
+  if (w.valid) {
+    float from = fmodf(w.toDeg + 180.0f, 360.0f);
+    text(396, 204, "from", F9, AR);
+    snprintf(t, sizeof t, "%s %s", cardinal16(from), fnum(b, sizeof b, from, "%.0f"));
+    text(396, 226, t, F12B, AR);
+    if (w.ageS > 300) {
+      snprintf(t, sizeof t, "%lum ago", (unsigned long)(w.ageS / 60));
+      text(396, 184, t, F9, AR);
     }
   }
-}
-
-static void pageVario(Page p) {
-  if (!varioFresh()) { varioStatus(); return; }
-  const VarioData& v = varioData();
-  if (p == PAGE_VARIO_THERMAL) varioThermal(v);
-  else liveCommon(v, p == PAGE_VARIO_SIMPLE);
 }
 
 // ---- public ----------------------------------------------------------------
@@ -263,7 +214,7 @@ void uiBegin(Adafruit_SharpMem* disp) {
 
 void uiInvalidate() { dirty = true; }
 
-uint32_t uiIntervalMs(Page) { return 500; }
+uint32_t uiIntervalMs() { return 500; }
 
 static void present() {
   uint8_t* buf = d->getBuffer();
@@ -282,18 +233,19 @@ static void powerBanner(uint32_t heldMs) {
   hbar(60, 130, 280, 16, (heldMs - 1500) / 1500.0f);
 }
 
-void uiDraw(Page p, uint32_t heldMs) {
+void uiDraw(uint32_t heldMs) {
   d->fillRect(0, 0, W, H, WHT);
-  header(NAMES[p], p);
-  varioHeaderInfo();
-  pageVario(p);
+  header();
+  if (varioFresh()) liveScreen(varioData());
+  else varioStatus();
   powerBanner(heldMs);
   present();
 }
 
 void uiDrawList(int sel, uint32_t heldMs) {
   d->fillRect(0, 0, W, H, WHT);
-  header("SELECT VARIO", -1);
+  header();
+  text(200, 17, "SELECT VARIO", F9, AC, WHT);
   char b[40];
   snprintf(b, sizeof b, "filter: %s", varioFilter());
   text(8, HDR + 20, b, F9);

@@ -209,6 +209,83 @@ static uint32_t lastTurnMs = 0;
 
 static float wrap180(float a) { while (a > 180) a -= 360; while (a < -180) a += 360; return a; }
 
+// ---- wind ------------------------------------------------------------------------------
+static VarioWind wnd = {false, 0, 0, 0};
+static double wx = 0, wy = 0;          // east, north wind vector, m/s
+static uint32_t wndMs = 0;
+
+static double det3(const double m[3][3]) {
+  return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+       - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+       + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+}
+
+// Fit a circle to ground velocity vectors: centre = wind, radius = airspeed (Kasa fit).
+static void updateWind(uint32_t now) {
+  const int W = 30;
+  if (histN < W) return;
+  double vx[W], vy[W], ang[W];
+  for (int i = 0; i < W; i++) {
+    const VarioSecond& s = hist[histN - W + i];
+    if (!s.fix || !isfinite(s.speedKmh) || !isfinite(s.course) || s.speedKmh < 8) return;
+    double ms = s.speedKmh / 3.6;
+    vx[i] = ms * sin(s.course * DEG_TO_RAD);
+    vy[i] = ms * cos(s.course * DEG_TO_RAD);
+    ang[i] = fmod(s.course + 360.0, 360.0);
+  }
+  // angular coverage = 360 - largest gap between sorted headings
+  for (int i = 1; i < W; i++) {                      // insertion sort
+    double a = ang[i]; int j = i - 1;
+    while (j >= 0 && ang[j] > a) { ang[j + 1] = ang[j]; j--; }
+    ang[j + 1] = a;
+  }
+  double gap = 0;
+  for (int i = 0; i < W; i++) gap = max(gap, fmod(ang[(i + 1) % W] - ang[i] + 360.0, 360.0));
+  if (360.0 - gap < 200.0) return;
+
+  double sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, sz = 0, sxz = 0, syz = 0;
+  for (int i = 0; i < W; i++) {
+    double z = vx[i] * vx[i] + vy[i] * vy[i];
+    sx += vx[i]; sy += vy[i]; sxx += vx[i] * vx[i]; syy += vy[i] * vy[i]; sxy += vx[i] * vy[i];
+    sz += z; sxz += vx[i] * z; syz += vy[i] * z;
+  }
+  double A[3][3] = {{sxx, sxy, sx}, {sxy, syy, sy}, {sx, sy, (double)W}};
+  double B[3] = {sxz, syz, sz};
+  double D = det3(A);
+  if (fabs(D) < 1e-6) return;
+  double sol[3];
+  for (int k = 0; k < 3; k++) {
+    double M[3][3];
+    memcpy(M, A, sizeof M);
+    for (int i = 0; i < 3; i++) M[i][k] = B[i];
+    sol[k] = det3(M) / D;
+  }
+  double a = sol[0] / 2, b = sol[1] / 2;
+  double r2 = sol[2] + a * a + b * b;
+  if (r2 <= 0) return;
+  double r = sqrt(r2);
+  double res = 0;
+  for (int i = 0; i < W; i++) { double e = hypot(vx[i] - a, vy[i] - b) - r; res += e * e; }
+  res = sqrt(res / W);
+  double wsKmh = hypot(a, b) * 3.6;
+  if (r * 3.6 < 14 || r * 3.6 > 72 || res > 0.2 * r || wsKmh > 72) return;   // not a believable airspeed circle
+
+  if (!wnd.valid || now - wndMs > 120000) { wx = a; wy = b; }
+  else { wx = 0.88 * wx + 0.12 * a; wy = 0.88 * wy + 0.12 * b; }   // smooth over ~8 s
+  wndMs = now;
+  wnd.valid = true;
+}
+
+VarioWind varioWind() {
+  VarioWind w = wnd;
+  if (w.valid) {
+    w.speedKmh = hypot(wx, wy) * 3.6;
+    w.toDeg = fmod(atan2(wx, wy) / DEG_TO_RAD + 360.0, 360.0);
+    w.ageS = (millis() - wndMs) / 1000;
+  }
+  return w;
+}
+
 static void tickSecond(uint32_t now) {
   VarioSecond s = {cur.fix, cur.lat, cur.lon, cur.alt, cur.vario, cur.speedKmh, cur.course};
   if (histN == VARIO_HIST) { memmove(hist, hist + 1, sizeof(VarioSecond) * (VARIO_HIST - 1)); histN--; }
@@ -228,6 +305,7 @@ static void tickSecond(uint32_t now) {
     if (sum / 8.0f > 6.0f && sp > 8) { circling = true; lastTurnMs = now; }
   }
   if (circling && now - lastTurnMs > 16000) circling = false;   // straight again for 16 s
+  updateWind(now);
 }
 
 // ---- simulator -------------------------------------------------------------------------
@@ -254,16 +332,21 @@ static void simStep(uint32_t now) {
   }
   simCourse = fmodf(simCourse + turn * dt + 360, 360);
   float ms = spd / 3.6f;
-  simX += ms * dt * sinf(simCourse * DEG_TO_RAD);
-  simY += ms * dt * cosf(simCourse * DEG_TO_RAD);
+  const float windE = -3.33f, windN = 0;   // 12 km/h toward 270
+  float gx = ms * sinf(simCourse * DEG_TO_RAD) + windE;
+  float gy = ms * cosf(simCourse * DEG_TO_RAD) + windN;
+  simX += gx * dt;
+  simY += gy * dt;
+  float gcourse = fmodf(atan2f(gx, gy) / DEG_TO_RAD + 360, 360);
+  float gspeed = sqrtf(gx * gx + gy * gy) * 3.6f;
   simAlt += v * dt;
   VarioData d;
   d.fix = true;
   d.lat = 42.0 + simY / 111320.0;
   d.lon = 23.0 + simX / (111320.0 * cos(42.0 * DEG_TO_RAD));
   d.alt = simAlt;
-  d.speedKmh = spd;
-  d.course = simCourse;
+  d.speedKmh = gspeed;
+  d.course = gcourse;
   d.vario = v + 0.08f * sinf(now / 300.0f);
   d.pressure = 1013.25f * powf(1 - simAlt / 44330.0f, 5.255f);
   d.battPct = 80;
