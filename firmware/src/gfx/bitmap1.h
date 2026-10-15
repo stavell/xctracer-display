@@ -42,7 +42,22 @@ struct Bitmap1 {
   int width() const { return (rotation & 1) ? h : w; }       // logical size
   int height() const { return (rotation & 1) ? w : h; }
 
-  void pixel(int x, int y, DrawMode m) const;
+  // Single pixel, inline: text and lines call this once per pixel, so it skips the rect machinery.
+  void pixel(int x, int y, DrawMode m) const {
+    if ((unsigned)x >= (unsigned)width() || (unsigned)y >= (unsigned)height()) return;
+    int nx, ny;
+    switch (rotation & 3) {
+      case 1: nx = w - 1 - y; ny = x; break;
+      case 2: nx = w - 1 - x; ny = h - 1 - y; break;
+      case 3: nx = y; ny = h - 1 - x; break;
+      default: nx = x; ny = y; break;
+    }
+    uint8_t& b = buf[(unsigned)ny * stride + (nx >> 3)];
+    uint8_t bit = (uint8_t)(1u << (nx & 7));
+    if (m == DRAW_CLEAR) b &= (uint8_t)~bit;
+    else if (m == DRAW_INVERT) b ^= bit;
+    else b |= bit;
+  }
   uint8_t getPixel(int x, int y) const;                       // 0 outside
   void hline(int x0, int x1, int y, DrawMode m) const;        // inclusive; x0 > x1 draws nothing
   void vline(int x, int y0, int y1, DrawMode m) const;

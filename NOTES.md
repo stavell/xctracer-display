@@ -220,3 +220,16 @@ project is and how to run it; this file says what we found and why things are th
 - Panel SPI: 2 MHz -> 4 MHz (full refresh 53 -> 27 ms) -> 8 MHz (about 14 ms full, 2-9 ms partial).
   8 MHz is beyond Adafruit's default; recheck for artefacts when cold. Compass-page tick with the
   dial animating: 60-80 ms (was 108 ms).
+
+## Drawing speed (2026-10-15, diagnostics build profiler)
+
+- Adafruit_GFX's generic path cost 1.46 us per pixel; a thermal frame with a full trail took 103 ms to
+  draw (trail 41, cells 28, header 16). `gfx/Bitmap1` + `hw/FastSharp` write straight into the frame
+  buffer (bit-identical, tested against a copy of the library's mapping): the same frame now takes
+  22 ms (trail 5, cells 9, header 2); fillRect 100x20 went from 4.6 ms to 0.08 ms.
+- Single pixels must not go through the rect code: that first version made pixels 3x slower (4.7 us).
+  The inline `Bitmap1::pixel` brings GFX's per-pixel call to about 1.2 us, most of it GFX's virtual
+  dispatch. Text is the largest remaining cost (2.8 ms for "1234" in FreeSansBold24pt).
+- Animation at 20 fps (50 ms) while the heading glides: worst loop tick 49-60 ms on the thermal page with
+  a full trail, so it runs at roughly 17-20 fps. While circling the map never settles, so the CPU runs
+  flat out the whole time (power cost not measured yet).

@@ -12,8 +12,8 @@ struct AppConfig {
   uint32_t hostGraceMs = 10000;      // laptop frames keep the screen this long after the last draw command
   uint32_t freshMs = 3000;           // data older than this counts as no data
   uint32_t drawEveryMs = 333;        // live screen redraw cadence (3 Hz, the tracer's data rate)
-  uint32_t animEveryMs = 150;        // redraw cadence while the dial is still gliding (compass, home)
-  uint32_t animThermalEveryMs = 200; // same on the thermal page (its map costs about the same to draw)
+  uint32_t animEveryMs = 50;         // redraw cadence while the dial is still gliding (compass, home)
+  uint32_t animThermalEveryMs = 50;  // same on the thermal page (its map costs about the same to draw)
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
   float gpsHeadingOnKmh = 4.0f;      // GPS track counts as a heading above this speed ...
   float gpsHeadingOffKmh = 2.5f;     // ... and stops counting below this one (hysteresis)

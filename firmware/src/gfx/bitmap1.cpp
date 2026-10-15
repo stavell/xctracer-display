@@ -51,7 +51,6 @@ void Bitmap1::rectIncl(int x0, int y0, int x1, int y1, DrawMode m) const {
 
 void Bitmap1::hline(int x0, int x1, int y, DrawMode m) const { rectIncl(x0, y, x1, y, m); }
 void Bitmap1::vline(int x, int y0, int y1, DrawMode m) const { rectIncl(x, y0, x, y1, m); }
-void Bitmap1::pixel(int x, int y, DrawMode m) const { rectIncl(x, y, x, y, m); }
 
 uint8_t Bitmap1::getPixel(int x, int y) const {
   if (x < 0 || y < 0 || x >= width() || y >= height()) return 0;
