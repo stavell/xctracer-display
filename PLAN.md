@@ -162,3 +162,13 @@ a grey buffer, dither, contours, `RoadIter` + `TownIter` overlay, Latin names fi
 redraw only on position/heading change; (4) box player integration (pack file in the emulator via `MemReader`);
 (5) QSPI driver (`IBlockReader` on the nRF52840 QSPI, XIP option) and loading the pack over USB or BLE with
 `Terrain::verifyAll()` after the transfer.
+
+## Launcher refactor (requested 2026-10-16, after the map page merges)
+
+- Launcher = the box's home screen: icon menu (Vario, Tetris, Compass & weather, Settings), status line (time, battery,
+  map pack). Boot still goes straight to the start-up app (default vario).
+- Vario menu (long press) holds only flying things: XC Tracer selection (scan list, save) and "Home" (to the launcher).
+  The "Apps..." row goes away.
+- Settings is a platform app: compass calibration (generic, used by every app), board mounting index, start-up app,
+  time zone, About (version, map pack info, OSM / Copernicus attribution). ctl.py cal/orient talk to the platform.
+- Leaving any app: its menu's "Home" item, or A+B held on the six-button hardware.
