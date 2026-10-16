@@ -2,6 +2,10 @@
 #include <stdint.h>
 #include "core/types.h"
 
+// East, north and up as unit vectors in the device frame, from gravity (accel, +g up at rest) and the
+// magnetic field. False if either is too weak to define a direction. Shared by Compass and the Ahrs seed.
+bool compassBasis(const Vec3& accel, const Vec3& mag, Vec3& east, Vec3& north, Vec3& up);
+
 // Tilt-compensated magnetic compass from an accelerometer and a magnetometer, plus the calibration
 // routine. Pure maths: readings come in the device frame (x right of the screen, y top of the screen,
 // z out of the screen), so the hardware layer owns the sensor-to-device axis mapping.
@@ -21,6 +25,7 @@ class Compass {
   bool valid() const { return valid_; }
   float heading() const { return heading_; }    // degrees, 0..360
   float fieldUt() const { return field_; }
+  Vec3 corrected(const Vec3& rawMag) const;       // hard-iron offset removed (as update() does)
 
   // calibration: turn the unit through all directions, then finish(true) to keep the result. The
   // offset is a least-squares sphere fit, which tolerates incomplete coverage far better than min/max.

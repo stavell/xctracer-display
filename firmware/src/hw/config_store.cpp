@@ -2,7 +2,12 @@
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
 
+#include "core/mount.h"
+
 using namespace Adafruit_LittleFS_Namespace;
+
+struct MountFile { uint32_t magic; int32_t index; };
+static const uint32_t MOUNT_MAGIC = 0x4d4e5431;
 
 static const uint32_t MAGIC = 0x56415233;
 static const char* PATH = "/vario.cfg";
@@ -37,6 +42,22 @@ void ConfigStore::begin() {
     sv_.magic = MAGIC;
     strcpy(sv_.filter, "*");
   }
+  mount_ = 0;
+  File m(InternalFS);
+  if (m.open("/mount.bin", FILE_O_READ)) {
+    MountFile mf;
+    if (m.read((uint8_t*)&mf, sizeof mf) == sizeof mf && mf.magic == MOUNT_MAGIC && mountValid(mf.index)) mount_ = mf.index;
+    m.close();
+  }
+}
+
+void ConfigStore::setMountIndex(int index) {
+  if (!mountValid(index)) return;
+  mount_ = index;
+  MountFile mf;
+  mf.magic = MOUNT_MAGIC;
+  mf.index = (int32_t)index;
+  writeAtomic("/mount.bin", &mf, sizeof mf);
 }
 
 void ConfigStore::save() {

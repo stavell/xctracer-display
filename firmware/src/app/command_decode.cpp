@@ -1,5 +1,6 @@
 #include "app/command_decode.h"
 #include <string.h>
+#include "core/mount.h"
 #include "protocol.h"
 #include "view/viewmodel.h"
 
@@ -19,6 +20,11 @@ bool decodeCommand(const uint8_t* d, uint16_t len, Command& c) {
     case CMD_CAL:
       if (len < 2) return false;
       c.type = Command::CAL;
+      c.value = d[1];
+      return true;
+    case CMD_SET_ORIENT:
+      if (len < 2 || !mountValid(d[1])) return false;
+      c.type = Command::ORIENT;
       c.value = d[1];
       return true;
     case CMD_PAGE:

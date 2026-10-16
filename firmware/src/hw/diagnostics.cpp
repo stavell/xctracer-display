@@ -7,6 +7,7 @@
 #include "hw/compass_lis.h"
 #include "hw/cyccnt.h"
 #include "hw/panel_sharp.h"
+#include "core/ahrs.h"
 #include "core/compass.h"
 #include "core/flight.h"
 #include "core/wind.h"
@@ -60,7 +61,7 @@ static void runBench() {
 // One-off timing of the whole data path: 120 s of a circling flight (wind fit, circling detection, thermal
 // finder and memory run every second) through a private FlightModel, plus a compass update.
 static FlightModel benchFm;
-static uint32_t benchFeedAvgUs = 0, benchFeedMaxUs = 0, benchCompassUs = 0;
+static uint32_t benchFeedAvgUs = 0, benchFeedMaxUs = 0, benchCompassUs = 0, benchAhrsUs = 0;
 static bool benchDone = false;
 static void runFlightBench() {
   if (benchDone) return;
@@ -89,6 +90,11 @@ static void runFlightBench() {
   uint32_t t0 = fastMicros();
   for (int i = 0; i < 10; i++) c.update(a, mg, (uint32_t)i * 12);
   benchCompassUs = (fastMicros() - t0) / 10;
+  static Ahrs ahrs;                                    // a still unit with a little gyro noise
+  Vec3 gy;
+  t0 = fastMicros();
+  for (int i = 0; i < 20; i++) { gy.x = 0.001f * (i & 3); gy.y = 0.001f * (i & 1); ahrs.update(gy, a, mg, (uint32_t)i * 12); }
+  benchAhrsUs = (fastMicros() - t0) / 20;
 }
 
 // Cost of the primitives the views are built from, timed on the real canvas. Result line: bench ...
@@ -152,7 +158,7 @@ void diagnosticsBench() {
 }
 #else
 void diagnosticsBench() {}
-static uint32_t benchParseUs = 0, benchWindUs = 0, benchVmUs = 0, benchFeedAvgUs = 0, benchFeedMaxUs = 0, benchCompassUs = 0;
+static uint32_t benchParseUs = 0, benchWindUs = 0, benchVmUs = 0, benchFeedAvgUs = 0, benchFeedMaxUs = 0, benchCompassUs = 0, benchAhrsUs = 0;
 static void runBench() {}
 static void runFlightBench() {}
 #endif
@@ -174,13 +180,13 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
 #else
   (void)v0;
 #endif
-  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus refresh=%luus send=%luus wait=%luus spito=%lu parse=%luus windfit=%luus viewmodel=%luus feed_avg=%luus feed_max=%luus compass=%luus",
+  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus refresh=%luus send=%luus wait=%luus spito=%lu parse=%luus windfit=%luus viewmodel=%luus feed_avg=%luus feed_max=%luus compass=%luus ahrs=%luus",
                 (unsigned long)app.linesOk(), (unsigned long)app.linesBad(), vm.fresh, vm.s.fix,
                 vm.s.alt, vm.s.speedKmh, vm.s.vario, vm.wind.valid, vm.wind.speedKmh, vm.sim, (int)vm.link,
                 (int)vm.page, vm.markCount, vm.trailCount, (unsigned long)worstTickUs, (unsigned long)panel.refreshUs(),
                 (unsigned long)panel.sendUs(), (unsigned long)panel.waitUs(), (unsigned long)panel.timeouts(),
                 (unsigned long)benchParseUs, (unsigned long)benchWindUs, (unsigned long)benchVmUs,
-                (unsigned long)benchFeedAvgUs, (unsigned long)benchFeedMaxUs, (unsigned long)benchCompassUs);
+                (unsigned long)benchFeedAvgUs, (unsigned long)benchFeedMaxUs, (unsigned long)benchCompassUs, (unsigned long)benchAhrsUs);
 #ifdef DIAGNOSTICS
   Serial.printf(" up=%lu heap=%d", (unsigned long)(millis() / 1000), dbgHeapUsed());
 #endif
@@ -202,8 +208,10 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
                 (unsigned long)uxTaskGetStackHighWaterMark(nullptr) * 4, app.lastRaw());
   const Vec3& ca = compassHw.lastAccel();
   const Vec3& cm = compassHw.lastMag();
-  Serial.printf("cmp on=%d present=%d acc=%.2f,%.2f,%.2f mag=%.1f,%.1f,%.1f hdg=%.1f src=%d cal=%d\n", app.compassOn(),
-                compassHw.present(), ca.x, ca.y, ca.z, cm.x, cm.y, cm.z, vm.heading, (int)vm.headingSrc, vm.calValid);
+  const Vec3& cg = compassHw.lastGyro();
+  Serial.printf("cmp on=%d present=%d acc=%.2f,%.2f,%.2f mag=%.1f,%.1f,%.1f gyr=%.1f,%.1f,%.1f hdg=%.1f src=%d cal=%d orient=%d fused=%d bias=%.2f\n", app.compassOn(),
+                compassHw.present(), ca.x, ca.y, ca.z, cm.x, cm.y, cm.z, cg.x * 57.2958f, cg.y * 57.2958f, cg.z * 57.2958f,
+                vm.heading, (int)vm.headingSrc, vm.calValid, app.mountIndex(), app.fused(), app.ahrs().biasDps());
   worstTickUs = 0;
 }
 

@@ -6,6 +6,7 @@
 #include <vector>
 #include <Adafruit_SharpMem.h>      // host mock from emu/stubs
 #include "app/button_fsm.h"
+#include "core/mount.h"
 #include "core/types.h"
 #include "app/ports.h"
 
@@ -106,7 +107,10 @@ class MockSettings : public ISettings {
   void setTzMinutes(int m) override { tz = m; }
   bool loadMagCal(MagCal& out) override { if (!hasCal) return false; out = cal; return true; }
   void saveMagCal(const MagCal& c) override { cal = c; hasCal = true; saves++; }
+  int mountIndex() const override { return mount; }
+  void setMountIndex(int i) override { mount = i; }
   int tz = 0;
+  int mount = 0;
   MagCal cal;
   bool hasCal = false;
   int saves = 0;
@@ -119,9 +123,21 @@ class MockSettings : public ISettings {
 class MockCompass : public ICompass {
  public:
   void enable(bool on) override { enabled = on; enables += on ? 1 : 0; }
-  bool read(Vec3& a, Vec3& m) override {
+  bool read(Vec3& a, Vec3& m, Vec3& g, bool& haveGyro) override {
     if (!enabled) return false;
     reading(psi, pitch, roll, a, m);
+    // board-frame data: the inverse of the case mounting the app will apply
+    if (boardMount) { a = mountInverse(boardMount, a); m = mountInverse(boardMount, m); }
+    haveGyro = gyro;
+    if (gyro) {                                   // still unit: a few counts of noise (a frozen gyro is a failure)
+      g = Vec3();
+      if (gyroNoise > 0) {
+        seed = seed * 1664525u + 1013904223u; g.x = gyroNoise * ((seed >> 8) / 8388608.0f - 1.0f);
+        seed = seed * 1664525u + 1013904223u; g.y = gyroNoise * ((seed >> 8) / 8388608.0f - 1.0f);
+        seed = seed * 1664525u + 1013904223u; g.z = gyroNoise * ((seed >> 8) / 8388608.0f - 1.0f);
+      }
+      if (boardMount) g = mountInverse(boardMount, g);
+    }
     return true;
   }
   void reading(double psiDeg, double pitchDeg, double rollDeg, Vec3& a, Vec3& m) const {
@@ -148,6 +164,10 @@ class MockCompass : public ICompass {
     m.x = (float)(mv[0] + hardIron[0]); m.y = (float)(mv[1] + hardIron[1]); m.z = (float)(mv[2] + hardIron[2]);
   }
   bool enabled = false;
+  bool gyro = false;                // has a gyro (zero rates plus gyroNoise rad/s of noise)
+  float gyroNoise = 0.002f;
+  int boardMount = 0;               // data is delivered in the board frame of this mounting index
+  uint32_t seed = 12345;
   int enables = 0;
   double psi = 0, pitch = 0, roll = 0;
   double hardIron[3] = {0, 0, 0};
