@@ -99,3 +99,27 @@ not make it more reliable by themselves (each one adds concurrency risk); these 
 For each branch: read the diff, run `scripts/check.sh` (or its two steps), check the new tests really
 exercise the change, merge. After all three: flash, run the 3x IGC replay on both pages and watch the
 serial status, and check that a stuck loop is reset by the watchdog.
+
+## Multi-use box (proposed 2026-10-16, not started)
+
+The same hardware as a flight display, a game console and a generic gadget, with firmware switched
+between seasons.
+
+**Firmware structure**
+
+    platform/   hw (panel + DMA, sensors, BLE, power, flash settings), gfx renderer, input (switch,
+                later 4 buttons), fused compass, app lifecycle + switching, settings UI
+    apps/vario  the flight display (today's core/ maths + views)
+    apps/games  breakout, soaring sim, ...
+    apps/tools  standalone compass + temp/humidity, level, ...
+
+- An app implements start / stop / tick / draw / input; the platform owns screen, cadence and power.
+- Two images from one tree: `vario` (flight app + standalone compass, no game code: less to go wrong in
+  the air) and `console` (launcher with games and tools, optionally the vario too).
+- Switching: UF2 drag and drop (double-tap reset -> FTHR840BOOT drive), plus a "Switch firmware" menu
+  item calling `enterUf2Dfu()`, so the reset button can stay inside the case. BLE OTA DFU later.
+  Settings live in the internal LittleFS area, which a UF2 app update should not touch (verify on
+  the device). Release both .uf2 files on GitHub.
+
+**Order:** watchdog first; then move code into platform/ and apps/vario (pixel-identical screens, all
+tests green); app interface + launcher; two build envs + switch item; game engine basics + Breakout.
