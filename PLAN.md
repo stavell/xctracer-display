@@ -214,3 +214,8 @@ pitch = speed bar), glider polar + pendulum lag, thermals from terrain/sun trigg
 from wind x DEM slope, lee sink, cloudbase; it feeds the real vario app (same $XCTRC stream as the built-in sim).
 Views: top-down (map page + thermals) first, then a first-person voxel-space renderer (PC prototype + M4 estimate).
 Modes: free flight from real takeoffs, XC tasks, ghost race against your own IGC. PC first in the box player.
+Orientation: PORTRAIT (decided 2026-10-16): thumbs on D-pad + A/B as the case is built; voxel cost scales with
+columns (240 vs 400) and a portrait screen column is a contiguous native row (byte writes), which matters for 50 fps;
+same orientation as the vario pages the sim feeds; tall view suits looking down/ahead; ~70 deg horizontal FOV;
+bank from the gravity direction in the screen plane. Landscape stays possible (renderer supports rotations): compare in
+the PC prototype if portrait feels cramped.
