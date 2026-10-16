@@ -233,3 +233,11 @@ project is and how to run it; this file says what we found and why things are th
 - Animation at 20 fps (50 ms) while the heading glides: worst loop tick 49-60 ms on the thermal page with
   a full trail, so it runs at roughly 17-20 fps. While circling the map never settles, so the CPU runs
   flat out the whole time (power cost not measured yet).
+- Fast text (2026-10-16, `gfx/atlas` + `gfx/font`, glyphs pre-rotated into native byte rows): "1234" in
+  FreeSansBold24pt went from 2783 us to 332 us (8.4x); the four thermal cells from about 9 ms to 2-3 ms.
+  The four fonts take 22.3 KB of RAM and 97 ms to build once, on the first frame; free heap after that
+  is 62.8 KB. The thermal frame (live) now draws in 5-12 ms; the thermal memory block (up to 7 ms once
+  marks exist) and the present (2-10 ms SPI) are now the largest parts. The profiler's clock ticks in
+  about 1 ms steps, so small sections read 0 or 977 us.
+- Known, not fixed: the wind profile page divides by zero in landscape (`areaH / rows`); the box only
+  runs in portrait.
