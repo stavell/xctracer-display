@@ -186,7 +186,7 @@ static int cmdShots(const std::string& out, int rot) {
     if (gCountMode && strcmp(n, "live") && strcmp(n, "nofix") && strcmp(n, "mag") && strcmp(n, "standalone") &&
         strcmp(n, "standalone_nodata") && strncmp(n, "thermal", 7) && strncmp(n, "center", 6)) continue;
     if (!strncmp(n, "center", 6)) {
-      ViewModel* cv = climbVm(!strcmp(n, "climb_3d") ? 1 : !strcmp(n, "climb_none") ? 2 : !strcmp(n, "climb_left") ? 3 : 0);
+      ViewModel* cv = climbVm(!strcmp(n, "center_first") ? 1 : !strcmp(n, "center_none") ? 2 : !strcmp(n, "center_left") ? 3 : 0);
       if (gCountMode) {
         static CountingSharp cc;
         cc.setRotation((uint8_t)rot);

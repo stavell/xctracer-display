@@ -276,6 +276,39 @@ zoom step exponentially, $\tau = 300$ ms. The app redraws at 33 ms while the cen
 pixel (at the current scale), the rotation more than $0.5/104$ rad, or the scale is still gliding, since
 the last drawn frame.
 
+## 6b. The climb column and the centring cue
+
+`firmware/src/apps/vario/core/thermal3d.cpp` (`ThermalColumn`). One point per data second (ground position, altitude, vario),
+600 points kept (10 min), fed by `FlightModel::tick`.
+
+**Air frame.** As in section 6: a point flown $a$ s ago is moved downwind by $a\,\mathbf w$, then everything is relative to the newest point.
+
+**Circles.** The turn rate is the change of the *ground* course of the step (not of the air-frame velocity: with a wind estimate a few m/s
+off, the air-frame heading spins wildly at 8-10 m/s airspeed; the ground course keeps turning 360 degrees per circle while the wind is
+below the glider speed). Smoothed over 5 points, a point turns when $|\bar r| \ge 4$ deg/s; a run is one direction, gaps up to 8 s bridged, kept
+when it turns $\ge 270$ degrees. The latest climb is the newest run plus earlier runs less than 30 s before it; it is shown up to 120 s after
+it ended. The runs are cut every 360 degrees (signed sum of the turn rate, so heading noise cancels): a circle.
+
+**Per circle.** Centre $\mathbf c$ = mean position, mean altitude, mean climb, best sector = maximum of the 3-point smoothed vario and its position.
+Core point $= \sum w_i \mathbf p_i / \sum w_i$ with $w_i = \max(v_i, 0)$ (the lift-weighted centroid; $\mathbf c$ if the circle climbs less than 0.3 m/s).
+
+**Lean.** Least squares of the core points of the newest 10 circles, $x(z)$ and $y(z)$ (at least 3 circles over 30 m; one pass drops points
+farther than $\max(2.5\sigma, 8\,\text{m})$). Lean = $100\sqrt{s_x^2+s_y^2}$ m per 100 m, direction $\operatorname{atan2}(s_x, s_y)$.
+It is only as good as the wind: a wind error $\delta w$ adds $100\,\delta w / \text{climb}$ m per 100 m (0.5 m/s at 2.5 m/s climb: 20 m/100 m,
+a unit test). More than 60 m/100 m is not shown.
+
+**Strength by height.** Mean vario in bands of 25 m (50, 100, 200 for taller climbs, at most 24 bands), at least 3 points per band.
+
+**Trend.** Newest two circles against the best two before them: ratio $<0.4$ (or $<0.4$ m/s after $\ge 0.8$) top, $<0.7$ fading, $\ge 1.15$ building.
+
+**The cue** (`CoreCue`, once per second while circling, from two full turns). Window = the newest 360 degrees of heading change (sliding, not
+aligned with the circles). Its centre $\mathbf c_0$ and lift-weighted centroid $\mathbf q$ give the core estimate
+$$\mathbf k = \mathbf c_0 + g\,(\mathbf q - \mathbf c_0),\quad g = 2.5,\qquad \text{shift} = \mathbf k - \mathbf c_0 .$$
+The gain exists because the centroid of a circle only gets part of the way to the core: for a Gaussian core of radius $\sigma$ and a circle of
+34 m the centroid is 95 % (sigma 20), 50 % (30), 25 % (45), 11 % (70) of the true offset. Shifts over 60 m are not believed (no cue).
+Blending the two older turns (weights 0.5 / 0.3 / 0.2) and extrapolating along the lean to the current altitude were tried and measured
+worse (NOTES.md); the older turns only give `spread`. The view draws it heading-up: the up direction is the air-frame direction of the last 3 s of track.
+
 ## 7. Home
 
 `firmware/src/apps/vario/core/home.cpp`

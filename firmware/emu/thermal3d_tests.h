@@ -316,6 +316,11 @@ static void run() {
     CHECK(gCol.pushed() == ThermalColumn::MAXP);
     CHECK(gCol.valid && gCol.nCircles <= ThermalColumn::MAXC && gCol.nCircles >= 20);
     NEAR(gCol.leanPer100, 4.0, 0.7);                        // fitted through the newest ten circles
+    // cost of one analyze() with the ring full (once per data second, only on the centring page)
+    auto t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < 200; i++) { s.step(gCol); gCol.analyze(0, 0); }
+    const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count() / 200;
+    printf("  analyze() with %d points: %.0f us per call on the PC (sanitizers on)\n", gCol.pushed(), us);
   }
   {
     // head: the newest sample, up to a second ahead of the newest point
