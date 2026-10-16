@@ -1,47 +1,52 @@
 # Enclosure
 
-A two-part, screwless 3D-printed case for the display box: Sharp 2.7" memory LCD breakout (Adafruit
-4694), Feather nRF52840 Sense (Adafruit 4516) and a 55 x 40 x 10 mm LiPo.
+A screwless, boltless 3D-printed case for the display box: Sharp 2.7" memory LCD (Adafruit 4694) in portrait,
+Feather nRF52840 Sense (4516), a 55 x 40 x 10 mm LiPo and six tact switches (D-pad + A/B).
+Use cases: paragliding flight display, handheld game console, generic gadget.
 
-![Assembly preview](preview_assembly.png)
-
-| Shell | Lid | Opened |
+| Front | Back (plain lid) | Open |
 |---|---|---|
-| ![Shell](p_shell.png) | ![Lid](p_lid.png) | ![Opened](viz_open.png) |
+| ![Front](preview_front.png) | ![Back](preview_back.png) | ![Open](preview_open.png) |
 
-**Status:** shape and features done; not printed yet. See `NOTES.md` for the assumptions that still
-need a caliper (glass height, switch type) before the first print.
+| Front, iso | Back, iso | Section through the D-pad column |
+|---|---|---|
+| ![Iso front](preview_iso_front.png) | ![Iso back](preview_iso_back.png) | ![Cutaway](preview_cutaway.png) |
 
-## The design
+**Status:** model regenerates, fitcheck passes, not printed yet. See `NOTES.md` for what to measure first.
 
-- Outer size 82.9 x 62.3 x 21.2 mm, 3 mm walls, rounded corners, chamfered front and back edges.
-- Shell (printed front face down) and lid (printed outer face down), joined by 6 snap tabs with two pry
-  notches at the seam. No screws.
-- The display PCB and the Feather snap onto split pegs through their mounting holes.
-- Display window 59.4 x 35.9 mm, glass recessed 1.2 mm behind the bezel.
-- Printed flexure tongues press the Feather's reset and user switches (and four optional front tact
-  switches, not wired in the current firmware).
-- USB opening in the top wall.
+## Features
+
+- Outer **62.3 x 96.9 x 22.6 mm**, 3 mm walls, chamfered edges.
+- Portrait display; below it D-pad (up/down/left/right, 9 mm pitch) on the left and A/B (10.6 mm apart, B lower-left) on the right, six 6x6 mm tact switches, separate printed caps with retaining flanges. 6 GPIO + GND.
+- All electronics are in the shell: Feather on 4 posts with split snap pegs, battery on rails with stops, display on 4 split pegs. The lid is a plain plate, swappable for other backs.
+- Flat lid, 59 x 80 mm free of holes (velcro sticker), 2 small access holes at the bottom edge for Feather reset (1.8 mm pin) and user switch (3.4 mm). Pry notches only at the seam.
+- Strap tunnel through the bottom corner: 3.2 x 10.4 mm (10 mm strap, or a cord).
+- USB opening aligned with the Feather micro-B; optional 12 mm piezo disc cup with sound slots in the bottom wall.
+- Lid snaps on with 10 skirt tabs (about 1.8 % strain). No screws, bolts or inserts.
+
+## Print (Bambu A1, PETG, 0.2 mm, no supports)
+
+| Part | Orientation |
+|---|---|
+| `case_shell.stl` | front face down |
+| `case_lid.stl` | outer face down |
+| `case_buttons.stl` | 6 caps, head down |
+
+Details and checked overhangs in `NOTES.md`. `case_assembly.stl` is for viewing only.
 
 ## Files
 
 | File | What |
 |---|---|
-| `case.py` | the CadQuery model, all dimensions in its PARAMETERS section; source of truth |
-| `fitcheck.py` | interference check against stand-in parts, cutaway previews |
-| `case_shell.stl`, `case_lid.stl` | the parts to print |
-| `case_shell.step`, `case_lid.step` | the same as STEP for other CAD tools |
-| `case_assembly.stl`, `viz_*.stl` | assembled and cutaway views (not for printing) |
-| `*.png` | preview renders |
-| `NOTES.md` | hardware dimensions and their sources, assumptions to verify, print plan, TODO |
+| `case.py` | the CadQuery model, all dimensions in its PARAMETERS section |
+| `fitcheck.py` | interference check against stand-in parts, snap strain, flat-area report |
+| `render.py`, `make_previews.py` | preview renderer (numpy, no OpenGL) |
+| `*.stl`, `*.step` | parts to print, assembly |
+| `NOTES.md` | hardware dimensions, assumptions to verify, print plan |
 
 ## Regenerate
 
-    python -m venv .venv && .venv/bin/pip install -r requirements.txt
-    .venv/bin/python case.py        # writes the STL and STEP files
-    .venv/bin/python fitcheck.py    # interference check
-
-## Printing (draft)
-
-PETG, 0.2 mm layers, 0.4 mm nozzle, 3 or more walls on the tongues and tabs, about 15 % gyroid, no
-supports. Slow down for the thin flexures.
+    python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
+    .venv/bin/python case.py            # STL + STEP
+    .venv/bin/python fitcheck.py        # interference check
+    .venv/bin/python make_previews.py   # PNGs
