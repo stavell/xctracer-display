@@ -10,6 +10,9 @@ Hardware: Adafruit Feather nRF52840 Sense, LiPo, PlatformIO with the Arduino fra
 - `NOTES.md`: measurements, findings and the open-items list.
 - `PLAN.md`: the current review and improvement plan.
 - `CLAUDE.md`: rules for contributors and AI agents (layering, stack limit, how to check).
+- `case/`: the 3D-printed enclosure (CadQuery model, STL/STEP, previews); see `case/README.md`.
+
+![Enclosure](case/preview_assembly.png)
 
 ## Hardware and wiring (as built)
 
@@ -121,7 +124,14 @@ git worktree, link it: `ln -s <main checkout>/.venv .venv`.
 Device, from `firmware/`:
 
     ../.venv/bin/pio run               # build
-    ../.venv/bin/pio run -t upload     # flash over USB (the board must be on USB)
+
+and from the repository root:
+
+    scripts/flash.sh                   # flash over USB: checks no program holds the serial port,
+                                       # retries, and only succeeds on "Device programmed."
+    scripts/flash.sh feather_sense_diag   # diagnostics build: profiler (`prof`) and benchmark (`bench`) lines
+
+Do not leave a serial monitor running while flashing: the bootloader uses the same USB port.
 
 Serial is USB CDC at 115200 (`/dev/cu.usbmodem*`).
 

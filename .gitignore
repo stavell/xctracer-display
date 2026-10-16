@@ -6,3 +6,4 @@ firmware/preview/out/
 .claude/worktrees/
 .venv
 *.uf2
+case/.venv/

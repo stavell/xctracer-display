@@ -1,0 +1,6 @@
+cadquery
+trimesh
+pyrender
+Pillow
+numpy
+lxml
