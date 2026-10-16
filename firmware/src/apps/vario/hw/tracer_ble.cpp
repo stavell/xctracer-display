@@ -235,6 +235,36 @@ void TracerBle::disconnect() {
   if (conn_ != BLE_CONN_HANDLE_INVALID) Bluefruit.disconnect(conn_);
 }
 
+// The vario app is left (box image). Loop context. Stop the scanner, drop the link, forget what was queued.
+// Nothing here runs unless the box image calls it: the vario-only image never pauses.
+void TracerBle::pause() {
+  if (paused_) return;
+  paused_ = true;
+  listMode_ = false;
+  Bluefruit.Scanner.stop();
+  scanMode_ = SCAN_OFF;
+  connectingSince_ = 0;
+  if (conn_ != BLE_CONN_HANDLE_INVALID) Bluefruit.disconnect(conn_);   // the callback only sets rescan_
+  link_ = ViewModel::LINK_NONE;
+  LineMsg m;
+  while (lines_.pop(m)) {}
+  ScanReport r;
+  while (reports_.pop(r)) {}
+}
+
+// Back in the vario app: look for the saved tracer again (a few seconds until the link is up).
+void TracerBle::resume() {
+  if (!paused_) return;
+  paused_ = false;
+  rescan_ = false;                                       // a disconnect that finished meanwhile is not news
+  LineMsg m;
+  while (lines_.pop(m)) {}
+  ScanReport r;
+  while (reports_.pop(r)) {}
+  link_ = cfg_.hasSaved() ? ViewModel::LINK_SEARCHING : ViewModel::LINK_NONE;
+  if (cfg_.hasSaved()) startScan(SCAN_LOW, lastNow_);
+}
+
 void TracerBle::describe(char* buf, size_t n) const {
   const ble_gap_addr_t& s = cfg_.addr();
   snprintf(buf, n, "saved=%s %02X:%02X:%02X:%02X:%02X:%02X t%d conn=%02X:%02X:%02X:%02X:%02X:%02X",

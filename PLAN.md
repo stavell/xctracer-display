@@ -100,7 +100,7 @@ For each branch: read the diff, run `scripts/check.sh` (or its two steps), check
 exercise the change, merge. After all three: flash, run the 3x IGC replay on both pages and watch the
 serial status, and check that a stuck loop is reset by the watchdog.
 
-## Multi-use box (proposed 2026-10-16; step 1 done)
+## Multi-use box (proposed 2026-10-16; restructure, Tetris, frame loop, launcher and box image done)
 
 The same hardware as a flight display, a game console and a generic gadget, with firmware switched
 between seasons.
@@ -134,8 +134,19 @@ are byte-identical to before; flash/RAM within 400 bytes.
 `IApp` gained optional `onKey(key, down, ms)`, `wantsFrame`, `nextWakeMs`, `draw` (defaults do nothing, the vario
 is untouched) and `KEY_B`. Still open for the device: the host calls `draw` and presents; D-pad / A / B wiring;
 a settings port for the high score (`IScoreStore` is the seam); the `console` image and launcher.
-**Next:** (1) move the present/redraw cadence out of `App` into the platform (apps ask for a redraw; the
-host owns clear/present/anim pacing) and let `AppHost` poll the switch and call `onInput`; (2) a launcher
-and settings UI; (3) the `console` env (`main_console.cpp`, `apps/games`, `apps/tools`; a commented
-placeholder is in platformio.ini); (4) move the mag-cal and mount-index storage out of `ConfigStore` /
-`ISettings` into a platform settings store, leaving the tracer filter and saved device in the vario.
+**Done (2026-10-16, emulator + builds, not flashed): the box.** (1) The frame loop moved into the platform:
+`AppHost` polls the switch (key edges, short / long / hold, held time), ticks the app, and clears / draws /
+presents when `wantsFrame`; the vario's cadence rules are `App::wantsFrame` (proved identical: same frames at the same
+times). Key edges and a keymap for the six front buttons are in (`platform/hw/keymap.h`, pins undefined). (2) `LauncherApp`
+(icons, battery, version, "Start-up" row stored in flash), image `feather_sense_box` = vario + launcher + Tetris +
+compass tool (a second `App` without tracer or laptop); `feather_sense` is unchanged. Entry to the launcher: the vario's
+device list "Apps..." row, 3 s hold in games and tools, A + B for 1.5 s on the six buttons. Leaving the vario stops
+tracer scan / link and the compass sensors. (3) `build.sh play box` (PC player with IGC replay, compass, keys, press
+timing in the title) and `build.sh smoke`. (4) `scripts/stack_check.py` in `check.sh` (it found the 1.8 KB `fitWind`
+frame; fixed). Details and sizes: NOTES.md, README "Box".
+**Next:** (1) try the box image on the device (boot into the vario, device list -> Apps..., Tetris and back, tool,
+start-up row, tracer reconnect time after returning; read `st` timing); (2) wire the six buttons (`PIN_KEY_*`) and
+move the combo and D-pad into the vario's menus; (3) `apps/tools` as a real directory (compass is a `VarioApp` flavour
+for now) and a settings UI; (4) move the mag-cal and mount-index storage out of `ConfigStore` / `ISettings` into the
+platform key store, leaving the tracer filter and saved device in the vario; (5) a BLE-quiet mode for games (the
+laptop peripheral keeps advertising in every app); (6) reduce the duplicated FreeSansBold24 bitmaps (about 8 KB).

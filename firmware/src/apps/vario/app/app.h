@@ -32,20 +32,37 @@ struct AppConfig {
   // frame: the centre (pixels at the current scale), or the rotation (at about the map's half height).
   static constexpr float MAP_HALF_RADIUS_PX = 104.0f;
   static constexpr float MAP_HALF_PIXEL_RAD = 0.5f / MAP_HALF_RADIUS_PX;
+  bool standalone = false;           // the compass & weather tool: no tracer, no page switching, always the compass page
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
   float gpsHeadingOnKmh = 4.0f;      // GPS track counts as a heading above this speed ...
   float gpsHeadingOffKmh = 2.5f;     // ... and stops counting below this one (hysteresis)
 };
 
+// Asked to leave for the launcher ("Apps..." row of the device list). Set only in the box image.
+class ILauncherHook {
+ public:
+  virtual ~ILauncherHook() {}
+  virtual void openLauncher() = 0;
+};
+
 // The application: owns the flight model and the screen state machine (live / device list / power),
-// talks to the world only through the ports in ports.h. Call tick() every ~10 ms.
+// talks to the world only through the ports in ports.h. The platform host (platform/app_host.h) calls
+// onInput() / onHeld() with the switch, tick() every ~10 ms, then wantsFrame() and, when true, draw()
+// on a cleared panel followed by the panel's present(): the cadence rules below live in wantsFrame().
 class App {
  public:
-  App(IPanel& panel, IInput& input, IBattery& battery, ITracer& tracer, ILaptop& laptop,
+  App(IPanel& panel, IBattery& battery, ITracer& tracer, ILaptop& laptop,
       ISettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg = AppConfig());
 
   void begin(uint32_t nowMs);
+  void end();                                        // leaving for another app: radios and sensors off
   void tick(uint32_t nowMs);
+  void onInput(ButtonEvent ev) { ev_ = ev; }         // the switch event, acted on by the next tick() (a missed one is dropped)
+  void onHeld(uint32_t heldMs) { held_ = heldMs; }
+  bool wantsFrame(uint32_t nowMs) const;
+  void draw(Bitmap1& bm, Adafruit_GFX& g, uint32_t nowMs);
+  bool hostDrawing() const { return !local_; }       // the laptop owns the screen
+  void setLauncher(ILauncherHook* h) { launcher_ = h; }   // adds the "Apps..." row to the device list
 
   const FlightModel& flight() const { return flight_; }
   uint32_t linesOk() const { return linesOk_; }
@@ -74,12 +91,13 @@ class App {
   MapView mapView(uint32_t now, int trailN);
   void updateMap(uint32_t now);                     // thermal page, once per tick: scale glide, moving flag
   bool hasData(uint32_t now) const;   // a valid sample arrived recently
-  void drawCalibrateScreen(uint32_t now, uint32_t held);
-  void drawLiveScreen(uint32_t now, uint32_t held);
-  void drawListScreen(uint32_t now, uint32_t held);
+  void drawCalibrateScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held);
+  void drawLiveScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held);
+  void drawListScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held);
+  enum Mode : uint8_t { M_LIVE, M_LIST, M_CAL };
+  Mode mode() const { return calibrating_ ? M_CAL : listOpen_ ? M_LIST : M_LIVE; }
 
   IPanel& panel_;
-  IInput& input_;
   IBattery& battery_;
   ITracer& tracer_;
   ILaptop& laptop_;
@@ -126,4 +144,13 @@ class App {
   int listSel_ = 0;
   uint32_t lastDraw_ = 0;
   bool redraw_ = true;
+  // Set by onInput / onHeld, consumed by tick.
+  ButtonEvent ev_ = BTN_NONE;
+  uint32_t held_ = 0;
+  // Left by tick for wantsFrame / draw: the laptop does not own the screen, and which screen this tick
+  // ran for. A screen change inside a tick (list opened, calibration started or ended) draws on the next one.
+  bool local_ = true;
+  Mode tickMode_ = M_LIVE;
+  ILauncherHook* launcher_ = nullptr;
+  bool left_ = false;                // end() ran: the next begin() restarts what end() stopped
 };

@@ -41,6 +41,7 @@
 #include "platform/hw/fast_sharp.h"
 #include "count.h"
 #include "tetris_shots.h"
+#include "box_shots.h"
 
 static void watchdog(int) {
   fputs("WATCHDOG: the emulator is stuck (infinite loop?)\n", stderr);
@@ -124,7 +125,7 @@ static void renderGray(const std::string& out, int rot) {
 static bool gCountMode = false;
 
 static int cmdShots(const std::string& out, int rot) {
-  if (!gCountMode) ts::shots(out.c_str());
+  if (!gCountMode) { ts::shots(out.c_str()); bs::shots(out.c_str()); }
   struct Sc { const char* name; };
   const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag", "calibrate",
                          "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
@@ -245,6 +246,7 @@ static int cmdReplay(int argc, char** argv) {
   std::string mix;
   int shotEvery = 30, rot = 1;
   int startPage = 0;
+  std::string press;
   for (int i = 4; i < argc; i++) {
     std::string a = argv[i];
     if (a == "--hz" && i + 1 < argc) hz = atof(argv[++i]);
@@ -254,6 +256,7 @@ static int cmdReplay(int argc, char** argv) {
     else if (a == "--rot" && i + 1 < argc) rot = atoi(argv[++i]);
     else if (a == "--thermal") startPage = 1;
     else if (a == "--page" && i + 1 < argc) startPage = atoi(argv[++i]);
+    else if (a == "--press" && i + 1 < argc) press = argv[++i];
   }
   std::vector<std::string> L = readLines(file), M = mix.empty() ? std::vector<std::string>() : readLines(mix);
   if (L.empty()) { fprintf(stderr, "no lines in %s\n", file.c_str()); return 2; }
@@ -261,11 +264,27 @@ static int cmdReplay(int argc, char** argv) {
   Rig r;
   AppConfig cfg;
   cfg.rotation = rot;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power, cfg);
+  Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power, cfg);
   app.begin(0);
   if (startPage > 0 && startPage < ViewModel::PAGE_COUNT) { Command pc; pc.type = Command::PAGE; pc.value = startPage; r.laptop.cmds.push_back(pc); }
 
+  // --press at:dur,at:dur (ms): scripted presses of the single switch
+  for (size_t i = 0; i < press.size();) {
+    uint32_t at = (uint32_t)strtoul(press.c_str() + i, nullptr, 10);
+    size_t c = press.find(':', i);
+    if (c == std::string::npos) break;
+    uint32_t dur = (uint32_t)strtoul(press.c_str() + c + 1, nullptr, 10);
+    r.input.press(at, dur);
+    size_t n = press.find(',', c);
+    if (n == std::string::npos) break;
+    i = n + 1;
+  }
+
   uint32_t endMs = (uint32_t)(L.size() * 1000.0 / hz) + 5000;
+  // Behaviour digest: when each present() happened and what the frame buffer held at that moment.
+  uint64_t digest = 1469598103934665603ull;
+  int lastPresents = 0;
+  auto fold = [&](const uint8_t* p, size_t n) { for (size_t k = 0; k < n; k++) { digest ^= p[k]; digest *= 1099511628211ull; } };
   size_t next = 0, mixNext = 0;
   int frames = 0;
   double worstMs = 0;
@@ -284,6 +303,11 @@ static int cmdReplay(int argc, char** argv) {
     app.tick(now);
     double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     if (ms > worstMs) worstMs = ms;
+    if (r.panel.presents != lastPresents) {
+      lastPresents = r.panel.presents;
+      fold((const uint8_t*)&now, sizeof now);
+      fold(r.panel.raw(), 50 * 240);
+    }
 
     if (now % 500 == 0) {
       ViewModel vm = app.buildViewModel(now);
@@ -309,6 +333,7 @@ static int cmdReplay(int argc, char** argv) {
   r.panel.dump(name);
   printf("replayed %zu lines (%s) over %.0f virtual s\n", L.size(), inject ? "injected" : "via tracer", endMs / 1000.0);
   printf("  parsed ok %u, bad %u, panel refreshes %d, frames saved %d\n", app.linesOk(), app.linesBad(), r.panel.refreshes, frames);
+  printf("  presents %d, behaviour digest %016llx (present times + frame contents)\n", r.panel.presents, (unsigned long long)digest);
   printf("  fresh samples %u: non-finite alt %u, vario %u, speed-with-fix %u, course-with-fix %u\n",
          freshTicks, nonFinite[0], nonFinite[1], nonFinite[2], nonFinite[3]);
   printf("  wind valid in %u, circling in %u of those\n", windTicks, circlingTicks);

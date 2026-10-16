@@ -35,9 +35,10 @@ static AppConfig appConfig() {
   c.rotation = DISPLAY_ROTATION;
   return c;
 }
-static App app(panel, button, battery, tracer, laptop, config, compassHw, thermo, power, appConfig());
+static App app(panel, battery, tracer, laptop, config, compassHw, thermo, power, appConfig());
 static VarioApp varioApp(app);
-static AppHost host;
+static VarioProbe probe;
+static AppHost host(panel, button);
 
 void setup() {
   PowerNrf::gateOnWake(PIN_BUTTON1, 1000);   // before anything else: a quick tap goes back to sleep
@@ -64,6 +65,8 @@ void setup() {
   diagnosticsBegin(app, panel, compassHw);
   diagnosticsBench();                         // DIAGNOSTICS only
   host.add(varioApp);
+  host.setProbe(&probe);
+  host.setRotation(DISPLAY_ROTATION);
   host.start(0, millis());
 }
 

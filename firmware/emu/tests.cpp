@@ -434,7 +434,7 @@ static void test_flight_temperature() {
 static void test_app_temperature() {
   puts("app forwards the thermometer");
   Rig r;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+  Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
   app.begin(0);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -457,7 +457,7 @@ static void test_app_temperature() {
   // a missing sensor adds nothing
   Rig r2;
   r2.thermo.present = false;
-  App app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.thermo, r2.power);
+  Driven app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.thermo, r2.power);
   app2.begin(0);
   r2.thermo.set(10);
   now = 0;
@@ -473,7 +473,7 @@ static void test_app_temperature() {
 static void test_ambient() {
   puts("ambient temperature and humidity in the view model");
   Rig r;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+  Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
   app.begin(0);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -495,7 +495,7 @@ static void test_standalone_cadence() {
   puts("standalone compass redraws at the animation cadence");
   Rig r;
   r.compass.psi = 100;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+  Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
   app.begin(0);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -521,7 +521,7 @@ static void test_app_fusion() {
   auto mk = [](Rig& r) { r.compass.psi = 123; r.compass.pitch = 10; r.compass.roll = -5; };
   // no gyro: the magnetic compass alone, as before
   { Rig r; mk(r);
-    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     app.begin(0);
     uint32_t now = 0;
     for (; now < 3000; now += 10) app.tick(now);
@@ -529,7 +529,7 @@ static void test_app_fusion() {
     NEAR(angDiff(app.buildViewModel(now).heading, 123), 0, 1.0); }
   // gyro present: fused, steady, and the redraw cadence drops once the dial has settled
   { Rig r; mk(r); r.compass.gyro = true;
-    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     app.begin(0);
     uint32_t now = 0;
     for (; now < 8000; now += 10) app.tick(now);
@@ -542,7 +542,7 @@ static void test_app_fusion() {
     CHECK(idle >= 2 && idle <= 4); }
   // a frozen gyro: back to the compass alone, heading still right
   { Rig r; mk(r); r.compass.gyro = true; r.compass.gyroNoise = 0;
-    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     app.begin(0);
     uint32_t now = 0;
     for (; now < 4000; now += 10) app.tick(now);
@@ -550,7 +550,7 @@ static void test_app_fusion() {
     NEAR(angDiff(app.buildViewModel(now).heading, 123), 0, 1.0); }
   // mounting: the data arrives in the board frame; the command selects the index and it is stored
   { Rig r; mk(r); r.compass.gyro = true; r.compass.boardMount = 13;
-    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     app.begin(0);
     uint32_t now = 0;
     auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -567,7 +567,7 @@ static void test_app_fusion() {
   // the stored hard-iron offset follows a change of mounting
   { Rig r; r.settings.cal.valid = true; r.settings.hasCal = true;
     r.settings.cal.off[0] = 10; r.settings.cal.off[1] = -20; r.settings.cal.off[2] = 30; r.settings.cal.radius = 45;
-    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     app.begin(0);
     Command c; c.type = Command::ORIENT; c.value = 7; r.laptop.cmds.push_back(c);
     for (uint32_t now = 0; now < 100; now += 10) app.tick(now);
@@ -992,7 +992,7 @@ static void test_app_heading() {
   puts("app heading source and calibration");
   Rig r;
   r.compass.psi = 123; r.compass.pitch = 10; r.compass.roll = -5;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+  Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
   app.begin(0);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -1049,7 +1049,7 @@ static void test_app_heading() {
   run(2500);
   NEAR(fabsf(angDiff(app.buildViewModel(now).heading, 200)), 0, 4.0);
   { Rig r2; r2.settings = r.settings; r2.compass = r.compass; r2.compass.enabled = false;
-    App app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.thermo, r2.power);
+    Driven app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.thermo, r2.power);
     app2.begin(0);
     uint32_t n2 = 0;
     for (; n2 < 400; n2 += 10) app2.tick(n2);
@@ -1097,7 +1097,7 @@ static void test_button() {
 static void test_app() {
   puts("app");
   Rig r;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+  Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
   app.begin(0);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -1503,7 +1503,7 @@ static void test_fused_smooth_cadence() {
     NEAR(v, 100.3, 0.01); }
   // app, gyro present, box still: slow cadence over 10 s
   { Rig r; r.compass.psi = 123; r.compass.pitch = 10; r.compass.roll = -5; r.compass.gyro = true;
-    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     app.begin(0);
     uint32_t now = 0;
     auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -1534,7 +1534,7 @@ static void test_app_anim_cadence() {
   Rig r;
   r.compass.psi = 100;
   AppConfig cfg;
-  App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power, cfg);
+  Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power, cfg);
   app.begin(0);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
@@ -1584,6 +1584,7 @@ static void test_app_anim_cadence() {
 #include "robust_tests.h"
 #include "map_tests.h"
 #include "sharp_frame_tests.h"
+#include "box_tests.h"
 
 static uint32_t fakeUs = 0;
 static uint32_t fakeClock() { return fakeUs += 7; }   // every call advances 7 us
@@ -1645,7 +1646,7 @@ static void test_prof() {
   // App frame: clear and present are timed around the panel calls
   {
     Rig r;
-    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     app.begin(0);
     r.laptop.sim(true);
     for (uint32_t now = 0; now < 3000; now += 10) app.tick(now);
@@ -1667,7 +1668,8 @@ struct FakeApp : IApp {
   void onInput(Key, ButtonEvent) override { keys++; }
 };
 static void test_app_host() {
-  AppHost h;
+  Rig hr;
+  AppHost h(hr.panel, hr.input);
   h.tick(0); h.input(KEY_MAIN, BTN_SHORT);           // no app: nothing happens
   CHECK(h.active() == nullptr && !h.start(0, 0));
   FakeApp a("a"), b("b");
@@ -1723,6 +1725,7 @@ int main() {
   mt::runApp();
   test_ambient();
   tt::test_tetris();
+  bx::test_box();
   test_standalone_cadence();
   test_fuzz_parser();
   test_fuzz_app();

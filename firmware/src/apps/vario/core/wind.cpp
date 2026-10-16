@@ -14,7 +14,9 @@ WindFit fitWind(const TrackPoint* pts, int n) {
   if (n < 15 || n > 64) return res;
   // Cheap rejections first, trig only for a window that can still pass: straight flight (the normal
   // case) leaves after the turn check without evaluating a single sin/cos.
-  double vx[64], vy[64], ang[64];
+  // Static, not on the stack: three arrays of 64 doubles were a 1.8 KB frame on the 4 KB loop stack (scripts/stack_check.py).
+  // Only the loop task calls this, one call at a time, and every element used is written before it is read.
+  static double vx[64], vy[64], ang[64];
   for (int i = 0; i < n; i++) {
     const TrackPoint& s = pts[i];
     if (!s.fix || !isfinite(s.speedKmh) || !isfinite(s.course) || s.speedKmh < 8) return res;

@@ -139,7 +139,7 @@ static void run() {
 // the line ending at the arrow, the zoom gliding.
 struct Flight {
   Rig r;
-  App app;
+  Driven app;
   uint32_t now = 0;
   double speed, mps;
   double t = 0; int k = 0;

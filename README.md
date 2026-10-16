@@ -170,22 +170,25 @@ heading is magnetic north; there is no declination correction.
 Setup: a Python venv at `.venv` in the repository root with PlatformIO, pyserial, bleak and pillow. In a
 git worktree, link it: `ln -s <main checkout>/.venv .venv`.
 
-    scripts/check.sh            # emulator build + all tests (sanitizers on), then the device build
+    scripts/check.sh            # emulator build + all tests (sanitizers on), box smoke run, the three device
+                                # builds, the static stack check
     scripts/install-hooks.sh    # git pre-commit hook that runs scripts/check.sh
 
 `check.sh` works from any directory and exits non-zero if the emulator output does not end its test run with
-`0 failures` or either build fails. The hook also works in a worktree. In an emergency skip it with
+`0 failures`, the box smoke run fails, a build fails or the stack check finds a frame over 1 KB or a call chain over
+3 KB (`scripts/stack_check.py`, see the box section). The hook also works in a worktree. In an emergency skip it with
 `git commit --no-verify`.
 
 Device, from `firmware/`:
 
-    ../.venv/bin/pio run               # build
+    ../.venv/bin/pio run               # build all images (feather_sense = vario only, feather_sense_diag, feather_sense_box)
 
 and from the repository root:
 
     scripts/flash.sh                   # flash over USB: checks no program holds the serial port,
                                        # retries, and only succeeds on "Device programmed."
     scripts/flash.sh feather_sense_diag   # diagnostics build: profiler (`prof`) and benchmark (`bench`) lines
+    scripts/flash.sh feather_sense_box    # the box: launcher + vario + Tetris + compass tool
 
 Do not leave a serial monitor running while flashing: the bootloader uses the same USB port.
 
@@ -213,6 +216,11 @@ coverage, worst tick time, frames saved to the output directory):
 | `--shot-every S` | save a frame every S virtual seconds (default 30) |
 | `--rot R` | display rotation (default 1) |
 | `--thermal` | start on the thermal page |
+| `--press at:ms,at:ms` | scripted presses of the switch (start time and length in ms), through the real button state machine |
+
+Besides the frames it saves, `replay` prints a behaviour digest: a hash of every present() time and the frame
+buffer at that moment. Two builds that print the same digest drew the same pictures at the same times; this is how
+moving the frame loop from the vario into the platform host was shown not to change the vario.
 
 Replay a flight to the real box over BLE (from `host/`, without `-I`, these scripts import their folder):
 
@@ -249,6 +257,64 @@ in the console firmware image (they are not linked into the vario image). Play T
 The window shows the same native 1-bit frame buffer the panel uses, with a Sharp-LCD tint, at most 30 frames
 per second and only when the game reports a new frame. `play tetris --frames 300 --screenshot out.png --keys
 "main 10 left a up shot:x.png"` runs headless with scripted keys and saves PNGs (see `firmware/emu/play.cpp`).
+
+## Box: launcher, vario, Tetris and a compass tool in one image
+
+`feather_sense_box` (`main_box.cpp`) holds the launcher, the vario, Tetris and the standalone compass and weather tool
+(the vario's own compass screen, in a second `App` without tracer or laptop). `feather_sense` stays the vario alone,
+with no game code. The box boots straight into the **start-up app** (default: the vario; the launcher's last row,
+"Start-up", picks another, stored in flash). The launcher never opens by itself.
+
+![Launcher, launcher on the Start-up row, the vario's device list with its Apps row, the compass tool](docs/screens/box.png)
+
+**Getting to the launcher** (a deliberate gesture from inside an app, nothing that a flight can trigger by accident):
+
+| Where | Gesture |
+|---|---|
+| Vario | long press (0.7-1.5 s) for the device list, short presses down to the **Apps...** row, long press. The vario's other gestures are unchanged: short = page, 3 s hold = power off. |
+| Tetris, compass tool | hold the switch 3 s (these apps do not use the power-off hold). |
+| Any app, six-button case | hold **A + B** together for 1.5 s (the vario too; `IApp::comboExit()` is the switch, a one-line override turns it off for an app). The front buttons are not wired yet: define `PIN_KEY_UP/DOWN/LEFT/RIGHT/A/B` in `platform/hw/pins.h` (`platform/hw/keymap.h` is the table). |
+| Launcher | short press = next row, long press = start; UP / DOWN and A on the six buttons; 3 s hold = power off. |
+
+The 3 s hold was chosen for games because the switch's other gestures are taken (short: page or pause, 0.7-1.5 s: list
+or start, release between 1.5 and 3 s: cancelled) and the hold is the only one that cannot be mistaken for them.
+
+**What leaving the vario does.** The tracer link and scan stop and the compass sensors are switched off (`App::end`,
+`ITracer::pause`); coming back restarts the scan (a few seconds until data flows) and the sensors. The flight model
+stays, its data simply goes stale. A game does not run, and its code is never touched, until it is chosen. The BLE
+laptop link stays up in every app (host drawing only takes the screen while the vario is active).
+
+### Box on the PC
+
+    firmware/emu/build.sh play box --igc ~/Downloads/2026-08-16-XCT-SVE-09.igc --start 4185 --speed 6
+    firmware/emu/build.sh play box --sim                   # the vario's built-in test flight instead of a file
+    firmware/emu/build.sh play tetris                      # Tetris alone, as before
+
+The player (`firmware/emu/play.cpp`, needs SDL2) runs the same `AppHost` as the device over mock ports. The mock tracer
+plays an IGC file (converted by `host/make_lines.py`) or a line file (`--lines f.txt`) at `--speed` lines per second
+(default 3), only while the vario runs. Other options: `--battery 60`, `--temp 18`, `--scale 3`, `--plain`, `--seed N`.
+
+| Key | Function |
+|---|---|
+| Enter or Esc | the user switch. Hold it: 0.7-1.5 s is the long press, 3 s the hold; the title shows `MAIN 1.2 s` |
+| arrows, X, Z | D-pad, A, B (A + B held 1.5 s = launcher) |
+| `,` `.` or mouse wheel | turn the compass heading |
+| C, R, Q | Tetris hold piece, restart (reboot the box), quit |
+
+The window title shows the app, frames per second (frames the host actually presented) and the compass heading.
+Headless: `play box --igc f.igc --speed 12 --keys "200 shot:a.png main 30 long 20 shot:b.png"` (tokens: `main left
+right up down a b` taps, `long` 0.9 s, `off` 3.2 s hold, `combo` A + B, `+key` / `-key`, a number = 30 ms frames,
+`turn:90`, `shot:file.png`). `firmware/emu/build.sh smoke` runs a fixed script and checks which app is active at each
+screenshot (`emu/out/box_*.png`); `check.sh` runs it.
+
+### Stack check
+
+The loop task has 4 KB (`LOOP_STACK_SZ`). `scripts/stack_check.py` reads the linked ELF of each image (the PlatformIO
+GCC 7 has no call-graph output, so frames come from the function prologues and calls from the `bl` instructions) and
+prints the deepest call chain from `loop()` and `setup()` and the largest frames; it fails on a frame over 1 KB or a
+chain over 3 KB. It cannot see indirect calls it cannot resolve (function pointers, library virtuals), recursion, or
+other tasks' stacks (BLE callbacks run on a 3 KB task), so it is a guard, not a proof. Its first run found a 1.8 KB
+frame in the wind fit (three `double[64]` locals): the worst chain was 3.5 KB of 4 KB; now 2.6 KB.
 
 ## Host tools (`host/`)
 
