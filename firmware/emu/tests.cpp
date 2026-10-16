@@ -1585,6 +1585,7 @@ static void test_app_anim_cadence() {
 #include "map_tests.h"
 #include "sharp_frame_tests.h"
 #include "box_tests.h"
+#include "terrain_tests.h"
 
 static uint32_t fakeUs = 0;
 static uint32_t fakeClock() { return fakeUs += 7; }   // every call advances 7 us
@@ -1726,6 +1727,7 @@ int main() {
   test_ambient();
   tt::test_tetris();
   bx::test_box();
+  terrain_tests::run();
   test_standalone_cadence();
   test_fuzz_parser();
   test_fuzz_app();
