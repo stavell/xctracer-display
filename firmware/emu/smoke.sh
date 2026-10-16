@@ -1,6 +1,6 @@
 #!/bin/sh
 # Headless smoke run of the whole box (platform host + launcher + vario + Tetris + compass tool over mock ports).
-# Renders the home screen, the flight sim (map and 3D view), the vario's live (with AGL), thermal and map pages with replay data, the vario's menu with its "Home" row,
+# Renders the home screen, the flight sim (map and 3D view), the vario's live (with AGL), thermal, centring and map pages with replay data, the vario's menu with its "Home" row,
 # Tetris started from the home screen, the compass tool, Settings (list, calibration, About) and the way back to the vario
 # into out/box_*.png.
 # Tracer data: an IGC file (SMOKE_IGC, default the flight in ~/Downloads), else the vario's built-in test flight.
@@ -16,8 +16,8 @@ PACK="${SMOKE_PACK:-}"
 [ "$PACK" = none ] && PACK=
 if [ -n "$PACK" ]; then PACKARG="--pack $PACK"; else PACKARG="--pack none"; fi
 if [ -f "$IGC" ]; then SRC="--igc $IGC --start 4185 --speed 12"; else SRC="--sim"; fi
-KEYS="200 shot:out/box_vario_compass.png main 30 shot:out/box_vario_thermal.png"
-[ -n "$PACK" ] && KEYS="$KEYS main 60 shot:out/box_vario_map.png"
+KEYS="200 shot:out/box_vario_compass.png main 30 shot:out/box_vario_thermal.png main 15 shot:out/box_vario_center.png"
+[ -n "$PACK" ] && KEYS="$KEYS main 40 shot:out/box_vario_map.png"
 KEYS="$KEYS turn:135"
 KEYS="$KEYS long 20 shot:out/box_vario_list.png main long 40 shot:out/box_launcher.png"
 KEYS="$KEYS main 10 shot:out/box_launcher_tetris.png long 20 shot:out/box_tetris_title.png"
@@ -30,11 +30,11 @@ rm -f out/box_*.png
 OUT=$(out/play box $SRC $PACKARG --seed 3 --keys "$KEYS") || exit 1
 echo "$OUT"
 APPS=$(echo "$OUT" | sed -n 's/^wrote .*, \([a-z]*\))$/\1/p' | tr '\n' ' ')
-WANT="vario vario vario launcher launcher tetris tetris launcher compass settings settings settings launcher flightsim flightsim vario "
-[ -n "$PACK" ] && WANT="vario vario vario vario launcher launcher tetris tetris launcher compass settings settings settings launcher flightsim flightsim vario "
+WANT="vario vario vario vario launcher launcher tetris tetris launcher compass settings settings settings launcher flightsim flightsim vario "
+[ -n "$PACK" ] && WANT="vario vario vario vario vario launcher launcher tetris tetris launcher compass settings settings settings launcher flightsim flightsim vario "
 [ "$APPS" = "$WANT" ] || { echo "SMOKE FAIL: apps were [$APPS], expected [$WANT]"; exit 1; }
 [ -n "$PACK" ] && { echo "$OUT" | grep -q "^terrain: " || { echo "SMOKE FAIL: pack $PACK was not loaded"; exit 1; }; }
-for f in vario_compass vario_thermal vario_list launcher launcher_tetris tetris_title tetris_game launcher_back compass settings settings_cal settings_about launcher_settings sim sim_3d vario_back; do
+for f in vario_compass vario_thermal vario_center vario_list launcher launcher_tetris tetris_title tetris_game launcher_back compass settings settings_cal settings_about launcher_settings sim sim_3d vario_back; do
   [ -s "out/box_$f.png" ] || { echo "SMOKE FAIL: out/box_$f.png missing"; exit 1; }
 done
 [ -n "$PACK" ] && { [ -s out/box_vario_map.png ] || { echo "SMOKE FAIL: out/box_vario_map.png missing"; exit 1; }; }

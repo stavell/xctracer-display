@@ -545,3 +545,53 @@ feed the result to the view (`ViewModel::mapLive/mapCx/mapCy/mapHdg/mapScale`). 
   The ridge lift sign was wrong in the first version (caught by looking at the vario in the ridge screenshot, then by the test).
 - **Site coordinates.** The given Sopot coordinates are the town (530 m). The takeoff in the table is the 1400 m slope 3.8 km to the
   north; all five sites were checked against the DEM and are marked approximate.
+
+## Climb column and the centring page (2026-10-16, emulator and builds only, not flashed)
+
+Prototype: `core/thermal3d.*` (per-circle core, lean, strength by height, trend, the centring cue), the vario page "centring" after the
+thermal page (page 5 for the laptop), `emu cue` (hit rate of the cue on a flight). The first design was a side view plus a perspective 3D
+column of the helix; both rendered well and were dropped: a pilot who is circling needs to know where to move the circle, not a picture of
+the climb so far. The core maths stayed.
+
+**What the page shows (no words):** heading up, the centre of the newest turn in the middle; the last two turns, thick where it climbed;
+a bead at the best lift of the turn; the core as a target and a fat arrow centre to core (length = distance); dotted rings 25 / 50 m;
+the climb now (number), a gauge (bar turn average, diamond best, triangle now); lean arrow (length = tilt); trend glyph; strength-by-height bars.
+It needs two full turns (about 50 s): after one turn the cue is too often a circle that is not one. Screens: `docs/screens/center_cue.png`,
+`center_sequence.png` (SVE climb from 4185 s, Sopot climb), scenarios `center*` in `build.sh`.
+
+**Real climbs** (SVE flight from `--start 4185`, Sopot `--start 1100` and `3100`, Sopot with the GPS altitude since its pressure altitude is 0):
+* The wind estimate decides everything about the lean. A wind error of dw adds 100 dw / climb m per 100 m. On the SVE climb with the right
+  wind (10-14 km/h toward 275-300) the core leans 16-33 m per 100 m toward NW-NNW with rms 25 m of the core points; started at 4000 s instead the
+  wind estimator locked on 42 km/h (wrong by 30 km/h: the airspeed in the circles came out 1-19 m/s) and the lean read 200-300 m/100 m. The page
+  shows no lean above 60 m/100 m. That wrong start-up wind is an existing estimator problem, not fixed here.
+* Sopot: lean 6-26 m/100 m, no stable direction; the lift-weighted core wanders about 20-30 m from circle to circle.
+* Strength by height followed the climb: SVE climb 4.0 m/s at 1700 m, 2.0 at 1800 m, 0.3 at the top at 1872 m; the trend read BUILDING, FADING, TOP in that order.
+* The air-frame heading is useless for finding circles when the wind estimate is off (above); the ground course is robust. Circle periods
+  were 24-30 s, turn rates 8-14 deg/s: a 6 deg/s threshold missed the slow ones, 4 deg/s with gaps of 8 s bridged finds them.
+
+**Prediction measurement** (`build.sh cue lines.txt`): every second of circling the cue is recorded; one turn later the same flight's next
+turn is compared with it. (a) lift: the lift-weighted centroid of the next turn lies within 90 degrees of the direction the cue pointed to
+(only cues of 10 m or more, next-turn asymmetry of 3 m or more). (b) pilot: the pilot's own re-centring (next turn's centre minus this turn's, in the
+air frame) agrees with the cue. Final settings: newest turn only, gain 2.5, two turns, no lean extrapolation.
+
+| flight | cues (s) | cue vs next turn's lift | pilot re-centring agrees | median cue |
+|---|---|---|---|---|
+| SVE 4185, 400 s | 155 | 7 of 7 (100 %), median angle error 38 deg | 4 % of 23 | 7 m |
+| Sopot 1100, 700 s | 150 | 18 of 19 (95 %), 46 deg | 93 % of 29 | 7 m |
+| Sopot 3100, 500 s | 203 | 60 of 71 (85 %), 39 deg | 51 % of 85 | 18 m |
+
+Honest reading: the side of the circle where the lift sits is stable from one turn to the next (85-100 %), so the arrow points where the lift
+was. How far the core is, is not known better than about 40 m (median distance error against the next turn's own lift, 37-43 m). The pilot
+agreement says little: with a wind estimate a few km/h off the circle centres drift by 10-15 m per turn in the air frame, which looks like
+re-centring (SVE), and the pilots on these climbs were mostly centred already (median cue 7 m). Following the cue paid off on Sopot 1100
+(+0.22 to +0.68 m/s better next turn), not on Sopot 3100 (-0.9 m/s) where the thermal broke up. Not measured: a pilot flying with the cue.
+Tried and worse: blending the two older turns (lift side 41-59 % on Sopot, from 85-90 %), extrapolating along the lean (no gain with the newest turn,
+worse blended), gain 1 (shifts underestimated). Cue availability: 39 % of the seconds on SVE (the first 50 s and the exit), 21-41 % on Sopot.
+
+**Cost:** one `analyze()` with 600 points 19 us on the PC (about 1 ms on the nRF52840 by the PC/device ratio of the other maths), once per data
+second and only on the page. The page draws about 60 line segments, 96 ring dots, 2771 Bitmap1 pixel writes, 285 spans, 2669 rows
+(the thermal map: 438 pixels, 1311 spans, 5949 rows, 22 ms on the device), so roughly 10 ms; the PC draw is 0.2 ms. Column RAM 19 kB
+(the box image is at 138 kB of 249 kB). Redraw at the normal 3 Hz (new points arrive at 1 Hz, the head at 3 Hz); no animation cadence is needed.
+**Unchanged:** all 48 emulator screens byte-identical, the replay digests identical for pages 0-3 and for one press to the thermal page on both
+flights; the page cycle has one more page (compass, thermal, centring, [map], profile, home), so the smoke script presses once more and the existing
+tests that count presses were updated.

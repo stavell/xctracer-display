@@ -104,7 +104,7 @@ class App {
   void feedFlight(const Sample& s, uint32_t now);   // flight model and map motion together
   MapView mapView(uint32_t now, int trailN);
   void updateMap(uint32_t now);
-  ViewModel::Page nextPage(ViewModel::Page p) const;   // the page cycle: compass, thermal, [map], profile, home
+  ViewModel::Page nextPage(ViewModel::Page p) const;   // the page cycle: compass, thermal, centring, [map], profile, home
   void prepareMapPage(const ViewModel& vm, uint32_t now);   // renders the cached relief when the pilot left its window                     // thermal page, once per tick: scale glide, moving flag
   bool hasData(uint32_t now) const;   // a valid sample arrived recently
   void drawCalibrateScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held);

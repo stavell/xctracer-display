@@ -4,6 +4,7 @@
 #   ./build.sh replay <args...>     run the emulator with the given arguments (see emu_main.cpp)
 #   ./build.sh count [outdir] [rot]  per-section draw work of the live page (pixel/span call counts)
 #   ./build.sh wind <lines.txt>     EKF vs circle-fit wind over a real flight (see emu_main.cpp)
+#   ./build.sh cue <lines.txt>      hit rate of the centring cue against the next turn (see emu_main.cpp cmdCue)
 #   ./build.sh soak [lines.txt]     long session through the App, about a minute (see emu_main.cpp)
 #   ./build.sh play <app> [opts]    play an app on the PC in an SDL window (see play.cpp): tetris, or box
 #                                   (the whole box: home screen + vario + Tetris + compass tool + Settings). The box loads a map pack
@@ -30,7 +31,7 @@ SIM="$M/glider.cpp $M/height_cache.cpp $M/air.cpp $M/world.cpp $M/voxel.cpp $M/t
 LAUNCHER="$L/launcher_app.cpp $L/launcher_view.cpp"
 SETTINGS="$S/settings_app.cpp $S/settings_view.cpp $P/settings/box_settings.cpp $P/settings/compass_cal.cpp $P/settings/cal_view.cpp"
 GFX="$P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $P/gfx/ui.cpp $P/gfx/icons.cpp"
-VARIO="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/terrain_map.cpp $V/view/prof.cpp $V/app/app.cpp"
+VARIO="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $V/core/thermal3d.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/terrain_map.cpp $V/view/prof.cpp $V/app/app.cpp"
 if [ "$1" = "simbench" ]; then
   # Frame timing of the flight sim, calibrated against vario pages of known device time (no sanitizers, -O2).
   c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" \
@@ -58,6 +59,7 @@ c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -Istubs -I../src 
 if [ "$1" = "replay" ]; then shift; exec out/emu replay "$@"; fi
 if [ "$1" = "count" ]; then shift; exec out/emu count "${1:-out}" "${2:-1}"; fi
 if [ "$1" = "wind" ]; then shift; exec out/emu wind "$@"; fi
+if [ "$1" = "cue" ]; then shift; exec out/emu cue "$@"; fi
 if [ "$1" = "soak" ]; then shift; exec out/emu soak "$@"; fi
 out/tests
 out/emu shots out ${ROT:-1}

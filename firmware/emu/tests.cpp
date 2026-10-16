@@ -31,6 +31,7 @@ static int failures = 0, checks = 0;
 #define NEAR(a, b, tol) CHECK(fabs((double)(a) - (double)(b)) <= (tol))
 #include "gfx_tests.h"
 #include "ahrs_tests.h"
+#include "thermal3d_tests.h"
 
 static const double D2R = 0.017453292519943295;
 
@@ -1171,6 +1172,9 @@ static void test_app() {
   CHECK(app.buildViewModel(now).page == ViewModel::PAGE_THERMAL);
   r.input.press(now + 100, 150);
   run(600);
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_CENTER);
+  r.input.press(now + 100, 150);
+  run(600);
   CHECK(app.buildViewModel(now).page == ViewModel::PAGE_PROFILE);
   r.input.press(now + 100, 150);
   run(600);
@@ -1186,6 +1190,11 @@ static void test_app() {
   }
   { Command pc; pc.type = Command::PAGE; pc.value = 4; r.laptop.cmds.push_back(pc); run(100); }
   CHECK(app.buildViewModel(now).page == ViewModel::PAGE_HOME);
+  // 5 is the centring page, 6 and above do not exist
+  { Command pc; pc.type = Command::PAGE; pc.value = 5; r.laptop.cmds.push_back(pc); run(100); }
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_CENTER);
+  { Command pc; pc.type = Command::PAGE; pc.value = 6; r.laptop.cmds.push_back(pc); run(100); }
+  CHECK(app.buildViewModel(now).page == ViewModel::PAGE_CENTER);
   { Command pc; pc.type = Command::PAGE; pc.value = 0; r.laptop.cmds.push_back(pc); run(100); }
   // hold 3 s = power off
   r.input.press(now + 100, 3500);
@@ -1303,7 +1312,8 @@ static void test_command_decode() {
   { uint8_t d[] = {CMD_PAGE}; CHECK(!decodeCommand(d, 1, c)); }
   { uint8_t d[] = {CMD_PAGE, 3}; CHECK(decodeCommand(d, 2, c) && c.type == Command::PAGE && c.value == 3); }
   { uint8_t d[] = {CMD_PAGE, 4}; CHECK(decodeCommand(d, 2, c) && c.value == 4); }   // the map page (the app ignores it without a pack)
-  { uint8_t d[] = {CMD_PAGE, 5}; CHECK(!decodeCommand(d, 2, c)); }    // unknown page: ignored
+  { uint8_t d[] = {CMD_PAGE, 5}; CHECK(decodeCommand(d, 2, c) && c.value == 5); }   // the centring page
+  { uint8_t d[] = {CMD_PAGE, 6}; CHECK(!decodeCommand(d, 2, c)); }    // unknown page: ignored
   { uint8_t d[] = {CMD_PAGE, 255}; CHECK(!decodeCommand(d, 2, c)); }
   { uint8_t d[] = {CMD_XCTRC, '$', 'X', 'C'}; CHECK(decodeCommand(d, 4, c) && c.type == Command::XCTRC && strcmp(c.text, "$XC") == 0); }
   { uint8_t d[] = {CMD_SET_FILTER, 'X', 'C', '*'}; CHECK(decodeCommand(d, 4, c) && c.type == Command::FILTER && strcmp(c.text, "XC*") == 0); }
@@ -1712,6 +1722,8 @@ int main() {
   test_air_trail();
   test_thermal();
   test_thermal_memory();
+  t3::run();
+  t3::runView();
   test_compass();
   test_heading_selector();
   test_heading_smoother();

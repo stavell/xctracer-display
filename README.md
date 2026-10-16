@@ -37,6 +37,12 @@ Rendered by the PC emulator from the same drawing code that runs on the device (
 |---|---|---|---|
 | **AGL** (bottom right) with a map pack: GNSS altitude minus the terrain model | **Map** (after Thermal, only with a pack): north-up relief, contours, main roads, towns, track | The same over mountains (Stara Planina, test fixture) | |
 
+**Centring page** (after Thermal): heading up, your newest turn in the middle, drawn thick where it climbed (the lift sectors; the bead is
+the best of the turn), the core of the thermal as a target with a fat arrow from your circle's centre to it (its length is the distance to move the
+circle), dotted rings at 25 and 50 m, the climb now as a number, a gauge (bar = turn average, diamond = best of the turn, triangle = now),
+the lean of the thermal as an arrow, the trend of the lift as a glyph, and strength by height as bars on the right. No words. It needs two full turns of
+circling. ![Centring page](docs/screens/center_cue.png) ![Sequence](docs/screens/center_sequence.png)
+
 Grey tones are an 8x8 ordered dither on the 1-bit panel.
 
 ### Terrain (map pack)

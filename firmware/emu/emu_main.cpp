@@ -12,6 +12,7 @@
 //   emu wind <lines.txt>                           wind EKF against the circle fit over a real flight: share of seconds
 //        with a valid wind, per circling episode the median of both, overall median difference.
 //        Run:  .venv/bin/python host/make_lines.py igc flight.igc > lines.txt && firmware/emu/build.sh wind lines.txt
+//   emu cue <lines.txt>                            hit rate of the centring cue against the next turn (see cmdCue)
 //   emu soak [lines.txt] [--runs N] [--seed S]     long session through the real App (about a minute; NOT part of
 //        the default build.sh run): the whole flight N times (default 3, ~3 h of flight each) in virtual time as
 //        fast as the PC goes, with link drops, live no-fix lines, page switches, compass calibration
@@ -96,6 +97,57 @@ static ViewModel* thermalVm(int kind) {
   return &vm;
 }
 
+
+// A view model filled from a FlightModel that has climbed in a leaning thermal: 9 circles, the core leaning 9 m per
+// 100 m toward 70 degrees, 12 km/h of wind, the lift peaking mid-climb. kind 0: still circling (the centring page),
+// 1: only 14 s of the first turn, 2: no circling at all, 3: left the lift 40 s ago.
+static ViewModel* climbVm(int kind) {
+  static ViewModel vm;
+  static FlightModel fm;
+  fm.reset();
+  const double D2R = 0.017453292519943295;
+  const double wx = 12 / 3.6 * sin(270 * D2R), wy = 12 / 3.6 * cos(270 * D2R);
+  const double sx = 0.09 * sin(70 * D2R), sy = 0.09 * cos(70 * D2R);
+  double hdg = 40, z = 1400, t = 0;
+  const int circlingSeconds = kind == 2 ? 0 : kind == 1 ? 14 : 9 * 24, glide = kind == 3 ? 40 : (kind == 2 ? 120 : 0);
+  double lastX = 0, lastY = 0;
+  for (int i = 0; i < 20 + circlingSeconds + glide; i++, t += 1) {
+    const bool circling = i >= 20 && i < 20 + circlingSeconds;
+    double px, py;
+    float v;
+    if (circling) {
+      const double R = 9.0 / (15 * D2R);
+      px = sx * (z - 1400) - R * sin(hdg * D2R + 1.5707963);
+      py = sy * (z - 1400) - R * cos(hdg * D2R + 1.5707963);
+      const double r = hypot(px - sx * (z - 1400), py - sy * (z - 1400));
+      const float peak = 3.4f - 0.015f * fabsf((float)(z - 1560));
+      v = peak * expf(-(float)(r * r) / (2 * 55 * 55)) + 0.15f * (float)sin(i * 0.7);
+      hdg += 15;
+    } else {
+      px = lastX + 9 * sin(hdg * D2R);
+      py = lastY + 9 * cos(hdg * D2R);
+      v = -1.1f;
+    }
+    lastX = px; lastY = py;
+    Sample s;
+    const double gx = px + wx * t, gy = py + wy * t;
+    s.fix = true; s.lat = 43 + gy / 111320.0; s.lon = 26 + gx / (111320.0 * cos(43 * D2R));
+    s.alt = (float)z; s.vario = v; s.battPct = 85; s.hh = 12; s.mm = i / 60; s.ss = i % 60;
+    { const double vx = 9 * sin(hdg * D2R) + wx, vy = 9 * cos(hdg * D2R) + wy;      // ground velocity of a circle in the wind
+      s.speedKmh = (float)(hypot(vx, vy) * 3.6); s.course = (float)fmod(atan2(vx, vy) / D2R + 360, 360); }
+    fm.feed(s);
+    z += v;
+  }
+  vm.fresh = true; vm.link = ViewModel::LINK_CONNECTED; vm.hasSaved = true; strcpy(vm.device, "XC-Tracer");
+  vm.s = fm.last(); vm.avgVario = fm.avgVario(); vm.glide = fm.glide(); vm.wind = fm.wind();
+  vm.wind.valid = true; vm.wind.speedKmh = 12; vm.wind.toDeg = 270;       // the model's own estimate needs more circles than the page cares about
+  vm.heading = vm.s.course; vm.headingSrc = HDG_GPS;
+  vm.localMinutes = 13 * 60 + 52; vm.localBattPct = 76;
+  vm.page = ViewModel::PAGE_CENTER;
+  vm.col = &fm.column();
+  return &vm;
+}
+
 // gray.png: a 17-step grey ramp, two touching half-grey rectangles (no seam), and a dithered gradient disc
 // drawn with blitGray over a grey backdrop (nibble 0 is transparent).
 static void renderGray(const std::string& out, int rot) {
@@ -130,10 +182,25 @@ static int cmdShots(const std::string& out, int rot) {
   if (!gCountMode) { ts::shots(out.c_str()); bs::shots(out.c_str()); ms::shots(out.c_str()); simshots::fixtureShots(out.c_str()); }
   struct Sc { const char* name; };
   const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag",
-                         "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
+                         "center", "center_first", "center_none", "center_left", "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
   for (const char* n : names) {
     if (gCountMode && strcmp(n, "live") && strcmp(n, "nofix") && strcmp(n, "mag") && strcmp(n, "standalone") &&
-        strcmp(n, "standalone_nodata") && strncmp(n, "thermal", 7)) continue;
+        strcmp(n, "standalone_nodata") && strncmp(n, "thermal", 7) && strncmp(n, "center", 6)) continue;
+    if (!strncmp(n, "center", 6)) {
+      ViewModel* cv = climbVm(!strcmp(n, "center_first") ? 1 : !strcmp(n, "center_none") ? 2 : !strcmp(n, "center_left") ? 3 : 0);
+      if (gCountMode) {
+        static CountingSharp cc;
+        cc.setRotation((uint8_t)rot);
+        countReport(n, cc, [&] { Bitmap1 bm = cc.bm(); drawLive(cc, *cv, 0, &bm); });
+        continue;
+      }
+      MockPanel cp;
+      cp.setRotation(rot);
+      Bitmap1 cbm = cp.bitmap();
+      drawLive(cp.gfx(), *cv, 0, &cbm);
+      cp.dump((out + "/" + n + ".pgm").c_str());
+      continue;
+    }
     if (!strncmp(n, "thermal", 7)) {
       if (gCountMode) {
         ViewModel* tv = thermalVm(0);
@@ -355,6 +422,128 @@ static double angDiffDeg(double a, double b) { return fabs(fmod(a - b + 540, 360
 
 struct Episode { std::vector<double> es, ed, cs, cd; int secs = 0; uint32_t start = 0; };
 
+
+// emu cue <lines.txt> [gain...]: how good is the centring cue (ThermalColumn::cue) on a real flight? Every second
+// of circling it records the cue (where the core is, how far to shift the circle). One turn later, when the pilot
+// has flown the next turn (without having been shown the cue), it compares with what happened:
+//  * lift: the lift-weighted centroid of the next turn lies on the side of its own centre the cue pointed to
+//          (angle between the two within 90 degrees; angle error and distance error reported)
+//  * pilot: the pilot's own re-centring (next turn's centre minus this turn's) agrees with the cue
+//  * pay: next turn's mean climb minus this one's, when the pilot moved toward the cue and when against it
+// baselines: the last turn's raw lift centroid alone (no windows, no gain, no lean).
+static int cmdCue(int argc, char** argv) {
+  std::vector<std::string> L = readLines(argv[2]);
+  if (L.empty()) return 2;
+  for (int i = 3; i + 1 < argc; i += 2) {                         // --gain G --lean 0|1 --w a,b,c
+    if (!strcmp(argv[i], "--gain")) ThermalColumn::cueGain = (float)atof(argv[i + 1]);
+    else if (!strcmp(argv[i], "--lean")) ThermalColumn::cueLean = atoi(argv[i + 1]) != 0;
+    else if (!strcmp(argv[i], "--turns")) ThermalColumn::cueMinTurns = atoi(argv[i + 1]);
+    else if (!strcmp(argv[i], "--max")) ThermalColumn::cueMaxM = (float)atof(argv[i + 1]);
+    else if (!strcmp(argv[i], "--w")) sscanf(argv[i + 1], "%f,%f,%f", &ThermalColumn::cueW[0], &ThermalColumn::cueW[1], &ThermalColumn::cueW[2]);
+  }
+  struct Rec {
+    double t, gx, gy;                  // seconds, ground position of the newest point (m from the first fix)
+    float cx, cy, x, y, rawX, rawY, sx, sy, shiftM, spread, climb, turnS;
+    float we, wn;                      // wind (m/s) of the analysis
+    bool valid;
+    float bsx, bsy;                    // baseline shift: raw lift centroid - centre
+  };
+  static FlightModel fm;
+  fm.reset();
+  std::vector<Rec> R;
+  double lat0 = 0, lon0 = 0, kx = 111320;
+  bool have = false;
+  double tSec = 0;
+  for (const std::string& l : L) {
+    Sample s;
+    if (!xctrcParse(l.c_str(), s)) continue;
+    if (!fm.feed(s)) continue;
+    tSec += 1;
+    if (!s.fix) continue;
+    if (!have) { have = true; lat0 = s.lat; lon0 = s.lon; kx = 111320.0 * cos(lat0 * 0.017453292519943295); }
+    const ThermalColumn& c = fm.column();
+    Rec r{};
+    r.t = tSec;
+    const TrackPoint& h = fm.hist(fm.histCount() - 1);
+    r.gx = (h.lon - lon0) * kx; r.gy = (h.lat - lat0) * 111320.0;
+    Wind w = fm.wind();
+    if (w.valid) { r.we = w.speedKmh / 3.6f * sinf(w.toDeg * 0.017453292f); r.wn = w.speedKmh / 3.6f * cosf(w.toDeg * 0.017453292f); }
+    r.valid = c.cue.valid;
+    if (r.valid) {
+      const CoreCue& q = c.cue;
+      r.cx = q.cx; r.cy = q.cy; r.x = q.x; r.y = q.y; r.rawX = q.rawX; r.rawY = q.rawY; r.sx = q.shiftX; r.sy = q.shiftY;
+      r.shiftM = q.shiftM; r.spread = q.spread; r.climb = q.meanClimb; r.turnS = q.turnS;
+      r.bsx = q.rawX - q.cx; r.bsy = q.rawY - q.cy;
+    }
+    R.push_back(r);
+  }
+  int nValid = 0;
+  for (const Rec& r : R) if (r.valid) nValid++;
+  printf("%zu seconds, cue available in %d (%.0f%%)\n", R.size(), nValid, 100.0 * nValid / (R.empty() ? 1 : R.size()));
+  // statistics over (record, record one turn later) pairs
+  struct Acc { int n = 0, hit = 0; std::vector<double> ang, err; };
+  Acc lift, liftBase, pilot, pilotBase;
+  std::vector<double> payToward, payAgainst, shiftSizes, spreads;
+  int pairs = 0;
+  for (size_t i = 0; i < R.size(); i++) {
+    const Rec& a = R[i];
+    if (!a.valid) continue;
+    size_t j = i + (size_t)lroundf(a.turnS);
+    if (j >= R.size() || !R[j].valid || R[j].t - a.t > a.turnS + 3.0) continue;
+    const Rec& b = R[j];
+    pairs++;
+    // predicted core in the frame of b: move by the newest point's ground shift and the wind drift in between
+    const double dx = a.gx - b.gx + b.we * (b.t - a.t), dy = a.gy - b.gy + b.wn * (b.t - a.t);
+    const double px = a.x + dx, py = a.y + dy;                          // predicted core, frame of b
+    const double acx = a.cx + dx, acy = a.cy + dy;                      // this turn's centre, frame of b
+    shiftSizes.push_back(a.shiftM);
+    spreads.push_back(a.spread);
+    // lift: where the next turn's own lift centroid lies relative to its own centre
+    const double lx = b.rawX - b.cx, ly = b.rawY - b.cy;
+    const double lm = hypot(lx, ly);
+    if (a.shiftM >= 10 && lm >= 3) {
+      auto ang = [](double x1, double y1, double x2, double y2) { return fabs(atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2)) * 57.29578; };
+      const double A = ang(a.sx, a.sy, lx, ly);
+      lift.n++; if (A < 90) lift.hit++; lift.ang.push_back(A);
+      // distance error: predicted core vs where the next turn's lift is (centre + gain * offset, same gain)
+      lift.err.push_back(hypot(px - (b.cx + ThermalColumn::cueGain * lx), py - (b.cy + ThermalColumn::cueGain * ly)));
+    }
+    if (hypot(a.bsx, a.bsy) >= 10 && lm >= 3) {
+      auto ang = [](double x1, double y1, double x2, double y2) { return fabs(atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2)) * 57.29578; };
+      const double A = ang(a.bsx, a.bsy, lx, ly);
+      liftBase.n++; if (A < 90) liftBase.hit++; liftBase.ang.push_back(A);
+      liftBase.err.push_back(hypot(acx + a.bsx * ThermalColumn::cueGain - (b.cx + ThermalColumn::cueGain * lx), acy + a.bsy * ThermalColumn::cueGain - (b.cy + ThermalColumn::cueGain * ly)));
+    }
+    // pilot: his own re-centring
+    const double mx = b.cx - acx, my = b.cy - acy, mm = hypot(mx, my);
+    if (a.shiftM >= 10 && mm >= 8) {
+      const double A = fabs(atan2(a.sx * my - a.sy * mx, a.sx * mx + a.sy * my)) * 57.29578;
+      pilot.n++; if (A < 90) pilot.hit++; pilot.ang.push_back(A);
+      pilot.err.push_back(hypot(px - b.cx, py - b.cy));                  // predicted core vs the pilot's new centre
+      const double cosA = cos(A / 57.29578);
+      if (cosA > 0.5) payToward.push_back(b.climb - a.climb);
+      if (cosA < -0.5) payAgainst.push_back(b.climb - a.climb);
+    }
+    if (hypot(a.bsx, a.bsy) >= 10 && mm >= 8) {
+      const double A = fabs(atan2(a.bsx * my - a.bsy * mx, a.bsx * mx + a.bsy * my)) * 57.29578;
+      pilotBase.n++; if (A < 90) pilotBase.hit++; pilotBase.ang.push_back(A);
+    }
+  }
+  auto med = [](std::vector<double> v) -> double { if (v.empty()) return NAN; std::sort(v.begin(), v.end()); return v[v.size() / 2]; };
+  auto mean = [](const std::vector<double>& v) -> double { double s = 0; for (double x : v) s += x; return v.empty() ? NAN : s / v.size(); };
+  printf("pairs (a cue and the turn after it): %d; median cue %.0f m, median spread %.0f m\n", pairs, med(shiftSizes), med(spreads));
+  printf("cue vs the next turn's lift:   n %d, hit rate (within 90 deg) %.0f%%, median angle error %.0f deg, median distance error %.0f m\n",
+         lift.n, 100.0 * lift.hit / (lift.n ? lift.n : 1), med(lift.ang), med(lift.err));
+  printf("  baseline (last turn only):   n %d, hit rate %.0f%%, median angle error %.0f deg, median distance error %.0f m\n",
+         liftBase.n, 100.0 * liftBase.hit / (liftBase.n ? liftBase.n : 1), med(liftBase.ang), med(liftBase.err));
+  printf("cue vs the pilot's re-centring: n %d, agree (within 90 deg) %.0f%%, median angle %.0f deg, median distance cue-core to new centre %.0f m\n",
+         pilot.n, 100.0 * pilot.hit / (pilot.n ? pilot.n : 1), med(pilot.ang), med(pilot.err));
+  printf("  baseline (last turn only):   n %d, agree %.0f%%\n", pilotBase.n, 100.0 * pilotBase.hit / (pilotBase.n ? pilotBase.n : 1));
+  printf("next turn's climb minus this one's: pilot moved toward the cue n %zu mean %+.2f m/s; against it n %zu mean %+.2f m/s\n",
+         payToward.size(), mean(payToward), payAgainst.size(), mean(payAgainst));
+  return 0;
+}
+
 static int cmdWind(const char* file) {
   std::vector<std::string> L = readLines(file);
   if (L.empty()) { fprintf(stderr, "no lines in %s\n", file); return 2; }
@@ -420,6 +609,7 @@ int main(int argc, char** argv) {
   signal(SIGALRM, watchdog);
   if (argc >= 2 && !strcmp(argv[1], "soak")) return cmdSoak(argc, argv, readLines);
   if (argc >= 3 && !strcmp(argv[1], "wind")) return cmdWind(argv[2]);
+  if (argc >= 3 && !strcmp(argv[1], "cue")) return cmdCue(argc, argv);
   alarm(120);
   if (argc >= 3 && !strcmp(argv[1], "count")) {   // emu count <outdir> [rot]: per-section work of the live page
     gCountMode = true;

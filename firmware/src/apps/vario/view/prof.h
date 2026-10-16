@@ -25,6 +25,7 @@ enum ProfId : uint8_t {
   P_TICKS,     // compass: tick marks
   P_LABELS,    // compass: N/NE/E.. letters
   P_HDGNUM,    // compass: heading number and source
+  P_CLIMB,     // centring page: the turns and the core
   P_COUNT
 };
 

@@ -1,6 +1,7 @@
 #pragma once
 #include "apps/vario/core/home.h"
 #include "apps/vario/core/thermal.h"
+#include "apps/vario/core/thermal3d.h"
 #include "apps/vario/core/windprofile.h"
 #include "apps/vario/core/types.h"
 #include "apps/vario/core/windekf.h"
@@ -35,6 +36,9 @@ class FlightModel {
   int airTrail(AirPoint* out, int maxN) const;
   // Remembered thermals relative to the current position, newest first (positions drift with the wind).
   int thermals(ThermalRel* out, int maxN) const;
+  // The climb column (thermal3d.h): the last minutes of circling. column() analyses with the wind of now and the
+  // newest sample as the head of the track; call it only when a page needs it.
+  const ThermalColumn& column();
   // Wind by altitude, filled from fresh wind estimates while flying.
   const WindProfile& profile() const { return profile_; }
   // Takeoff position (provisional first fix until takeoff is detected, then the spot where speed first passed the threshold; kept for the rest of the session).
@@ -79,5 +83,6 @@ class FlightModel {
   double candLat_ = 0, candLon_ = 0;
   float candAlt_ = NAN;
   ThermalMemory mem_;
+  ThermalColumn col_;
   AirPoint scratch_[HIST];         // working space for the thermal finder (too big for the stack)
 };
