@@ -84,7 +84,7 @@ Grey tones are an 8x8 ordered dither on the 1-bit panel.
   180 degrees (to be confirmed once the box is mounted).
 - Where DISP and EXTMODE are wired was never recorded. The display works, so they are presumably tied high.
 - VCOM is toggled at 1 Hz on EXTCOMIN by a FreeRTOS timer.
-- Only the user switch is used; the four front buttons planned earlier are not wired.
+- Only the user switch is used so far; the new case has six front buttons (D-pad + A/B, 6 GPIO + GND), not wired yet.
 - The on-board sensors (I2C 0x1C LIS3MDL magnetometer, 0x6A LSM6DS33 accelerometer and gyro) are used for
   the compass only: the gyro gives the fast response, gravity and the horizontal magnetic field correct it.
 
