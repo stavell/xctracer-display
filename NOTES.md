@@ -249,3 +249,10 @@ project is and how to run it; this file says what we found and why things are th
   every earlier sub-millisecond figure in these notes is rounded to that grid.
 - Next hot spot: the live (compass) page without a fix draws in 48 ms (tick 55-73 ms), far above every
   other page.
+- Cause of the 48 ms (found 2026-10-16 with the emulator work counters, `firmware/emu/build.sh count`): in portrait a
+  horizontal grey span is a native column, so the grey ring (about 5900 pixels) cost one native row
+  read-modify-write each plus a dither pattern of 8 Bayer evaluations each (47k per frame). Fix: pattern
+  cache per (rotation, w&7, h&7, level), table Bayer, and gfx/shapes `fillRing` that emits vertical
+  runs (native rows) in rotations 1/3 (344 rows). Circles and ticks use `circle`/`line` (same pixels as
+  Adafruit_GFX, no virtual call). Rendered screens are byte-identical in all rotations. Device time not
+  yet measured; sections ring/bezel/ticks/labels/hdgnum added to the profiler line.

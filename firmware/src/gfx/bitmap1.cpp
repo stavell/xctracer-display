@@ -1,6 +1,10 @@
 #include "gfx/bitmap1.h"
 #include <string.h>
 
+#ifdef GFX_COUNT
+GfxCounters gGfxCnt;
+#endif
+
 static inline void applyMask(uint8_t& b, uint8_t mask, DrawMode m) {
   switch (m) {
     case DRAW_CLEAR: b &= (uint8_t)~mask; break;
@@ -21,6 +25,8 @@ void Bitmap1::toNative(int x, int y, int& nx, int& ny) const {
 
 // Native rectangle, already inside the bitmap: partial masks at the ends of each row, whole bytes between.
 void Bitmap1::nativeRect(int nx0, int ny0, int nx1, int ny1, DrawMode m) const {
+  GFX_TALLY(span, 1);
+  GFX_TALLY(rows, ny1 - ny0 + 1);
   int b0 = nx0 >> 3, b1 = nx1 >> 3;
   uint8_t first = (uint8_t)(0xFFu << (nx0 & 7));
   uint8_t last = (uint8_t)(0xFFu >> (7 - (nx1 & 7)));

@@ -1,6 +1,7 @@
 #include "view/screens.h"
 #include "view/prof.h"
 #include "gfx/gray.h"
+#include "gfx/shapes.h"
 #include "gfx/font.h"
 #include <math.h>
 #include <stdio.h>
@@ -114,6 +115,17 @@ static const char* fnum(char* b, size_t n, float v, const char* fmt) {
   return b;
 }
 
+// Lines and circle outlines: straight into the bitmap when there is one (same pixels as Adafruit_GFX,
+// without a virtual call per pixel), through the canvas otherwise.
+static void gLine(int x0, int y0, int x1, int y1, uint16_t col) {
+  if (fbm) line(*fbm, x0, y0, x1, y1, col ? DRAW_SET : DRAW_CLEAR);
+  else d->drawLine(x0, y0, x1, y1, col);
+}
+static void gCircle(int cx, int cy, int r, uint16_t col) {
+  if (fbm) circle(*fbm, cx, cy, r, col ? DRAW_SET : DRAW_CLEAR);
+  else d->drawCircle(cx, cy, r, col);
+}
+
 static void hbar(int x, int y, int w, int h, float frac) {
   if (!isfinite(frac)) frac = 0;
   if (frac < 0) frac = 0;
@@ -213,17 +225,22 @@ static const char* cardinal16(float deg) {
 static void compassDial(int cx, int cy, int R, float heading, HeadingSource src) {
   const bool have = isfinite(heading);
   const float course = have ? heading : 0.0f;
-  d->drawCircle(cx, cy, R, BLK);
-  d->drawCircle(cx, cy, R - 1, BLK);
+  PROF_BEGIN(P_BEZEL);
+  gCircle(cx, cy, R, BLK);
+  gCircle(cx, cy, R - 1, BLK);
   d->fillTriangle(cx - 8, cy - R - 4, cx + 8, cy - R - 4, cx, cy - R + 11, BLK);   // direction of travel
+  PROF_END(P_BEZEL);
+  PROF_BEGIN(P_TICKS);
   const int rl = R - 26;   // label radius, clear of the grey ring (R-1 .. R-12)
   for (int a = 0; a < 360; a += 10) {
     if (a % 45 == 0) continue;   // letters sit there
     float th = (a - course) * PI_F / 180.0f;
     int len = (a % 30 == 0) ? 9 : 5;
-    d->drawLine(cx + (R - 2) * sinf(th), cy - (R - 2) * cosf(th),
+    gLine(cx + (R - 2) * sinf(th), cy - (R - 2) * cosf(th),
                 cx + (R - 2 - len) * sinf(th), cy - (R - 2 - len) * cosf(th), BLK);
   }
+  PROF_END(P_TICKS);
+  PROF_BEGIN(P_LABELS);
   static const char* L[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
   for (int i = 0; i < 8; i++) {
     float th = (i * 45 - course) * PI_F / 180.0f;
@@ -237,6 +254,8 @@ static void compassDial(int cx, int cy, int R, float heading, HeadingSource src)
       textMid(lx, ly, L[i], F9);
     }
   }
+  PROF_END(P_LABELS);
+  PROF_BEGIN(P_HDGNUM);
   char b[8];
   if (have) {
     if (src != HDG_NONE) text(cx, cy - 14, src == HDG_MAG ? "MAG" : "TRK", F9, AC);
@@ -244,6 +263,7 @@ static void compassDial(int cx, int cy, int R, float heading, HeadingSource src)
   } else {
     text(cx, cy + 8, "--", F18B, AC);
   }
+  PROF_END(P_HDGNUM);
 }
 
 // Arrow centred on (ax, ay) pointing along screen angle th (radians clockwise from up), half length L.
@@ -258,7 +278,7 @@ static void drawArrow(int ax, int ay, float th, int L, int hw = 9) {
     d->fillTriangle(tx + qx, ty + qy, tx - qx, ty - qy, hx + qx, hy + qy, BLK);
     d->fillTriangle(tx - qx, ty - qy, hx - qx, hy - qy, hx + qx, hy + qy, BLK);
   } else {
-    for (int k = -1; k <= 1; k++) d->drawLine(tx + k * px, ty + k * py, hx + k * px, hy + k * py, BLK);
+    for (int k = -1; k <= 1; k++) gLine(tx + k * px, ty + k * py, hx + k * px, hy + k * py, BLK);
   }
   d->fillTriangle(ex, ey, hx + hw * px, hy + hw * py, hx - hw * px, hy - hw * py, BLK);
 }
@@ -283,19 +303,7 @@ static void cell(int x, int y, int w, const char* title, const char* value);
 // Ri = 0 makes it a disc. Clipped to the box (cl0, ct, cl1, cb) so a disc cannot spill over a frame.
 static void greyRing(const Bitmap1& bm, int cx, int cy, int R, int Ri, int level,
                      int cl0 = -9999, int ct = -9999, int cl1 = 9999, int cb = 9999) {
-  auto span = [&](int x0, int x1, int y) {
-    if (y < ct || y > cb) return;
-    if (x0 < cl0) x0 = cl0;
-    if (x1 > cl1) x1 = cl1;
-    if (x0 <= x1) hline(bm, x0, x1, y, Gray(level));
-  };
-  for (int dy = -R; dy <= R; dy++) {
-    int ho = (int)sqrtf((float)(R * R - dy * dy));
-    if (abs(dy) >= Ri) { span(cx - ho, cx + ho, cy + dy); continue; }
-    int hi = (int)sqrtf((float)(Ri * Ri - dy * dy));
-    span(cx - ho, cx - hi - 1, cy + dy);
-    span(cx + hi + 1, cx + ho, cy + dy);
-  }
+  fillRing(bm, cx, cy, R, Ri, Gray(level), ClipBox(cl0, ct, cl1, cb));
 }
 
 // No vario data: a standalone compass. Top line = link state and device, then the big dial, then
@@ -311,15 +319,15 @@ static void drawStandalone(const ViewModel& vm, const Bitmap1* bm) {
   else if (vm.hasSaved) snprintf(top, sizeof top, "%s  %.14s", title, vm.device);
   else snprintf(top, sizeof top, "%s  filter: %.10s", title, vm.filter);
 
-  if (bm) {
-    greyRing(*bm, cx, cy, R - 1, R - 12, LIGHT);
-  }
+  PROF_BEGIN(P_RING);
+  if (bm) greyRing(*bm, cx, cy, R - 1, R - 12, LIGHT);
+  PROF_END(P_RING);
   text(cx, 42, top, F9, AC);
   compassDial(cx, cy, R, vm.heading, vm.headingSrc);
 
   cell(4, cellY, cellW, "TEMP", fnum(b, sizeof b, vm.ambientC, "%.1f"));
   int tw = textW("TEMP", F9);
-  d->drawCircle(4 + 5 + tw + 6, cellY + 6, 2, WHT);                       // F9 has no degree sign
+  gCircle(4 + 5 + tw + 6, cellY + 6, 2, WHT);                       // F9 has no degree sign
   text(4 + 5 + tw + 10, cellY + 14, "C", F9, AL, WHT);
   cell(4 + cellW + 4, cellY, cellW, "HUMIDITY %", fnum(b, sizeof b, vm.humidityPct, "%.0f"));
 
@@ -335,7 +343,7 @@ static int dashPhase = 0;
 
 // Solid w x w squares stamped along the segment (no gaps); optionally dashed for the older memory.
 static void thickLine(int x0, int y0, int x1, int y1, int w, bool dashed) {
-  if (w <= 1 && !dashed) { d->drawLine(x0, y0, x1, y1, BLK); return; }
+  if (w <= 1 && !dashed) { gLine(x0, y0, x1, y1, BLK); return; }
   float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
   int steps = (int)ceilf(fmaxf(fabsf(dx), fabsf(dy)));
   if (steps < 1) steps = 1;
@@ -454,8 +462,8 @@ static void drawThermalMap(const ViewModel& vm, const Bitmap1* bm, int mx, int m
     float tx = ox + gMr[i] * s, ty = oy - gMu[i] * s;
     if (gIn[i]) {
       int rad = i == 0 ? 10 : 7;
-      d->drawCircle(gSx[i], gSy[i], rad, BLK);
-      if (i == 0) { d->drawCircle(gSx[i], gSy[i], rad - 1, BLK); d->fillCircle(gSx[i], gSy[i], 3, BLK); }
+      gCircle(gSx[i], gSy[i], rad, BLK);
+      if (i == 0) { gCircle(gSx[i], gSy[i], rad - 1, BLK); d->fillCircle(gSx[i], gSy[i], 3, BLK); }
       else d->fillCircle(gSx[i], gSy[i], 2, BLK);
     } else if (i == 0) {                                        // newest thermal off the map: edge arrow + distance
       float vx = tx - ox, vy = ty - oy, len = hypotf(vx, vy);
@@ -754,7 +762,9 @@ static void drawLiveBody(const ViewModel& vm, const Bitmap1* bm) {
     PROF_END(P_HOME);
   } else {
     PROF_BEGIN(P_DIAL);
+    PROF_BEGIN(P_RING);
     if (bm) greyRing(*bm, cx, cy, R - 1, R - 12, LIGHT);   // before any GFX call: it overwrites what is under it
+    PROF_END(P_RING);
     compassDial(cx, cy, R, vm.heading, vm.headingSrc);
     PROF_END(P_DIAL);
     if (vm.headingSrc == HDG_GPS) {

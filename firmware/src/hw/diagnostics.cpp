@@ -183,7 +183,7 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   Serial.print("\n");
 #ifdef DIAGNOSTICS
   if (benchPending) { Serial.print(fontsLine); Serial.print(benchLine); benchPending = false; }
-  char pl[200];
+  static char pl[360];   // static: the loop stack is small
   profFormat(pl, sizeof pl);
   Serial.print(pl);
   Serial.print("\n");

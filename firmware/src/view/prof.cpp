@@ -7,6 +7,7 @@ uint32_t (*gProfClock)() = nullptr;
 ProfStat gProf[P_COUNT] = {
   PN("live"), PN("header"), PN("cells"), PN("vario"), PN("dial"), PN("wcorner"), PN("thermal"),
   PN("trail"), PN("marks"), PN("wprofile"), PN("home"), PN("wline"), PN("clear"), PN("present"),
+  PN("ring"), PN("bezel"), PN("ticks"), PN("labels"), PN("hdgnum"),
 };
 
 void profSetClock(uint32_t (*usNow)()) { gProfClock = usNow; }

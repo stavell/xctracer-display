@@ -20,6 +20,11 @@ enum ProfId : uint8_t {
   P_WLINE,     // wind text line at the bottom
   P_CLEAR,     // App: panel clear
   P_PRESENT,   // App: panel present (SPI write)
+  P_RING,      // compass: grey ring
+  P_BEZEL,     // compass: circles and the direction pointer
+  P_TICKS,     // compass: tick marks
+  P_LABELS,    // compass: N/NE/E.. letters
+  P_HDGNUM,    // compass: heading number and source
   P_COUNT
 };
 

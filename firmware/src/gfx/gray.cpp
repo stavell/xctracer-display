@@ -1,5 +1,15 @@
 #include "gfx/gray.h"
 
+const uint8_t kBayer8[64] = {
+    0, 32, 8, 40, 2, 34, 10, 42,
+    48, 16, 56, 24, 50, 18, 58, 26,
+    12, 44, 4, 36, 14, 46, 6, 38,
+    60, 28, 52, 20, 62, 30, 54, 22,
+    3, 35, 11, 43, 1, 33, 9, 41,
+    51, 19, 59, 27, 49, 17, 57, 25,
+    15, 47, 7, 39, 13, 45, 5, 37,
+    63, 31, 55, 23, 61, 29, 53, 21};
+
 // The 8 pixels of the native byte at native row ny, as dithered at their screen positions. The screen
 // position of native bit k of any byte depends only on k (bytes start at multiples of 8), so one value
 // serves the whole row.
@@ -14,9 +24,23 @@ static uint8_t rowPattern(const Bitmap1& bm, int ny, int level) {
       case 3: lx = bm.h - 1 - ny; ly = k; break;
       default: lx = k; ly = ny; break;
     }
-    if (bayer8(lx & 7, ly & 7) < thr) p |= (uint8_t)(1u << k);
+    if (kBayer8[((ly & 7) << 3) | (lx & 7)] < thr) p |= (uint8_t)(1u << k);
   }
   return p;
+}
+
+// The patterns of the 8 native row phases (ny & 7) for a level, cached for the last bitmap geometry and
+// level used: a rotated bitmap draws one native row per pixel of a horizontal span (a grey ring is
+// thousands of them), and the pattern depends only on ny & 7, rotation, w & 7, h & 7 and the level.
+static const uint8_t* rowPatterns(const Bitmap1& bm, int level) {
+  static uint8_t pat[8];
+  static int key = -1;
+  int k = (bm.rotation & 3) | ((bm.w & 7) << 2) | ((bm.h & 7) << 5) | (level << 8);
+  if (k != key) {
+    for (int ny = 0; ny < 8; ny++) pat[ny] = rowPattern(bm, ny, level);
+    key = k;
+  }
+  return pat;
 }
 
 void rectIncl(const Bitmap1& bm, int x0, int y0, int x1, int y1, Gray g) {
@@ -30,12 +54,24 @@ void rectIncl(const Bitmap1& bm, int x0, int y0, int x1, int y1, Gray g) {
   bm.toNative(x1, y1, bx, by);
   int nx0 = ax < bx ? ax : bx, nx1 = ax < bx ? bx : ax;
   int ny0 = ay < by ? ay : by, ny1 = ay < by ? by : ay;
+  GFX_TALLY(span, 1);
+  GFX_TALLY(rows, ny1 - ny0 + 1);
   int b0 = nx0 >> 3, b1 = nx1 >> 3;
   uint8_t first = (uint8_t)(0xFFu << (nx0 & 7));
   uint8_t last = (uint8_t)(0xFFu >> (7 - (nx1 & 7)));
+  const uint8_t* pats = rowPatterns(bm, g.level);
+  if (b0 == b1) {                        // one byte wide (every pixel of a rotated horizontal span)
+    uint8_t m = first & last;
+    uint8_t* col = bm.buf + b0;
+    for (int y = ny0; y <= ny1; y++) {
+      uint8_t& v = col[(size_t)y * bm.stride];
+      v = (uint8_t)((v & ~m) | (pats[y & 7] & m));
+    }
+    return;
+  }
   for (int y = ny0; y <= ny1; y++) {
     uint8_t* row = bm.buf + (size_t)y * bm.stride;
-    uint8_t pat = rowPattern(bm, y, g.level);
+    uint8_t pat = pats[y & 7];
     for (int b = b0; b <= b1; b++) {
       uint8_t m = 0xFF;
       if (b == b0) m &= first;
