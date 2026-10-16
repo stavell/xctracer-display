@@ -199,12 +199,12 @@ divider ~20 uA dominate): about a year on the ~1000 mAh LiPo. Measure before pro
 
 ## Games: maximum frame rate (user rule, 2026-10-16)
 
-Games push the box to its maximum refresh rate; no power-saving cadence while a game runs.
+Games run at a steady 50 fps (user target: 20 ms per frame; do not aim higher); no power-saving cadence while a game runs.
 - Platform game mode: fixed-timestep loop, a new frame as soon as the previous DMA transfer is done (vario keeps its
   change-driven cadence). Show fps and the worst frame time.
-- Measure the real ceiling on the device: full frame 12.5 KB = ~13 ms at 8 MHz SPI (~75 fps transfer limit, partial
-  lines faster); the liquid crystal response (ghosting) decides what still looks sharp -> moving-bar test at 30/45/60/75 fps.
-- Try SPIM2 at 10-16 MHz (panel already overclocked; check artefacts, also cold).
+- 50 fps fits the pipeline: full frame 12.5 KB = ~13 ms at 8 MHz SPI, overlapped with drawing by DMA; no need for a
+  faster SPI clock. Check on the device that 50 fps motion looks sharp (moving-bar test) and that frame times stay
+  under 20 ms.
 - Renderer: native-layout sprites/tiles, dirty-line tracking while drawing (no 12 KB memcmp per frame).
 
 ## Flight simulator (idea 2026-10-16, after the thermal 3D page)
