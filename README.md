@@ -234,6 +234,8 @@ in the console firmware image (they are not linked into the vario image). Play T
 
 ![Tetris](docs/screens/tetris.png)
 
+![Tetris screens: title, game, line clear, game over](docs/screens/tetris_overview.png)
+
 | Key | Function (device button) |
 |---|---|
 | arrows left / right | move, auto-repeat (D-pad) |
