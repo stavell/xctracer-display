@@ -1,5 +1,6 @@
 // Wiring only: builds the hardware adapters and hands them to the App.
 #include <Arduino.h>
+#include <Wire.h>
 #include <bluefruit.h>
 #include "app/app.h"
 #include "hw/battery_adc.h"
@@ -44,6 +45,9 @@ void setup() {
   panel.begin();
   compassHw.begin();                          // starts Wire
   thermo.begin();                             // SHT30 on the same bus
+  // Every library begin() resets the bus to 100 kHz; at 80 Hz sensor reads that is ~22% of the loop.
+  // All I2C chips on the board (LIS3MDL, LSM6DS33, SHT30) support 400 kHz.
+  Wire.setClock(400000);
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
   Bluefruit.begin(1, 1);                      // one link to the laptop, one to the vario

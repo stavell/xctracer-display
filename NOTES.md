@@ -306,3 +306,8 @@ project is and how to run it; this file says what we found and why things are th
   figure is not measured). Same change: EKF wind has a real age (seconds since an update while turning),
   the EKF is seeded from the first circle fit when not yet confident, and home is the position/altitude
   where speed first passed 10 km/h instead of where takeoff was detected 5 s later.
+- Gyro fusion on the device (2026-10-16, Mahony, I2C now 400 kHz): lying still the heading held
+  110.8 deg over three status lines (was wandering 260-270 deg without the gyro). The LSM6DS33 reads
+  about (5.3, -7.8, -3.9) dps at rest (zero-rate level, datasheet allows +-10 dps per axis); the learned
+  bias matched it (|b| 10.1 dps) within seconds. The bias bound is 12 dps, close to that: raise it if
+  another board reads more. compass= 52 us, ahrs= 55 us per tick.
