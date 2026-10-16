@@ -17,3 +17,4 @@
 #define CMD_DIAG_HANG 0x70   // diagnostics build only: spin in the loop task (watchdog test)
 #define CMD_DIAG_OFF  0x71   // diagnostics build only: System OFF (power-off test)
 #define CMD_CAL     0x15   // [0x15, 1|2|0] compass calibration: 1 start, 2 save, 0 cancel
+#define CMD_SET_ORIENT 0x16   // [0x16, 0..23] board mounting in the case (core/mount.h); larger values are ignored

@@ -2,6 +2,7 @@
 #include <string.h>
 #include "app/button_fsm.h"
 #include "core/home.h"
+#include "core/mount.h"
 #include "core/xctrc.h"
 #include "view/prof.h"
 #include "view/screens.h"
@@ -15,6 +16,8 @@ void App::begin(uint32_t) {
   heading_.configure(cfg_.gpsHeadingOnKmh, cfg_.gpsHeadingOffKmh);
   MagCal cal;
   if (settings_.loadMagCal(cal)) compass_.setCalibration(cal);
+  mount_ = settings_.mountIndex();
+  if (!mountValid(mount_)) mount_ = 0;
   panel_.setRotation(cfg_.rotation);
   panel_.invalidate();
   redraw_ = true;
@@ -47,6 +50,22 @@ void App::handle(const Command& c, uint32_t now) {
       break;
     case Command::TZ:
       settings_.setTzMinutes(c.value);
+      break;
+    case Command::ORIENT:
+      if (mountValid(c.value) && c.value != mount_) {
+        if (compass_.calibration().valid) {          // the stored offset lives in the device frame: move it along
+          MagCal cal = compass_.calibration();
+          Vec3 o; o.x = cal.off[0]; o.y = cal.off[1]; o.z = cal.off[2];
+          o = mountRemap(mount_, c.value, o);
+          cal.off[0] = o.x; cal.off[1] = o.y; cal.off[2] = o.z;
+          compass_.setCalibration(cal);
+          settings_.saveMagCal(cal);
+        }
+        mount_ = c.value;
+        settings_.setMountIndex(mount_);
+        compass_.reset();                            // keeps the calibration
+        ahrs_.reset();
+      }
       break;
     case Command::CAL:
       if (c.value == 1) startCalibration();
@@ -88,7 +107,7 @@ void App::startCalibration() {
 
 void App::finishCalibration(bool keep) {
   bool saved = compass_.finishCalibration(keep);
-  if (keep && saved) settings_.saveMagCal(compass_.calibration());
+  if (keep && saved) { settings_.saveMagCal(compass_.calibration()); ahrs_.reset(); }   // new offsets: re-seed the fusion
   calibrating_ = false;
   panel_.invalidate();
   redraw_ = true;
@@ -109,14 +128,29 @@ void App::updateHeading(uint32_t now) {
     compassOn_ = true;
     compassHw_.enable(true);
   }
-  Vec3 a, m;
-  if (compassOn_ && compassHw_.read(a, m)) compass_.update(a, m, now);
-  heading_.feedMag(compassOn_ && compass_.valid(), compass_.heading());
+  Vec3 a, m, g;
+  bool hg = false;
+  if (compassOn_ && compassHw_.read(a, m, g, hg)) {
+    a = mountApply(mount_, a);                    // board frame -> device frame, all three sensors alike
+    m = mountApply(mount_, m);
+    compass_.update(a, m, now);                   // calibration, field strength and the no-gyro fallback
+    if (hg) {
+      g = mountApply(mount_, g);
+      ahrs_.update(g, a, compass_.corrected(m), now);
+      gyroMs_ = now;
+      haveGyro_ = true;
+    }
+  }
+  if (haveGyro_ && now - gyroMs_ > 500) haveGyro_ = false;     // the gyro went quiet: the compass alone again
+  fused_ = haveGyro_ && ahrs_.valid();
+  bool magOk = fused_ || compass_.valid();
+  heading_.feedMag(compassOn_ && magOk, fused_ ? ahrs_.heading() : compass_.heading());
   Heading h = heading_.current();
-  if (h.src != smoothSrc_) {                      // GPS track: ~3 updates/s, long glide; compass: fast, with a deadband
+  if (h.src != smoothSrc_ || (h.src == HDG_MAG && smoothFused_ != fused_)) {   // GPS track: ~3 updates/s, long glide; compass: fast, deadband
     smoothSrc_ = h.src;
+    smoothFused_ = fused_;
     bool gps = h.src == HDG_GPS;
-    smooth_.setTau(gps ? cfg_.gpsGlideTauMs : cfg_.magGlideTauMs);
+    smooth_.setTau(gps ? cfg_.gpsGlideTauMs : (fused_ ? cfg_.fusedGlideTauMs : cfg_.magGlideTauMs));
     smooth_.setDeadband(gps ? 0.0f : cfg_.magDeadbandDeg, cfg_.magDeadbandHoldMs);
   }
   smooth_.update(h.deg, now);   // once per tick: buildViewModel only reads it

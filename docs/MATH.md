@@ -270,8 +270,11 @@ height is given. The wind used is `FlightModel::wind()`; with no wind estimate, 
 
 ## 8. Compass
 
-`firmware/src/core/compass.cpp`. Pure maths; the hardware layer maps the sensor axes to the device frame
-(x right of the screen, y top of the screen, z out of the screen).
+`firmware/src/core/compass.cpp`, `ahrs.cpp`, `mount.cpp`. Pure maths. The hardware layer maps each chip's axes to
+the board frame; the app rotates board to device (x right of the screen, y top of the screen, z out of the
+screen) with the mounting index (8.2). Two heading paths: the **gyro fusion** (8.1, used when the gyro works)
+and the **plain tilt-compensated compass** (the rest of this section; the fallback, and always the source of
+the calibration and the field strength).
 
 **Smoothing before the maths.** Each reading is blended into a running vector with a time-based
 exponential low-pass, $\mathbf a\leftarrow\mathbf a+\alpha(\mathbf a_{new}-\mathbf a)$ with
@@ -312,6 +315,77 @@ Otherwise the old calibration is kept. The sphere fit is used instead of min/max
 incomplete coverage better. There is no soft-iron (ellipsoid) correction and no declination: the heading
 is **magnetic** north (`README.md`, `NOTES.md`).
 
+### 8.1 Gyro fusion (Mahony filter)
+
+`Ahrs` keeps a quaternion $q$ (device to world: east, north, up) and the matching matrix $R$ (row $i$ = world
+axis $i$ in device coordinates). Inputs in the device frame: gyro $\boldsymbol\omega$ (rad/s), accelerometer
+$\mathbf a$, hard-iron corrected field $\mathbf m$. Mahony rather than Madgwick because the correction is a PI
+controller on a rotation vector: the magnetic part can be applied about the vertical axis only, the bias
+comes from the integral term, and the gains are time constants.
+
+**Errors** (rotation vectors in the device frame). $\mathbf u=R_{3,\cdot}$ is the predicted "up",
+$\hat{\mathbf a}=\mathbf a/|\mathbf a|$:
+
+$$\mathbf e_a=\hat{\mathbf a}\times\mathbf u\quad(\text{only if }\bigl||\mathbf a|-g\bigr|<0.12\,g),\qquad
+\mathbf m_w=R\,\mathbf m,\quad\varphi=\operatorname{atan2}(m_{w,e},\,m_{w,n}),\quad \mathbf e_m=\varphi\,\mathbf u$$
+
+$\mathbf e_m$ uses only the **horizontal** direction of the field, as seen with the current tilt, and rotates
+about the vertical: a disturbed field twists the heading but cannot tilt the attitude. It is used only if the
+horizontal field is above 8 uT, $|\mathbf m|$ is within 20% of a slow (5 s) reference and the dip
+$m_{w,u}/|\mathbf m|$ within 0.2 of its reference (after 5 s of rejection the new field is adopted).
+
+**Update** each sample, $\Delta t$ from the timestamps (clamped to 0.1 s; a gap over 0.5 s re-seeds):
+
+$$\boldsymbol\omega'=\boldsymbol\omega-\mathbf b+\beta\,(k_{p,a}\mathbf e_a+k_{p,m}\mathbf e_m),\qquad
+q\leftarrow q\otimes\exp(\boldsymbol\omega'\Delta t),\qquad
+\mathbf b\leftarrow\mathbf b-\Delta t\,(k_{i,a}\mathbf e_a+k_{i,m}\mathbf e_m)$$
+
+| Gain | Value |
+|---|---|
+| $k_{p,a}$ (gravity, tau 1 s) / $k_{i,a}$ | 1.0 /s / 0.05 /s$^2$ |
+| $k_{p,m}$ (field, tau 2 s) / $k_{i,m}$ ($=k_p^2/4$) | 0.5 /s / 0.0625 /s$^2$ |
+| $\beta$ (start boost) | 8 at the (re)start, linearly to 1 over 2 s; the integral is off during it |
+
+The bias is bounded to 12 deg/s per axis. The integral is paused while the still detector (next) owns the bias.
+
+**Bias from standing still.** Per 0.5 s window: gyro standard deviation about the window mean below 0.6 deg/s,
+gravity usable, and the mean gravity and field directions within 0.4 and 0.8 degrees of the previous window's.
+Two such windows in a row (1 s or more) and $\mathbf b\leftarrow\mathbf b+r\,(\bar{\boldsymbol\omega}-\mathbf b)$ with
+$r=\max(0.15,\,0.6/(1+n))$, $n$ = windows used so far (quick at first, then a slow average).
+
+**Seed.** The first usable sample (and the first after a gap) sets $R$ from gravity and the field with the same
+basis as the plain compass: rows east $=\hat{\mathbf m}\times\mathbf u$ (normalised), north $=\mathbf u\times$ east, up. The
+bias is kept across a gap.
+
+**Output.** Heading $=\operatorname{atan2}(R_{1,2},\,R_{2,2})$ (east and north components of the device y axis), degrees,
+0..360. Valid while gravity was usable within the last 10 s and the field within the last 30 s. A gyro that
+repeats the same three values 80 times in a row counts as failed: no fusion until it moves again. `App` uses the
+fused heading while the gyro delivers data and the filter is valid, otherwise the plain compass.
+
+### 8.2 Board mounting
+
+Two rotations: per chip, chip axes to the board frame (fixed by the PCB, in `hw/compass_lis.cpp`), then one of
+the 24 signed axis permutations with determinant +1, selected by an index 0..23 (flash file `/mount.bin`,
+`ctl.py orient`), applied to accelerometer, gyro and field alike: $\text{device}_r=s_r\,\text{board}_{p_r}$. The
+table in `core/mount.cpp` is ordered like `itertools.permutations` of the axes times the sign triples
+$(+,+,+),(+,+,-),\dots$, keeping $\det=+1$:
+
+| Index | perm | signs | Index | perm | signs | Index | perm | signs |
+|---|---|---|---|---|---|---|---|---|
+| 0 | xyz | +++ | 8 | yxz | ++- | 16 | zxy | +++ |
+| 1 | xyz | +-- | 9 | yxz | +-+ | 17 | zxy | +-- |
+| 2 | xyz | -+- | 10 | yxz | -++ | 18 | zxy | -+- |
+| 3 | xyz | --+ | 11 | yxz | --- | 19 | zxy | --+ |
+| 4 | xzy | ++- | 12 | yzx | +++ | 20 | zyx | ++- |
+| 5 | xzy | +-+ | 13 | yzx | +-- | 21 | zyx | +-+ |
+| 6 | xzy | -++ | 14 | yzx | -+- | 22 | zyx | -++ |
+| 7 | xzy | --- | 15 | yzx | --+ | 23 | zyx | --- |
+
+("perm" lists which board axis feeds device x, y, z; "signs" are $s_x s_y s_z$.) `host/orient_analyze.py` has the
+same table and its self-test parses `mount.cpp` to check it. The hard-iron offset is stored in the device frame,
+so changing the index rotates the stored offset along (and the fusion restarts). Mountings that keep the y axis
+(index 0 and 2) give the same heading and differ only in tilt.
+
 ## 9. Heading source and smoothing
 
 **Selector** (`firmware/src/core/heading.cpp`, thresholds from `AppConfig` in `app.h`). GPS track is
@@ -321,11 +395,13 @@ data is fresh (section 1), has a fix, and speed and course are finite. Otherwise
 used if valid, otherwise there is no heading and the dial shows `--`. The screen labels the source `TRK` or
 `MAG`.
 
-**Smoother** (`firmware/src/core/heading_smoother.cpp`). The dial shows a glided value, advanced once per
+**Smoother** (`firmware/src/core/heading_smoother.cpp`). Source `MAG` has two tunings: with the gyro fusion
+$\tau=30$ ms (the fused heading is already smooth, so this is nearly pass-through), without it $\tau=90$ ms;
+both with the 0.4 degree deadband that lets a still box settle. The dial shows a glided value, advanced once per
 UI tick using the UI clock (this is display animation, not flight data). With target $\psi_t$, shown value
 $\psi$, shortest signed difference $\delta\in(-180,180]$ and elapsed time $\Delta t$:
 
-$$\psi\leftarrow\psi+\delta\,\bigl(1-e^{-\Delta t/\tau}\bigr),\qquad \tau=90\ \text{ms (compass)},\ 250\ \text{ms (GPS track)}$$
+$$\psi\leftarrow\psi+\delta\,\bigl(1-e^{-\Delta t/\tau}\bigr),\qquad \tau=30\ \text{ms (fused compass)},\ 90\ \text{ms (compass alone)},\ 250\ \text{ms (GPS track)}$$
 
 The exponential form makes the result independent of the frame rate, and the shortest arc means 350 to 10
 degrees turns through 0, not the long way. It **snaps** to the target (no animation) when: the shown value is

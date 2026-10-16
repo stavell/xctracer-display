@@ -114,6 +114,28 @@ project is and how to run it; this file says what we found and why things are th
   `host/orient_analyze.py` solves both mappings (self-tested on synthetic data) and prints the code to paste.
   First reading from the unit: accelerometer gravity along -z at rest in its current pose.
 
+- Gyro fusion and board mounting (2026-10-16, emulator only, NOT yet tried on the device): the LSM6DS33 gyro
+  runs at 104 Hz, +-500 dps, and is read in the same 14-byte burst as the accelerometer (the Adafruit
+  `getEvent` already reads temp+gyro+accel, so the gyro adds no bus time, only supply current, to be
+  measured). `core/ahrs` is a Mahony filter on a quaternion: gravity corrects roll/pitch (tau 1 s, ignored
+  when |a| is not within 12% of g), the horizontal field corrects the heading only, about the vertical axis
+  (tau 2 s; a field spike cannot tilt the attitude; magnitude and dip gates reject disturbed fields), gyro
+  bias from the PI integral and, faster, from a still-detector (two quiet 0.5 s windows: gyro std < 0.6 dps,
+  gravity and field directions unchanged), bounded to 12 dps; seeded from accel+mag at start and after a
+  gap > 0.5 s with gains x8 fading over 2 s. App: the fused heading is the MAG source, glide tau 30 ms with
+  the same 0.4 deg deadband; no gyro, or a frozen one (80 identical readings), falls back to the old
+  mag+accel path. Emulator numbers (80 Hz, gyro 0.1 dps rms + 1-2.7 dps bias, mag +-1 uT uniform noise,
+  48 uT / 60 deg dip): still box max heading error 0.19 deg over 60 s (tilt 0.08 deg); with the
+  magnetometer removed after learning, the heading drifts 0.1 deg in 60 s; 90 deg turn at 180 dps: max
+  error 0.34-0.43 deg during the turn; strong field spike: 0.1 deg heading, 0.05 deg tilt; a 25 deg field
+  twist for 3 s moves the heading but tilts nothing (0.06 deg). Mounting: the single hardcoded mapping
+  became two: per-chip fixed `toBoardAccel/toBoardMag` in `hw/compass_lis.cpp` (identity: no board docs in
+  the library folders, so the real chip axes are unknown) and the board -> case rotation, an index 0..23
+  (`core/mount.cpp`, stored in `/mount.bin`, `ctl.py orient`), applied to accel, gyro and mag in the app.
+  The hard-iron offset is stored in the device frame and is rotated along when the index changes.
+  `orient_analyze.py` now prints the index (and the toBoardMag fix if the two chips disagree).
+  To check on the device: the `cmp` line noise when still (`hdg`, `bias`), the turn response, supply current.
+
 ## Maths load (estimate, not yet measured on the device)
 
 - The Cortex-M4F has a single-precision FPU; `double` is software (about 10-30x slower). `double` is used in

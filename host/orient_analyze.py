@@ -4,7 +4,12 @@ During the session: hold the box (1) flat with the screen facing up, (2) upright
 the screen toward you, (3) on its left edge so the RIGHT edge points up (screen toward the right), about
 6 s each, then (4) turn it slowly through every direction for about 40 s.
 
-Output: the axis mapping for the accelerometer and the magnetometer, as code for src/hw/compass_lis.cpp.
+Output: the mounting index (0..23) of the board in the case, to set with `python ctl.py orient <index>`.
+The log is in the BOARD frame (the `cmp` status line, after the per-chip toBoard* functions in
+src/hw/compass_lis.cpp). The gyro is in the accelerometer chip, so the accelerometer decides the index. If
+the magnetometer chip turns out to be mounted differently from the accelerometer chip, the fix for
+toBoardMag is printed as well (compose it with the existing function if that is not the identity).
+The index table is the one in src/core/mount.cpp: --selftest checks that this file generates the same one.
   python orient_analyze.py orient.log
   python orient_analyze.py --selftest
 """
@@ -28,7 +33,8 @@ def load(path):
 
 
 def rotations():
-    """The 24 proper signed axis permutations (rotation matrices with entries 0, +1, -1)."""
+    """The 24 proper signed axis permutations (rotation matrices with entries 0, +1, -1), in the order of
+    the table in src/core/mount.cpp: the list index IS the mounting index. device = R @ board."""
     out = []
     for perm in itertools.permutations(range(3)):
         for signs in itertools.product((1, -1), repeat=3):
@@ -37,6 +43,29 @@ def rotations():
                 m[r, perm[r]] = signs[r]
             if round(np.linalg.det(m)) == 1:
                 out.append(m)
+    return out
+
+
+def mount_index(R):
+    """Index (0..23) of the rotation matrix R in the table."""
+    for i, m in enumerate(rotations()):
+        if np.array_equal(m, R):
+            return i
+    raise ValueError("not a proper signed axis permutation")
+
+
+def table_in_firmware():
+    """The table as written in src/core/mount.cpp, as rotation matrices."""
+    import os
+    src = open(os.path.join(os.path.dirname(__file__), "..", "firmware", "src", "core", "mount.cpp")).read()
+    body = src.split("MOUNT_TABLE_BEGIN")[1].split("MOUNT_TABLE_END")[0]
+    out = []
+    for p0, p1, p2, s0, s1, s2 in re.findall(r"\{\{(\d), (\d), (\d)\}, \{(-?\d), (-?\d), (-?\d)\}\}", body):
+        perm, signs = (int(p0), int(p1), int(p2)), (int(s0), int(s1), int(s2))
+        m = np.zeros((3, 3))
+        for r in range(3):
+            m[r, perm[r]] = signs[r]
+        out.append(m)
     return out
 
 
@@ -107,6 +136,7 @@ def analyze(acc, mag, verbose=True):
 
 
 def code_for(R, name):
+    """C++ for a chip -> board mapping (hw/compass_lis.cpp)."""
     axes = "xyz"
     lines = []
     for r in range(3):
@@ -114,6 +144,11 @@ def code_for(R, name):
         sign = "" if R[r, c] > 0 else "-"
         lines.append(f"v.{axes[r]} = {sign}{axes[c]};")
     return f"static Vec3 {name}(float x, float y, float z) {{ Vec3 v; " + " ".join(lines) + " return v; }"
+
+
+def chip_fix(Ra, Pm):
+    """Mapping to apply to the magnetometer so that it shares the accelerometer's board frame."""
+    return Ra.T @ Pm
 
 
 def synth(Ra_true, Pm_true, hard_iron, seed=1):
@@ -157,11 +192,18 @@ def synth(Ra_true, Pm_true, hard_iron, seed=1):
 
 def selftest():
     ok = True
+    fw = table_in_firmware()
+    tbl = rotations()
+    tab_ok = len(fw) == 24 and all(np.array_equal(a, b) for a, b in zip(fw, tbl))
+    print("table matches src/core/mount.cpp:", tab_ok)
+    ok &= tab_ok
+    ok &= len({m.tobytes() for m in tbl}) == 24 and all(round(np.linalg.det(m)) == 1 for m in tbl)
     for i, (Ra, Pm) in enumerate(itertools.product(rotations()[::5], rotations()[::7])):
         hi = np.array([12.0, -18.0, 7.0])
         acc, mag = synth(Ra, Pm, hi, seed=i)
         got_a, got_m, centre, radius, score = analyze(acc, mag, verbose=False)
-        good = np.allclose(got_a, Ra) and np.allclose(got_m, Pm) and np.allclose(centre, hi, atol=1.5)
+        good = (np.allclose(got_a, Ra) and np.allclose(got_m, Pm) and np.allclose(centre, hi, atol=1.5)
+                and mount_index(got_a) == mount_index(Ra) and np.allclose(Ra @ chip_fix(Ra, Pm), Pm))
         ok &= good
         if not good and i < 2:
             print("FAIL case", i, "\n", Ra, "\n", got_a, "\n", Pm, "\n", got_m, centre)
@@ -174,6 +216,8 @@ if __name__ == "__main__":
         sys.exit(0 if selftest() else 1)
     acc, mag = load(sys.argv[1])
     Ra, Pm, centre, radius, score = analyze(acc, mag)
-    print("\nPaste into firmware/src/hw/compass_lis.cpp:\n")
-    print(code_for(Ra, "toDeviceAccel"))
-    print(code_for(Pm, "toDeviceMag"))
+    idx = mount_index(Ra)
+    print(f"\nMounting index: {idx}   ->   python host/ctl.py orient {idx}")
+    if not np.array_equal(Ra, Pm):
+        print("\nThe magnetometer chip is not mounted like the accelerometer chip. In src/hw/compass_lis.cpp use:\n")
+        print(code_for(chip_fix(Ra, Pm), "toBoardMag"))

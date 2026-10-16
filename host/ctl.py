@@ -4,6 +4,7 @@
   python ctl.py sim on|off       built-in flight simulator (bench testing)
   python ctl.py page compass|thermal|profile|home   switch the page
   python ctl.py cal start|save|cancel  magnetometer calibration
+  python ctl.py orient 0..23     how the board sits in the case (host/orient_analyze.py finds the index)
   python ctl.py diag hang|off    diagnostics build only: hang the loop (watchdog test) / power off
 """
 import asyncio
@@ -12,6 +13,7 @@ import sys
 from display_link import DisplayLink, CMD_UUID
 
 CMD_SET_FILTER, CMD_SET_TZ, CMD_SIM, CMD_PAGE, CMD_CAL = 0x10, 0x11, 0x12, 0x14, 0x15
+CMD_SET_ORIENT = 0x16
 CMD_DIAG_HANG, CMD_DIAG_OFF = 0x70, 0x71
 
 
@@ -28,6 +30,11 @@ async def main():
         data = bytes([CMD_SIM, 1 if arg == "on" else 0])
     elif cmd == "cal":
         data = bytes([CMD_CAL, {"start": 1, "save": 2, "cancel": 0}[arg]])
+    elif cmd == "orient":
+        if not arg.isdigit() or not 0 <= int(arg) <= 23:
+            print(__doc__)
+            return
+        data = bytes([CMD_SET_ORIENT, int(arg)])
     elif cmd == "page":
         pages = ["compass", "thermal", "profile", "home"]
         if arg not in pages:

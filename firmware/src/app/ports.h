@@ -60,7 +60,7 @@ class ITracer {
 // Commands from the laptop (BLE peripheral). Heavy parsing stays out of the BLE callbacks:
 // they only copy the text into a queue, the app thread does the rest.
 struct Command {
-  enum Type { NONE, SIM, TZ, FILTER, XCTRC, PAGE, CAL, DIAG_HANG, DIAG_OFF } type = NONE;   // CAL: 1 start, 2 save, 0 cancel
+  enum Type { NONE, SIM, TZ, FILTER, XCTRC, PAGE, CAL, ORIENT, DIAG_HANG, DIAG_OFF } type = NONE;   // CAL: 1 start, 2 save, 0 cancel; ORIENT: mounting index 0..23
   int value = 0;
   char text[200] = "";
 };
@@ -80,15 +80,19 @@ class ISettings {
   virtual void setTzMinutes(int m) = 0;
   virtual bool loadMagCal(MagCal& out) = 0;          // false if none is stored
   virtual void saveMagCal(const MagCal& cal) = 0;
+  virtual int mountIndex() const = 0;                // board -> case rotation, 0..23 (core/mount.h); 0 if none stored
+  virtual void setMountIndex(int index) = 0;
 };
 
-// Accelerometer + magnetometer, already mapped to the device frame (x right of the screen, y top of the
-// screen, z out of the screen). Powered down unless enabled.
+// Accelerometer + magnetometer + gyro in the BOARD frame (the chips' own axes after the fixed per-chip
+// mapping in hw/); the app applies the case mounting (core/mount.h). Powered down unless enabled.
 class ICompass {
  public:
   virtual ~ICompass() {}
   virtual void enable(bool on) = 0;
-  virtual bool read(Vec3& accel, Vec3& mag) = 0;     // true when a new reading pair is available
+  // true when a new reading is available. accel m/s^2, mag uT, gyro rad/s; haveGyro is false when the gyro is
+  // absent or not yet running (gyro is then meaningless and the app uses the magnetic compass alone).
+  virtual bool read(Vec3& accel, Vec3& mag, Vec3& gyro, bool& haveGyro) = 0;
 };
 
 // Air temperature sensor, always on (the profile builds during the whole flight).

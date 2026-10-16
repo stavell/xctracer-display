@@ -52,7 +52,8 @@ Grey tones are an 8x8 ordered dither on the 1-bit panel.
   and airspeed after one full circle, and a Kalman filter refines it in between; the thermal map is drawn in the air-mass frame, so a thermal
   stays put while you drift. See [docs/MATH.md](docs/MATH.md).
 - **A compass that never goes away.** The magnetometer runs all the time with tilt compensation and a
-  hard-iron sphere-fit calibration; the heading switches between GPS track and magnetic with
+  hard-iron sphere-fit calibration; a gyro (Mahony filter) gives the instant response and the
+  magnetometer only corrects it slowly; the heading switches between GPS track and magnetic with
   hysteresis, and with no tracer at all the box is a standalone compass with temperature and humidity.
 - **Everything runs on the PC too.** The same core, view and app code builds into an emulator with
   address and undefined-behaviour sanitizers: over 113,000 test checks, screen renders (the pictures
@@ -80,8 +81,8 @@ Grey tones are an 8x8 ordered dither on the 1-bit panel.
 - Where DISP and EXTMODE are wired was never recorded. The display works, so they are presumably tied high.
 - VCOM is toggled at 1 Hz on EXTCOMIN by a FreeRTOS timer.
 - Only the user switch is used; the four front buttons planned earlier are not wired.
-- The on-board sensors (I2C 0x1C LIS3MDL magnetometer, 0x6A LSM6DS33 accelerometer) are used for the
-  magnetic compass only.
+- The on-board sensors (I2C 0x1C LIS3MDL magnetometer, 0x6A LSM6DS33 accelerometer and gyro) are used for
+  the compass only: the gyro gives the fast response, gravity and the horizontal magnetic field correct it.
 
 ## Using it
 
@@ -220,7 +221,7 @@ While a replay feeds the box it ignores the live tracer. After the replay stops,
 
 | Tool | Use |
 |---|---|
-| `ctl.py` | control the box: `filter 'XC*'` (scan name filter), `tz 180` (minutes from UTC), `sim on\|off` (built-in test flight), `page compass\|thermal`, `cal start\|save\|cancel` |
+| `ctl.py` | control the box: `filter 'XC*'` (scan name filter), `tz 180` (minutes from UTC), `sim on\|off` (built-in test flight), `page compass\|thermal`, `cal start\|save\|cancel`, `orient 0..23` (how the board sits in the case) |
 | `igc_replay.py` | replay an IGC file to the box as tracer lines (`--find`, `--start`, `--speed`, `--page`) |
 | `make_lines.py` | convert an IGC file or a tracer capture into line files for the emulator |
 | `xct_probe.py` | find the tracer over BLE, list its GATT table, log raw notifications (`[seconds] [name]`) |
@@ -239,9 +240,10 @@ While a replay feeds the box it ignores the live tracer. After the replay stops,
   reconnects by address. Reselect the tracer after a firmware change that alters the stored settings (the
   file is reset then).
 - **The tracer accepts one connection**: disconnect phone apps first.
-- **Heading is not trustworthy yet when it shows `MAG`**: the compass axis mapping
-  (`toDeviceAccel` and `toDeviceMag` in `firmware/src/hw/compass_lis.cpp`) is still identity. Use
-  `orient_log.py` and `orient_analyze.py` to derive it. `TRK` (GPS track) is not affected.
+- **Heading is not trustworthy yet when it shows `MAG`** until the board mounting is set: record a session
+  with `orient_log.py`, run `orient_analyze.py` on it and send the index it prints with
+  `ctl.py orient <index>` (stored in flash; the per-chip axes `toBoardAccel`/`toBoardMag` in
+  `firmware/src/hw/compass_lis.cpp` are still identity). `TRK` (GPS track) is not affected.
 - **Speed unit**: the tracer's speed is assumed to be km/h; this is unverified until a capture with a
   real GPS fix.
 - **Serial status line** (printed every 2 s, only when a terminal is attached):
@@ -250,6 +252,8 @@ While a replay feeds the box it ignores the live tracer. After the replay stops,
     timings in microseconds (`tick` worst loop pass, `refresh` panel transfer, and benchmark values).
   - `dev saved=NAME ADDR t<type> conn=ADDR`: the saved tracer and the one connected now.
   - `raw ...`: the last line received.
-  - `cmp`: compass sensors (`on`, `present`, accelerometer, magnetometer, heading, source 0 none 1 GPS
-    2 MAG, calibration valid).
+  - `cmp`: compass sensors (`on`, `present`, accelerometer, magnetometer, gyro in deg/s, heading, source
+    0 none 1 GPS 2 MAG, calibration valid, `orient` mounting index, `fused` 1 when the heading comes from
+    the gyro fusion, `bias` the learned gyro bias in deg/s). Accelerometer, magnetometer and gyro are in the
+    board frame (before the mounting index is applied).
 - Saved settings (tracer, time zone, calibration) live in the nRF's flash filesystem.

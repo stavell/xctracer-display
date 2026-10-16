@@ -28,6 +28,7 @@ static int failures = 0, checks = 0;
 #define CHECK(cond) do { checks++; if (!(cond)) { failures++; printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); } } while (0)
 #define NEAR(a, b, tol) CHECK(fabs((double)(a) - (double)(b)) <= (tol))
 #include "gfx_tests.h"
+#include "ahrs_tests.h"
 
 static const double D2R = 0.017453292519943295;
 
@@ -511,6 +512,70 @@ static void test_standalone_cadence() {
   run(4000);
   int after = presentsIn(1000);
   CHECK(after >= 2 && after <= 4);
+}
+
+static void test_app_fusion() {
+  puts("app: gyro fusion source, fallback and mounting");
+  auto mk = [](Rig& r) { r.compass.psi = 123; r.compass.pitch = 10; r.compass.roll = -5; };
+  // no gyro: the magnetic compass alone, as before
+  { Rig r; mk(r);
+    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    app.begin(0);
+    uint32_t now = 0;
+    for (; now < 3000; now += 10) app.tick(now);
+    CHECK(!app.fused());
+    NEAR(angDiff(app.buildViewModel(now).heading, 123), 0, 1.0); }
+  // gyro present: fused, steady, and the redraw cadence drops once the dial has settled
+  { Rig r; mk(r); r.compass.gyro = true;
+    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    app.begin(0);
+    uint32_t now = 0;
+    for (; now < 8000; now += 10) app.tick(now);
+    CHECK(app.fused());
+    NEAR(angDiff(app.buildViewModel(now).heading, 123), 0, 1.0);
+    int b = r.panel.presents;
+    for (uint32_t e = now + 1000; now < e; now += 10) app.tick(now);
+    int idle = r.panel.presents - b;
+    printf("  fused, still: %d presents in 1 s\n", idle);
+    CHECK(idle >= 2 && idle <= 4); }
+  // a frozen gyro: back to the compass alone, heading still right
+  { Rig r; mk(r); r.compass.gyro = true; r.compass.gyroNoise = 0;
+    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    app.begin(0);
+    uint32_t now = 0;
+    for (; now < 4000; now += 10) app.tick(now);
+    CHECK(!app.fused());
+    NEAR(angDiff(app.buildViewModel(now).heading, 123), 0, 1.0); }
+  // mounting: the data arrives in the board frame; the command selects the index and it is stored
+  { Rig r; mk(r); r.compass.gyro = true; r.compass.boardMount = 13;
+    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    app.begin(0);
+    uint32_t now = 0;
+    auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
+    run(3000);
+    CHECK(angErr(app.buildViewModel(now).heading, 123) > 5.0f || !app.fused());   // wrong mounting: wrong or no heading
+    Command c; c.type = Command::ORIENT; c.value = 13; r.laptop.cmds.push_back(c);
+    run(4000);
+    CHECK(app.mountIndex() == 13 && r.settings.mount == 13);
+    CHECK(app.fused());
+    NEAR(angDiff(app.buildViewModel(now).heading, 123), 0, 1.0);
+    Command bad; bad.type = Command::ORIENT; bad.value = 99; r.laptop.cmds.push_back(bad);
+    run(100);
+    CHECK(app.mountIndex() == 13); }
+  // the stored hard-iron offset follows a change of mounting
+  { Rig r; r.settings.cal.valid = true; r.settings.hasCal = true;
+    r.settings.cal.off[0] = 10; r.settings.cal.off[1] = -20; r.settings.cal.off[2] = 30; r.settings.cal.radius = 45;
+    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    app.begin(0);
+    Command c; c.type = Command::ORIENT; c.value = 7; r.laptop.cmds.push_back(c);
+    for (uint32_t now = 0; now < 100; now += 10) app.tick(now);
+    Vec3 o; o.x = 10; o.y = -20; o.z = 30;
+    o = mountRemap(0, 7, o);
+    NEAR(r.settings.cal.off[0], o.x, 1e-4); NEAR(r.settings.cal.off[1], o.y, 1e-4); NEAR(r.settings.cal.off[2], o.z, 1e-4); }
+  // the command decoder accepts only valid indices
+  { Command c; uint8_t ok[2] = {CMD_SET_ORIENT, 23}, no[2] = {CMD_SET_ORIENT, 24};
+    CHECK(decodeCommand(ok, 2, c) && c.type == Command::ORIENT && c.value == 23);
+    CHECK(!decodeCommand(no, 2, c)); }
 }
 
 static void test_home() {
@@ -1472,9 +1537,12 @@ int main() {
   test_heading_selector();
   test_heading_smoother();
   test_compass_chain();
+  test_ahrs();
+  test_mount();
   test_button();
   test_app();
   test_app_heading();
+  test_app_fusion();
   test_app_anim_cadence();
   test_ambient();
   test_standalone_cadence();

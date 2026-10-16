@@ -10,6 +10,8 @@ class ConfigStore : public ISettings {
   void setTzMinutes(int m) override { sv_.tz = (int16_t)m; save(); }
   bool loadMagCal(MagCal& out) override;
   void saveMagCal(const MagCal& cal) override;
+  int mountIndex() const override { return mount_; }
+  void setMountIndex(int index) override;
 
   const char* filter() const { return sv_.filter; }
   void setFilter(const char* glob);
@@ -31,4 +33,5 @@ class ConfigStore : public ISettings {
   };
   void save();
   Saved sv_;
+  int mount_ = 0;                                 // own file (/mount.bin): changing it never resets the tracer
 };

@@ -62,6 +62,29 @@ bool Compass::finishCalibration(bool keep) {
   return true;
 }
 
+bool compassBasis(const Vec3& a, const Vec3& m, Vec3& e, Vec3& n, Vec3& u) {
+  float g = sqrtf(a.x * a.x + a.y * a.y + a.z * a.z);
+  if (!(g > 1e-3f)) return false;
+  u.x = a.x / g; u.y = a.y / g; u.z = a.z / g;            // unit vector pointing up (else east and north differ in scale)
+  // east = m x up, north = up x east
+  e.x = m.y * u.z - m.z * u.y;
+  e.y = m.z * u.x - m.x * u.z;
+  e.z = m.x * u.y - m.y * u.x;
+  float el = sqrtf(e.x * e.x + e.y * e.y + e.z * e.z);
+  if (!(el > 1e-3f)) return false;                        // field parallel to gravity (or none)
+  e.x /= el; e.y /= el; e.z /= el;
+  n.x = u.y * e.z - u.z * e.y;
+  n.y = u.z * e.x - u.x * e.z;
+  n.z = u.x * e.y - u.y * e.x;
+  return true;
+}
+
+Vec3 Compass::corrected(const Vec3& m) const {
+  Vec3 c = m;
+  if (cal_.valid) { c.x -= cal_.off[0]; c.y -= cal_.off[1]; c.z -= cal_.off[2]; }
+  return c;
+}
+
 void Compass::update(const Vec3& a, const Vec3& m, uint32_t nowMs) {
   if (!isfinite(a.x) || !isfinite(a.y) || !isfinite(a.z) || !isfinite(m.x) || !isfinite(m.y) || !isfinite(m.z)) return;
   float raw[3] = {m.x, m.y, m.z};
@@ -75,8 +98,7 @@ void Compass::update(const Vec3& a, const Vec3& m, uint32_t nowMs) {
       if (raw[i] > mx_[i]) mx_[i] = raw[i];
     }
   }
-  Vec3 c = m;                                              // hard-iron offset
-  if (cal_.valid) { c.x -= cal_.off[0]; c.y -= cal_.off[1]; c.z -= cal_.off[2]; }
+  Vec3 c = corrected(m);                                   // hard-iron offset
   if (!seeded_) { a_ = a; m_ = c; seeded_ = true; lastMs_ = nowMs; }
   else {
     // exponential low-pass by elapsed time, so the response does not depend on the sensor rate
@@ -92,13 +114,10 @@ void Compass::update(const Vec3& a, const Vec3& m, uint32_t nowMs) {
   // not a usable gravity reading (freefall or hard acceleration), or no field at all
   if (!(g > 6.0f && g < 14.0f) || !(field_ > 5.0f)) { valid_ = false; return; }
 
-  // east = m x up, north = up x east; the top of the screen (y) has azimuth atan2(east_y, north_y)
-  float ux = a_.x / g, uy = a_.y / g, uz = a_.z / g;      // unit vector pointing up (else east and north differ in scale)
-  float ex = m_.y * uz - m_.z * uy;
-  float ey = m_.z * ux - m_.x * uz;
-  float ez = m_.x * uy - m_.y * ux;
-  float ny = uz * ex - ux * ez;
-  float h = atan2f(ey, ny) * R2D;
+  Vec3 e, n, u;
+  if (!compassBasis(a_, m_, e, n, u)) { valid_ = false; return; }
+  // the top of the screen (y) has azimuth atan2(east_y, north_y)
+  float h = atan2f(e.y, n.y) * R2D;
   if (h < 0) h += 360;
   heading_ = h;
   valid_ = true;

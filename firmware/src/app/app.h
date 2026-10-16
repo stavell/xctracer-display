@@ -1,5 +1,6 @@
 #pragma once
 #include "app/ports.h"
+#include "core/ahrs.h"
 #include "core/compass.h"
 #include "core/flight.h"
 #include "core/heading.h"
@@ -14,7 +15,8 @@ struct AppConfig {
   uint32_t drawEveryMs = 333;        // live screen redraw cadence (3 Hz, the tracer's data rate)
   uint32_t animCompassEveryMs = 33;  // compass page and standalone compass while the dial glides (30 fps)
   float gpsGlideTauMs = 250.0f;      // dial glide for the GPS track (about 3 updates per second)
-  float magGlideTauMs = 90.0f;       // dial glide for the magnetic compass (sensor already filtered, 80 Hz)
+  float magGlideTauMs = 90.0f;       // dial glide for the magnetic compass alone (sensor already filtered, 80 Hz)
+  float fusedGlideTauMs = 30.0f;     // dial glide for the gyro-fused heading (already smooth: nearly pass-through)
   float magDeadbandDeg = 0.4f;       // compass target only moves beyond this, or after magDeadbandHoldMs of drift
   uint32_t magDeadbandHoldMs = 300;
   uint32_t animEveryMs = 50;         // redraw cadence while the dial is still gliding (compass, home)
@@ -42,6 +44,9 @@ class App {
   bool calibrating() const { return calibrating_; }
   bool compassOn() const { return compassOn_; }
   const Compass& compass() const { return compass_; }
+  const Ahrs& ahrs() const { return ahrs_; }
+  bool fused() const { return fused_; }                     // the compass heading comes from the gyro fusion
+  int mountIndex() const { return mount_; }
   const char* lastRaw() const { return lastRaw_; }          // last line received, parsed or not (diagnostics)
   void describeTracer(char* buf, size_t n) const { tracer_.describe(buf, n); }
   const ViewModel& buildViewModel(uint32_t nowMs);   // fills and returns the member (it is far too big for the stack)
@@ -79,6 +84,12 @@ class App {
 
   char lastRaw_[100] = "";
   Compass compass_;
+  Ahrs ahrs_;                        // gyro + accel + mag fusion; the heading source when a gyro is present
+  int mount_ = 0;                    // board -> case rotation (core/mount.h), loaded from the settings
+  bool fused_ = false;               // this tick's compass heading is the fused one
+  uint32_t gyroMs_ = 0;
+  bool haveGyro_ = false;
+  bool smoothFused_ = false;         // smoother is currently tuned for the fused heading
   bool compassOn_ = false;
   HeadingSelector heading_;          // GPS track or magnetic compass, whichever applies
   HeadingSource smoothSrc_ = HDG_NONE;   // source the smoother is currently tuned for
