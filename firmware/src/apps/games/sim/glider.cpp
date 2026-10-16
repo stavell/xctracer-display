@@ -24,8 +24,8 @@ float Polar::sinkKmh(float kmh) {
 
 float Polar::sink(float kmh, float n) {
   if (n < 1.0f) n = 1.0f;
-  const float s = sqrtf(n);
-  return s * sinkKmh(kmh / s);
+  const float v = (kmh < 20.0f ? 20.0f : kmh) * kKmh2Ms;
+  return sinkKmh(kmh) + (n * n - 1.0f) * kInduced / v;
 }
 
 float Polar::bestGlideKmh(float* ratio) {

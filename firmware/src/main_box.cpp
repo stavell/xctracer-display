@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <bluefruit.h>
+#include "apps/games/sim/sim_app.h"
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/settings/settings_app.h"
@@ -52,7 +53,7 @@ static AppConfig appConfig(bool tool) {
   return c;
 }
 // App indices in the host; the home screen lists all but itself.
-enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER };
+enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM };
 
 static App app(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig(false));
 static VarioApp varioApp(app);
@@ -68,6 +69,7 @@ struct TetrisScores : IScoreStore {
 };
 static TetrisScores scores;
 static TetrisApp tetrisApp;
+static sim::SimApp simApp;                  // the map pack reader (QSPI) is not wired yet: it says so and goes home
 static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);
 static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, FW_VERSION);
 
@@ -102,6 +104,7 @@ void setup() {
   host.add(compassApp);
   host.add(settingsApp);
   host.add(launcher);
+  host.add(simApp);
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&probe);
   host.setRotation(DISPLAY_ROTATION);
@@ -110,6 +113,7 @@ void setup() {
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
   registry.add("Settings", "setup", "compass, mounting, time, about", APP_SETTINGS, ICON_SETTINGS, false);
+  registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
   const int boot = registry.startupApp(keys);
   if (boot != APP_VARIO) tracer.pause();      // the vario is not the first app: do not scan until it is opened
   host.start(boot, millis());

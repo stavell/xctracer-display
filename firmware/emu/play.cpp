@@ -3,6 +3,8 @@
 // white). The host draws only when the active app asks for a frame.
 //
 //   build.sh play tetris [--scale 2] [--plain] [--seed N]       Tetris alone (no launcher)
+//   build.sh play sim [--pack FILE] [--scale 2]                  the flight simulator alone (needs a map pack; default the
+//                                                               Bulgaria pack of the study if it exists, else the Sopot fixture)
 //   build.sh play box [--igc f.igc --start S --speed N] [--lines f.txt] [--sim] [--battery P] [--temp C]
 //                                                               the whole box: launcher + vario + Tetris + compass
 //   --pack FILE          map pack for the vario's AGL and map page (default: the Bulgaria pack of the terrain study if
@@ -36,6 +38,7 @@
 #include <string.h>
 #include <string>
 #include <vector>
+#include <memory>
 #include "box.h"
 
 static const int LW = 240, LH = 400;
@@ -154,6 +157,8 @@ struct Machine {
   virtual void boot(uint32_t now) = 0;
   virtual void restart(uint32_t now) = 0;
   virtual Rig* rig() { return nullptr; }              // the mock hardware, box only
+  virtual sim::SimApp* flightSim() { return nullptr; }   // the flight simulator, if this machine has one
+  virtual MockTilt* tilt() { return nullptr; }
 };
 
 struct TetrisMachine : Machine {
@@ -200,10 +205,35 @@ struct PackHolder {
   }
 };
 
+// The flight simulator alone: no launcher (the pause menu's Home does nothing), same host and same fixed-step loop.
+struct SimMachine : Machine {
+  MockPanel p;
+  MockInput in;
+  PackHolder pack;
+  MockTilt tl;
+  std::unique_ptr<sim::SimApp> app{new sim::SimApp};
+  AppHost h;
+  explicit SimMachine(const std::string& packSpec) : h(p, in) {
+    if (pack.load(packSpec)) {
+      app->setTerrain(&pack.kit->terrain);
+      printf("terrain: %s (%zu bytes)\n", pack.loaded.c_str(), pack.bytes.size());
+    }
+    app->setTilt(&tl);
+    h.add(*app);
+  }
+  MockPanel& panel() override { return p; }
+  MockInput& input() override { return in; }
+  AppHost& host() override { return h; }
+  void boot(uint32_t now) override { h.start(0, now); }
+  void restart(uint32_t now) override { h.start(0, now); }
+  sim::SimApp* flightSim() override { return app.get(); }
+  MockTilt* tilt() override { return &tl; }
+};
+
 struct BoxMachine : Machine {
   Box b;
   PackHolder pack;
-  BoxMachine(uint32_t seed, const std::string& packSpec) : b(seed) {
+  BoxMachine(uint32_t seed, const std::string& packSpec) : b(seed, true) {
     if (pack.load(packSpec)) {
       b.setTerrain(pack.kit);
       printf("terrain: %s (%zu bytes)\n", pack.loaded.c_str(), pack.bytes.size());
@@ -215,6 +245,8 @@ struct BoxMachine : Machine {
   void boot(uint32_t now) override { b.boot(now); }
   void restart(uint32_t now) override { b.boot(now); }   // R: power-cycle into the start-up app
   Rig* rig() override { return &b.r; }
+  sim::SimApp* flightSim() override { return b.flightSim.get(); }
+  MockTilt* tilt() override { return &b.tilt; }
 };
 
 static std::vector<std::string> loadLines(const Args& a) {
@@ -373,7 +405,10 @@ static const char* kHelp =
     "Keys:  arrows = D-pad      X = A      Z = B      Space = up (Tetris hard drop)\n"
     "       Enter / Esc = the user switch (hold it: 0.7-1.5 s long press, 3 s hold; the title shows the time)\n"
     "       A + B held 1.5 s = back to the launcher      , and . or the mouse wheel = turn the compass\n"
-    "       C = Tetris hold piece (a 0.46 s press of the switch)    R = restart    Q or close the window = quit\n";
+    "       C = Tetris hold piece (a 0.46 s press of the switch)    R = restart    Q or close the window = quit\n"
+    "Flight sim (game mode, 50 fps): LEFT/RIGHT bank, UP speed bar, DOWN brake, X (A) = map / 3D view, Z (B) or Esc = pause menu\n"
+    "       (resume, view, assist, site, controls, zero tilt, new flight, home); after landing X = new flight\n"
+    "       T = tilt steering with the mouse (x = roll, y = pitch, top of the window = top away = speed bar); T again = buttons\n";
 
 static int runWindow(Machine& m, World& w, Args& a) {
   if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -399,12 +434,20 @@ static int runWindow(Machine& m, World& w, Args& a) {
   uint32_t lastTick = now, fpsAt = now, titleAt = 0;
   int shownPresents = -1, fpsBase = m.panel().presents, fps = 0;
   uint32_t releaseMainAt = 0;                         // pending end of the C "long press"
+  double workMax = 0, workShown = 0;                  // slowest host tick (ms) in the last second
+  bool tiltOn = false;                                // T: the mouse is the box tilt
   bool running = true;
   while (running) {
     now = SDL_GetTicks();
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_QUIT) running = false;
+      if (e.type == SDL_MOUSEMOTION && tiltOn && m.tilt()) {
+        int ww = 1, wh = 1;
+        SDL_GetWindowSize(win, &ww, &wh);
+        m.tilt()->roll = ((float)e.motion.x / ww - 0.5f) * 90.0f;     // window edge = 45 degrees
+        m.tilt()->pitch = (0.5f - (float)e.motion.y / wh) * 60.0f;    // top of the window = 30 degrees top away
+      }
       if (e.type == SDL_MOUSEWHEEL) w.heading = fmod(w.heading + (e.wheel.y > 0 ? 5 : -5) + 360, 360);
       if (e.type != SDL_KEYDOWN && e.type != SDL_KEYUP) continue;
       bool down = e.type == SDL_KEYDOWN;
@@ -434,6 +477,20 @@ static int runWindow(Machine& m, World& w, Args& a) {
             releaseMainAt = now + TetrisApp::LONG_PRESS_MS + 60;
           }
           break;
+        case SDLK_t:
+          if (down && m.tilt() && m.flightSim()) {
+            tiltOn = !tiltOn;
+            m.tilt()->on = tiltOn;
+            if (tiltOn) {
+              int mx, my, ww, wh;
+              SDL_GetMouseState(&mx, &my);
+              SDL_GetWindowSize(win, &ww, &wh);
+              m.tilt()->roll = ((float)mx / ww - 0.5f) * 90.0f;
+              m.tilt()->pitch = (0.5f - (float)my / wh) * 60.0f;
+            }
+            m.flightSim()->setControl(tiltOn ? sim::SimApp::Control::TILT : sim::SimApp::Control::BUTTONS);
+          }
+          break;
         case SDLK_r: if (down) m.restart(now); break;
         case SDLK_q: running = false; break;
         default: break;
@@ -444,10 +501,13 @@ static int runWindow(Machine& m, World& w, Args& a) {
       m.input().setKey(KEY_MAIN, false, now);
       releaseMainAt = 0;
     }
-    if (now - lastTick >= TICK_MS) {                  // the device loop: tick, then wait ~10 ms
+    if (now - lastTick >= (m.host().gameMode() ? 1u : TICK_MS)) {   // the device loop: tick, then wait 10 ms (1 ms in game mode)
       lastTick = now;
       w.tick(m.rig(), now);
+      const uint64_t c0 = SDL_GetPerformanceCounter();
       m.host().tick(now);
+      const double ms = (SDL_GetPerformanceCounter() - c0) * 1000.0 / (double)SDL_GetPerformanceFrequency();
+      if (ms > workMax) workMax = ms;
     }
     int p = m.panel().presents;
     if (p != shownPresents) {                         // the host presented a frame
@@ -459,6 +519,8 @@ static int runWindow(Machine& m, World& w, Args& a) {
       SDL_RenderPresent(ren);
     }
     if (now - fpsAt >= 1000) {
+      workShown = workMax;
+      workMax = 0;
       fps = m.panel().presents - fpsBase;
       fpsBase = m.panel().presents;
       fpsAt = now;
@@ -469,11 +531,15 @@ static int runWindow(Machine& m, World& w, Args& a) {
       uint32_t held = m.input().heldMs(now);
       const char* nm = m.host().active() ? m.host().active()->name() : "-";
       int n = snprintf(t, sizeof t, "%s: %s  %d fps", a.app.c_str(), nm, fps);
+      if (m.host().gameMode()) {
+        const FrameStats& st = m.host().stats();
+        n += snprintf(t + n, sizeof t - n, "  gap max %u ms  work max %.1f ms  late %u", st.worstGapMs, workShown, st.dropped);
+      }
       if (m.rig()) n += snprintf(t + n, sizeof t - n, "  hdg %03.0f", w.heading);
       if (held > 0) snprintf(t + n, sizeof t - n, "  MAIN %.1f s%s", held / 1000.0, held >= 3000 ? " HOLD" : held >= 1500 ? " (cancel zone)" : held >= 700 ? " LONG" : "");
       SDL_SetWindowTitle(win, t);
     }
-    SDL_Delay(2);
+    SDL_Delay(m.host().gameMode() ? 1 : 2);
   }
   SDL_DestroyTexture(tex);
   SDL_DestroyRenderer(ren);
@@ -514,8 +580,9 @@ int main(int argc, char** argv) {
   Machine* m = nullptr;
   if (a.app == "tetris") m = new TetrisMachine(seed);
   else if (a.app == "box") m = new BoxMachine(seed, a.pack);
+  else if (a.app == "sim") m = new SimMachine(a.pack);
   else {
-    fprintf(stderr, "unknown app '%s' (known: tetris, box)\n", a.app.c_str());
+    fprintf(stderr, "unknown app '%s' (known: tetris, box, sim)\n", a.app.c_str());
     return 2;
   }
   World w;

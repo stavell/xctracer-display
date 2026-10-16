@@ -57,6 +57,21 @@ void drawIcon(const Bitmap1& bm, IconId id, int x, int y, DrawMode ink) {
       }
       break;
     }
+    case ICON_SIM: {                                      // a paraglider wing seen from the front, above a ridge line
+      for (int i = -22; i <= 22; i++) {                   // canopy: an arch, two pixels thick
+        const int hh = 14 - (i * i) / 36;
+        bm.vspan(cx + i, y + 6 + (14 - hh), 3, ink);
+      }
+      line(bm, cx - 22, y + 20, cx - 3, y + 33, ink);     // lines to the pilot
+      line(bm, cx + 22, y + 20, cx + 3, y + 33, ink);
+      line(bm, cx, y + 8, cx, y + 33, ink);
+      fillDisc(bm, cx, y + 35, 3, ink);
+      for (int i = 0; i < 48; i++) {                      // the ridge
+        const int rh = 6 + (int)(5 * sinf(i * 0.25f) + 3 * sinf(i * 0.7f));
+        bm.vspan(x + i, y + 47 - rh, rh + 1, ink);
+      }
+      break;
+    }
     case ICON_GENERIC: {                                  // a plain rounded square with a dot
       bm.fillRect(x + 4, y + 4, 40, 40, ink);
       bm.fillRect(x + 7, y + 7, 34, 34, paper);

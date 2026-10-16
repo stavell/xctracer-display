@@ -3,8 +3,9 @@
 //
 //   Polar: still-air sink against airspeed, a table with linear interpolation (km/h -> m/s down). Wing loaded
 //   so that trim is 37 km/h, minimum sink 1.10 m/s at 33 km/h, full speed bar 52 km/h at 2.20 m/s.
-//   Turn: coordinated, omega = g tan(bank) / V. The load factor n = 1 / cos(bank) raises the sink the usual way:
-//   sink(V, n) = sqrt(n) * sink(V / sqrt(n)), and the stall speed by sqrt(n).
+//   Turn: coordinated, omega = g tan(bank) / V. The load factor n = 1 / cos(bank) adds induced drag, which grows with
+//   n squared: sink(V, n) = sink(V) + (n^2 - 1) * 7.5 / V (V in m/s), about +30 % in a 35 degree turn at trim speed;
+//   the stall speed rises by sqrt(n).
 //   Roll: the real bank follows the commanded bank with a first-order lag (the pendulum, 0.4 s).
 //   Speed: the target airspeed is trim + bar * (max - trim) - brake * (trim - slow); the airspeed follows it with
 //   a lag of 1.2 s. Below the stall speed (26 km/h * sqrt(n)) the wing stalls: heavy sink, the warning flag, and
@@ -18,7 +19,8 @@ struct Polar {
   static constexpr float kMinSinkKmh = 33.0f;
   static constexpr float kTrimKmh = 37.0f;
   static constexpr float kBarKmh = 52.0f;       // full speed bar
-  static constexpr float kSlowKmh = 29.0f;      // full brake (still flying)
+  static constexpr float kSlowKmh = 28.0f;      // full brake (still flying; in a turn the stall speed rises above it)
+  static constexpr float kInduced = 7.5f;       // induced-drag constant: extra sink in a turn = (n^2 - 1) * kInduced / V (V in m/s)
   // Still-air sink (m/s, positive down) at 1 g for an airspeed in km/h; clamped to the table's ends.
   static float sinkKmh(float kmh);
   // Sink at load factor n.
@@ -34,7 +36,7 @@ struct Controls {
 };
 
 struct Glider {
-  static constexpr float kMaxBank = 40.0f * kDeg2Rad;    // at full stick
+  static constexpr float kMaxBank = 35.0f * kDeg2Rad;    // at full stick
   static constexpr float kRollTau = 0.4f;                // pendulum / roll lag, s
   static constexpr float kSpeedTau = 1.2f;
   static constexpr float kStallSink = 5.5f;              // m/s while stalled
