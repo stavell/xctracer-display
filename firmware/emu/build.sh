@@ -15,6 +15,7 @@ grep -v "define pgm_read_pointer" "$G/Adafruit_GFX.cpp" > out/Adafruit_GFX_host.
 V=../src/apps/vario
 P=../src/platform
 T=../src/apps/games/tetris
+TERRAIN="$P/terrain/crc32.cpp $P/terrain/tile_codec.cpp $P/terrain/terrain.cpp $P/terrain/relief.cpp $P/terrain/map_vectors.cpp"
 TETRIS="$T/tetris.cpp $T/tetris_view.cpp $T/tetris_app.cpp"
 GFX="$P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp"
 if [ "$1" = "play" ]; then
@@ -25,17 +26,20 @@ if [ "$1" = "play" ]; then
   exec out/play "$@"
 fi
 SRC="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $V/app/command_decode.cpp
-     $TETRIS $V/view/screens.cpp $V/view/prof.cpp $V/app/app.cpp out/Adafruit_GFX_host.cpp"
+     $TETRIS $TERRAIN $V/view/screens.cpp $V/view/prof.cpp $V/app/app.cpp out/Adafruit_GFX_host.cpp"
 FLAGS="-std=c++17 -g -O1 -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I.
        -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all"
 c++ $FLAGS -I"$G" $SRC emu_main.cpp -o out/emu
 c++ $FLAGS -I"$G" $SRC tests.cpp -o out/tests
+# Map page preview tool: hillshade + contours + roads + towns from a map pack (no sanitizers, it is a render tool)
+c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -Istubs -I../src -I. -I"$G" $GFX $TERRAIN terrain_demo.cpp -o out/terrain_demo
 if [ "$1" = "replay" ]; then shift; exec out/emu replay "$@"; fi
 if [ "$1" = "count" ]; then shift; exec out/emu count "${1:-out}" "${2:-1}"; fi
 if [ "$1" = "wind" ]; then shift; exec out/emu wind "$@"; fi
 if [ "$1" = "soak" ]; then shift; exec out/emu soak "$@"; fi
 out/tests
 out/emu shots out ${ROT:-1}
+out/terrain_demo fixtures/sopot.pack 42.62 24.85 0 100 out/terrain_sopot.pgm
 ../../.venv/bin/python - <<'PY'
 from PIL import Image
 import glob, os

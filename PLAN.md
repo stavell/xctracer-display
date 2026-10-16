@@ -139,3 +139,15 @@ host owns clear/present/anim pacing) and let `AppHost` poll the switch and call 
 and settings UI; (3) the `console` env (`main_console.cpp`, `apps/games`, `apps/tools`; a commented
 placeholder is in platformio.ini); (4) move the mag-cal and mount-index storage out of `ConfigStore` /
 `ISettings` into a platform settings store, leaving the tracer filter and saved device in the vario.
+
+## Terrain and map (study 2026-10-16, step 1 done)
+
+**Done (step 1):** map pack format + writer (`host/terrain/mkmappack.py`, `FORMAT.md`), pure code in `firmware/src/platform/terrain/`
+(IBlockReader port, `Terrain` elevation/ceiling/hillshade/contours, `MapVectors` towns + roads), tests in
+`firmware/emu/terrain_tests.h` (fixture `firmware/emu/fixtures/sopot.pack`), real pack 1.72 MB, preview renders.
+**Next:** (2) AGL cell on the vario page (`elevation`/`ceiling` under the GPS fix, margin for the 6.6 m RMS / 80 m worst mean
+error, ceiling for "terrain above me"; a stale or missing value prints `--`); (3) map page in `apps/vario/view` (relief bands into
+a grey buffer, dither, contours, `RoadIter` + `TownIter` overlay, Latin names first, Cyrillic needs the glyph atlas),
+redraw only on position/heading change; (4) box player integration (pack file in the emulator via `MemReader`);
+(5) QSPI driver (`IBlockReader` on the nRF52840 QSPI, XIP option) and loading the pack over USB or BLE with
+`Terrain::verifyAll()` after the transfer.

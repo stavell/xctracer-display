@@ -299,6 +299,46 @@ sites were dropped from scope.
 
 ## Files
 
-`tlib.py` (grid, mosaic, IGC reader, sampling) · `codec.py` (tile codecs, sizes, encoder) · `study_*.py`, `show_*.py`
+`mkmappack.py` + `FORMAT.md` (the device pack) · `tlib.py` (grid, mosaic, IGC reader, sampling) · `codec.py` (tile codecs, sizes, encoder) · `study_*.py`, `show_*.py`
 (tables) · `mkterrain.py` (the file format) · `tdec.h`, `tdec_test.c`, `roundtrip.py` (C decoder + round trip) · `render.py`
 (hillshade PNGs) · `osm_*.py` (vector layers) · `img/` (small renders).
+
+## Building a map pack (`mkmappack.py`) - the format the firmware reads
+
+`mkmappack.py` replaces `mkterrain.py` for anything that goes on the device: one file holding the 200 m mean DEM,
+the 500 m MAX layer, towns/cities (Latin and Cyrillic names, population class), main roads and the attribution
+strings, all CRC-protected. Format: `FORMAT.md`. Reader: `firmware/src/platform/terrain/` (`Terrain`, `MapVectors`).
+
+    cd host/terrain
+    TV=/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain
+    $TV/venv/bin/python mkmappack.py $TV/bulgaria.pack                  # the real pack, about 1 s from the cached grids
+    $TV/venv/bin/python mkmappack.py OUT.pack --bbox 42.35 42.85 24.40 25.10 --ref OUT.ref.txt    # a test fixture
+
+Options: `--bbox S N W E` restricts every section to a rectangle (fixtures); `--ref F` writes the reference values the C++
+tests compare against (400 bilinear/cell-max queries from an independent Python decode of the quantised grids, every
+town, every encoded polyline); `--dp M` road simplification (50 m); `--secondary` adds secondary roads (class 3, +37 kB);
+`--no-roads`. It needs the study data in `tlib.DATA` (`grid_200_average.npy`, `grid_500_max.npy`, `roi_*.npy`,
+`osm/bg.pkl`; `fetch.py`, `osm_extract.py` make them) and the venv (numpy, numba, shapely).
+
+The test fixture `firmware/emu/fixtures/sopot.pack` (59 kB, Karlovo/Sopot/Kalofer and the Stara Planina ridge) and
+its `sopot.ref.txt` are checked in; regenerate with the second command above if the format changes.
+The emulator tests run on it; with `TERRAIN_PACK=<real pack> firmware/emu/out/tests` the real pack is opened too, and
+`firmware/emu/out/terrain_demo PACK bench` prints decode timing; `terrain_demo PACK LAT LON HEADING M_PER_PX OUT.pgm`
+renders a window (hillshade + contours + roads + towns).
+
+### The real pack (Bulgaria + 10 km, `bulgaria.pack` in the data directory)
+
+| | bytes |
+|---|---|
+| header | 192 |
+| DEM mean 200 m (desc 48, index 14,115, tile CRCs 18,816, data 1,420,693 in 3,386 coded tiles) | 1,453,672 |
+| DEM max 500 m (desc 48, index 2,349, tile CRCs 3,128, data 221,735 in 575 coded tiles) | 227,260 |
+| towns (256, both names) | 8,546 |
+| roads (2,067 polylines, 378 blocks) | 34,716 |
+| strings | 266 |
+| **total** | **1,724,652** (82.2 % of 2 MiB; 372,500 B spare) |
+
+Renders from the pack through the firmware code (`img/map_pack_sopot_100mpp.png`, `img/map_pack_rila_100mpp.png`, 240x400, 1 bit,
+2x enlarged): hillshade in the "light" style (flat ground white, steep faces down to level 10 of 16, 1.5x exaggeration,
+quieter on gentle slopes) with contour lines every 200 m at 100 m/px (index contours every 5th, drawn 2 px), roads with a
+white casing, towns with white-haloed Latin names.

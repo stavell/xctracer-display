@@ -380,3 +380,34 @@ feed the result to the view (`ViewModel::mapLive/mapCx/mapCy/mapHdg/mapScale`). 
   horizontal stripes; the 2 px dark bottom-right edge is the bevel. Distinct hashes are a test.
 - SDL: define `SDL_MAIN_HANDLED` (no SDL2main on the link line from `sdl2-config --libs`). The player converts
   the native buffer to RGB through `Bitmap1::getPixel`, so the rotation mapping is the device's.
+
+## Terrain and map pack, step 1 (2026-10-16, pure code + host tool)
+
+- `host/terrain/mkmappack.py` writes ONE file (format in `host/terrain/FORMAT.md`): header with CRCs, 200 m mean DEM,
+  500 m MAX layer, towns (Latin + Cyrillic UTF-8, population class), main roads, attribution strings. Bulgaria + 10 km:
+  **1,724,652 B** (mean 1,453,672, max 227,260, towns 8,546, roads 34,716, strings 266, header 192); 372 kB spare of 2 MiB.
+  Against the study's 1,659,004 B the extra 65 kB is the per-tile CRC32 table (22 kB), vectors (44 kB).
+- `firmware/src/platform/terrain/` (pure C++, device image links it but nothing calls it yet): `IBlockReader` port,
+  `Terrain` (open, elevation, ceiling, relief), `MapVectors` (towns, roads, attribution), tile codec (CLZ unary reader).
+  Static RAM: `Terrain` 22 kB (9 tiles of 2 kB + 2 kB flash buffer + 0.8 kB relief rows), `RoadIter` 2.7 kB,
+  `TownIter` 0.3 kB. None of it on the stack.
+- Integrity decision: open checks the header CRC and all sections up to 64 kB (the vector layers); DEM tiles are checked lazily,
+  each against its own CRC32, on every read from flash (CRC ~12 cycles/byte x 420 B = 5k cycles vs ~60k to decode) so a
+  flipped bit gives "no data" instead of a wrong height; `verifyAll()` does the whole-file CRC after a transfer.
+  Checking 1.7 MB at every boot would cost 0.3 s of CRC plus the flash reads for no gain over per-tile checks.
+- Bilinear agreement with the Python reference: worst 0.0002 m on 340 points (the study's float indexing gave 0.0095):
+  the cell index is an int64 floor-division of the e7 coordinate differences, only the fraction is a float.
+- `ceiling()` = max of the MAX-layer cells within 0.15 cell of the point (up to 2x2), never below `elevation()`.
+- PC decode (Apple silicon, -O2): **4.4 us per 32x32 tile with CLZ, 7.6 us bit by bit** (420 coded B/tile); the study's
+  reference decoder was 8.9 us. Cortex-M4 estimate ~0.55 ms/tile with CLZ (study: 1 ms for the bit reader), not measured.
+- Relief window 240x400 (96k px) on the PC: 2.5-3.8 ms of maths; tile decodes with the 9-tile cache: 56 (100 m/px), 67 (turned
+  45-60 deg), 208-256 (200 m/px, ~100 distinct tiles). A rotated row crosses more tiles than the cache holds, so the window
+  is rendered in vertical strips about one tile wide, top to bottom (each tile is decoded about 2x, not once per row). On
+  the M4 that is ~0.1-0.25 s per full redraw: the map page should redraw on position change, not at frame rate.
+- Hillshade/contours: one height per pixel from the bilinear surface (no cell facets), shade from central differences one
+  pixel apart in SCREEN axes (light stays upper left while the window turns), contour pixel = the pixel nearer to a level
+  crossing between it and its 4 neighbours (1 px thin, independent of band/strip splits). Auto interval = smallest of
+  20/50/100/200/500/1000 m >= 2 x m/px (100 m/px -> 200 m; 100 m gave a black mass over the Stara Planina at 100 m/px).
+  The "light" style (flat = white, darkest level 10, 1.5x exaggeration, knee 0.15) keeps black contours readable; the first
+  try (flat 15, darkest 9) dotted all flat ground in a regular grid, so flat ground is pure white now.
+- Renders: `host/terrain/img/map_pack_sopot_100mpp.png` (fixture), `map_pack_rila_100mpp.png` (real pack).
