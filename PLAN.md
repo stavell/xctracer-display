@@ -199,6 +199,12 @@ divider ~20 uA dominate): about a year on the ~1000 mAh LiPo. Measure before pro
 
 ## Games: maximum frame rate (user rule, 2026-10-16)
 
+**Done in the platform (2026-10-16): game mode.** `IApp::frameIntervalMs()` / `step(simMs, dtMs)`, `IPanel::ready()`, `AppHost`
+frame clock with catch-up (<= 4 steps), `AppHost::stats()` (fps, worst gap, steps, dropped), `loopDelayMs()` (1 ms in game mode),
+`SharpPanel::ready()` = DMA done, main_box delay from the host. The PC player shows fps, worst gap, slowest tick and late frames in the title.
+Tetris keeps its change-driven cadence (no animation worth 50 fps); the vario is unaffected (screens and digests identical). Still open:
+check on the device that 50 fps motion looks sharp and that frame times stay under 20 ms; dirty-line tracking while drawing.
+
 Games run at a steady 50 fps (user target: 20 ms per frame; do not aim higher); no power-saving cadence while a game runs.
 - Platform game mode: fixed-timestep loop, a new frame as soon as the previous DMA transfer is done (vario keeps its
   change-driven cadence). Show fps and the worst frame time.
@@ -208,6 +214,14 @@ Games run at a steady 50 fps (user target: 20 ms per frame; do not aim higher); 
 - Renderer: native-layout sprites/tiles, dirty-line tracking while drawing (no 12 KB memcmp per frame).
 
 ## Flight simulator (idea 2026-10-16, after the thermal 3D page)
+
+**Step 1 done (2026-10-16, PC player, emulator and device builds; not flashed): game mode, sim core, top-down and 3D views,
+tilt steering with a mouse emulation, tests (about 570 checks), docs (README "Games: Flight sim", NOTES "Flight simulator, step 1").**
+Next: (1) run it on the device (needs the QSPI map-pack reader; the box image already carries the app and says "needs the map pack"),
+measure the 3D frame with the cycle counter (estimate 12-14 ms of 20 ms, NOTES); (2) wire the AHRS to `ITilt` (roll and pitch of the
+screen plane, calibrated zero) and the D-pad; (3) feed the real vario app ($XCTRC lines from the sim: position, altitude, vario,
+speed, wind) so the vario can be tested against known air; (4) modes: XC tasks, ghost race against an IGC; (5) looks: forest / rock tone,
+clouds at the cloud base, canopy edge, a bigger glider symbol; (6) RAM: shrink the window to 96 x 96 if the pack reader leaves too little.
 
 Paragliding sim on the box: real Bulgaria terrain from the map pack, tilt control via the AHRS (bank = turn,
 pitch = speed bar), glider polar + pendulum lag, thermals from terrain/sun triggers drifting with wind, ridge lift

@@ -277,6 +277,56 @@ The window shows the same native 1-bit frame buffer the panel uses, with a Sharp
 per second and only when the game reports a new frame. `play tetris --frames 300 --screenshot out.png --keys
 "main 10 left a up shot:x.png"` runs headless with scripted keys and saves PNGs (see `firmware/emu/play.cpp`).
 
+## Games: Flight sim
+
+A paragliding simulator (Condor-like, adapted to a 1-bit 240 x 400 screen and a handheld box) on the real terrain of the
+map pack. Code: `firmware/src/apps/games/sim/` (pure C++, float, static buffers); step 1 runs on the PC in the box player
+and is built into the box image (on the device it says "needs the map pack" until the QSPI reader is wired).
+
+    firmware/emu/build.sh play sim          # the simulator alone (default pack: the Bulgaria pack of the study, else the Sopot fixture)
+    firmware/emu/build.sh play box          # the whole box; "Flight sim" is the fifth tile of the home screen
+    firmware/emu/build.sh simbench [PACK]   # frame timing on the PC, scaled to the device (see NOTES.md)
+
+![Flight sim: top-down on the Sopot ridge, 3D on the ridge, top-down with the thermal assist, 3D in a thermal](docs/screens/sim_overview.png)
+
+Left to right: the map view on the south slope above Sopot with the wind blowing onto it; the first-person view there;
+the map with the thermal assist on (dithered rings, the pilot circling in one); the 3D view banked in the thermal.
+
+| Key | Function |
+|---|---|
+| left / right | bank (ramps to full in 0.33 s, back to level when released) |
+| up / down | speed bar (37 -> 52 km/h) / brake (down to 28 km/h; the wing stalls in a turn at that speed) |
+| X (A) | toggle map / first-person 3D |
+| Z or Esc (B / MAIN) | pause menu: Resume, View, Assist (thermals on the map), Site (5 takeoffs), Controls Buttons / Tilt, Zero tilt, New flight, Home |
+| T | tilt steering with the mouse: x = roll, y = pitch (top of the window = top of the box away = speed bar); T again = buttons |
+| after landing | X = new flight, Z = home |
+
+**Tilt control** (the primary scheme for the device, emulated with the mouse): the box's roll (gravity direction in the
+screen plane, like a steering wheel) is the bank: deadzone 3 degrees, expo curve, full at 38 degrees from the zero. Pitch is
+the speed bar (top away) or the brakes (top toward you), full at 20 degrees. "Zero tilt" (also shown when Tilt is chosen)
+takes the way you hold the box as level: hold it comfortably, press A. In the 3D view the horizon counter-rotates by the box
+roll, so it stays level to the real world. The mapping is pure code (`sim/tilt.h`, `TiltMap`) behind an `ITilt` source; the device
+gives it the AHRS roll and pitch.
+
+The window title shows frames per second, the longest gap between two frames in the last second, the slowest host tick and
+the count of late frames.
+
+**Game mode of the platform.** `IApp::frameIntervalMs()` (default 0 = change-driven, the vario and Tetris) makes `AppHost` run a
+fixed-timestep loop: when a frame is due and the panel is ready (`IPanel::ready()`, the previous DMA send is done) the app's
+`step(simMs, dtMs)` runs once per elapsed interval (at most 4 when late, the rest counted as dropped), then one frame is
+cleared, drawn and presented. `AppHost::stats()` gives fps, the worst gap, steps, frames, dropped; `loopDelayMs()` is 1 ms in
+game mode (10 ms otherwise) so the main loop hits the 20 ms frame clock. The simulator asks for 20 ms (a steady 50 fps).
+
+**Physics** (SI units, `glider.*`, `air.*`, `world.*`): polar by table and interpolation (min sink 1.10 m/s at 33 km/h, trim
+37 km/h 1.20, full bar 52 km/h 2.20); coordinated turn omega = g tan(bank) / V; extra sink in turns from induced drag
+(n^2); roll lag 0.4 s (pendulum), airspeed lag 1.2 s; stall below 26 km/h x sqrt(n) with strong sink and a warning. The air:
+wind (grows 40 % per 1000 m), seeded thermals triggered on sun-facing slopes and ridge tops found in the DEM (tilted columns with a
+Gaussian core, 1-5 m/s, 50-150 m, 10-20 min life cycle, cloud base 2000-2600 m), ridge lift = wind . slope with a height decay, lee
+sink, general sink 0.5-1 m/s. Ground contact is a landing (<= 4.5 m/s on <= 35 degree ground) or a crash.
+
+**Takeoffs** (approximate, corrected against the terrain model): Sopot, Kalofer, Vratsa, Sliven, Bansko. Note that the
+coordinates 42.6575 N, 24.7531 E are Sopot town (530 m); the launch is on the slope about 3.7 km north, 1400 m.
+
 ## Box: home screen, vario, Tetris, compass tool and Settings in one image
 
 `feather_sense_box` (`main_box.cpp`) holds the home screen (the launcher), the vario, Tetris, the standalone compass and

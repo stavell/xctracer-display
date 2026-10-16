@@ -14,19 +14,24 @@ constexpr float kCx = (VoxelView::kW - 1) * 0.5f;
 float VoxelView::focal() { return (kW * 0.5f) / tanf(kFovDeg * 0.5f * 0.017453292f); }
 
 VoxelView::VoxelView() {
-  // Step table: the step length grows with the distance (22 m + 5 % of it), so far steps are not wasted on
+  // Step table: the step length grows with the distance (24 m + 7 % of it), so far steps are not wasted on
   // sub-pixel changes. Fog from 25 % of the range to the full range.
   const float f = focal();
   float s = kNear;
   nSteps_ = 0;
   while (s < kMaxDist && nSteps_ < kMaxSteps) {
-    const float ds = 22.0f + 0.05f * s;
+    const float ds = 24.0f + 0.07f * s;
     s_[nSteps_] = s;
     ds_[nSteps_] = ds;
     fs_[nSteps_] = f / s;
     const float t = (s - 0.25f * kMaxDist) / (0.75f * kMaxDist);
     const float fog = t <= 0 ? 0.0f : (t >= 1 ? 1.0f : t * t * (3.0f - 2.0f * t));
     fog_[nSteps_] = (uint8_t)lroundf(fog * 16.0f);
+    // level = tone(shade) * (1 - fog) + fogLevel * fog, tone(shade) = 7.5 + (shade - 11) * 0.8 (darker than the sky; the deepest
+    // shade stays a grey so the ground keeps its texture), + 0.5 for rounding.
+    const float fg = fog_[nSteps_] * (1.0f / 16.0f);
+    ka_[nSteps_] = 0.8f * (1.0f - fg);
+    kb_[nSteps_] = (7.5f - 11.0f * 0.8f) * (1.0f - fg) + kFogLevel * fg + 0.5f;
     s += ds;
     nSteps_++;
   }
@@ -87,17 +92,18 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
   const int16_t* H = hc.heights();
   const uint8_t* S = hc.shades();
   const int n = nSteps_;
+  const float cxk = cam.x * HeightCache::kInv + kBias, cyk = cam.y * HeightCache::kInv + kBias;
+  const float camZ = cam.z;
+  int walked = 0, bilin = 0, lastSpans = 0;
 
-  for (int x = 0; x < kW; x++) {
-    uint8_t* row = bm.buf + (size_t)x * bm.stride;
-    const float u = ((float)x - kCx) / f;
-    const float dx = fx + rx * u, dy = fy + ry * u;
-    const float hyf = horizon - ((float)x - kCx) * tanRoll;
-    int ymin = kH;
-    const int xm = x & 7;
-    const float cxk = cam.x * HeightCache::kInv + kBias, cyk = cam.y * HeightCache::kInv + kBias;
-    const float dxk = dx * HeightCache::kInv, dyk = dy * HeightCache::kInv;
-    int i = 0;
+  // One ray per pair of screen columns (kColStep), through the middle of the pair; its spans are written to both rows,
+  // each with its own dither phase, so the picture keeps its full dither detail and only the silhouette is two pixels coarse.
+  for (int x = 0; x < kW; x += kColStep) {
+    const float xc = (float)x + 0.5f * (kColStep - 1);
+    const float u = (xc - kCx) / f;
+    const float dxk = (fx + rx * u) * HeightCache::kInv, dyk = (fy + ry * u) * HeightCache::kInv;
+    const float hyf = horizon - (xc - kCx) * tanRoll;
+    int ymin = kH, ns = 0, i = 0;
     for (; i < n; i++) {
       const float s = s_[i];
       const float pxk = cxk + s * dxk, pyk = cyk + s * dyk;
@@ -113,7 +119,6 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
         h = (a + (b - a) * tx) * (1.0f - ty) + (c + (d - c) * tx) * ty;
         const float sa = S[s00], sb = S[s10], sc = S[s01], sd = S[s11];
         sh = (sa + (sb - sa) * tx) * (1.0f - ty) + (sc + (sd - sc) * tx) * ty;
-        stats_.bilinear++;
       } else {
         const int cx0 = (int)(pxk + 0.5f) - (int)kBias, cy0 = (int)(pyk + 0.5f) - (int)kBias;
         if (cx0 < x0 || cx0 >= x1 || cy0 < y0 || cy0 >= y1) break;
@@ -121,29 +126,41 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
         h = H[sl];
         sh = S[sl];
       }
-      stats_.samples++;
-      const float yf = hyf + (cam.z - h) * fs_[i];
+      const float yf = hyf + (camZ - h) * fs_[i];
       if (yf >= (float)ymin) continue;
       const int yi = yf < 0 ? 0 : (int)yf;
       if (yi >= ymin) continue;
-      const int fog = fog_[i];
-      sh = 7.5f + (sh - 11.0f) * 0.8f;                     // darker than the sky; the deepest shade stays a grey so the ground keeps its texture
-      int lvl = (int)(sh + (kFogLevel - sh) * (fog * (1.0f / 16.0f)) + 0.5f);
+      // Tone and fog folded into one multiply-add per step; alternate 25 m height bands one grey step apart: the terraces
+      // show the lie of the land and give the ground a texture that streams past.
+      int lvl = (int)(sh * ka_[i] + kb_[i]) + ((((int)(h * (1.0f / 25.0f))) & 1) ? (i < 30 ? 2 : 1) : 0);
       if (lvl > 16) lvl = 16;
       if (lvl < 3) lvl = 3;
-      fillSpan(row, yi, ymin - 1, pat_[lvl][xm]);
-      stats_.spans++;
-      stats_.bytes += ((ymin - yi) >> 3) + 1;
+      spans_[ns].y0 = (int16_t)yi;
+      spans_[ns].y1 = (int16_t)(ymin - 1);
+      spans_[ns].lvl = (uint8_t)lvl;
+      ns++;
       ymin = yi;
-      if (yi == 0) { stats_.early++; break; }
+      if (yi == 0) break;
     }
-    stats_.steps += i;
-    if (ymin > 0) {
-      int hyi = hyf < -2000.0f ? -2000 : (hyf > 2000.0f ? 2000 : (int)floorf(hyf));
-      sky(row, x, hyi, ymin);
+    walked += i;
+    bilin += i < kBilinearSteps ? i : kBilinearSteps;
+    const int hyi = hyf < -2000.0f ? -2000 : (hyf > 2000.0f ? 2000 : (int)floorf(hyf));
+    for (int c = 0; c < kColStep; c++) {
+      uint8_t* row = bm.buf + (size_t)(x + c) * bm.stride;
+      const int xm = (x + c) & 7;
+      for (int k = 0; k < ns; k++) fillSpan(row, spans_[k].y0, spans_[k].y1, pat_[spans_[k].lvl][xm]);
+      if (ymin > 0) sky(row, x + c, hyi, ymin);
     }
-    stats_.columns++;
+    stats_.spans += ns * kColStep;
+    lastSpans += ns;
+    if (ymin == 0) stats_.early++;
+    stats_.columns += kColStep;
   }
+  stats_.rays = kW / kColStep;
+  stats_.steps = walked;
+  stats_.samples = walked;
+  stats_.bilinear = bilin;
+  (void)lastSpans;
 }
 
 }  // namespace sim

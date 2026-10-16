@@ -34,7 +34,7 @@ void World::beginAt(IHeightSource* src, uint32_t seed, float x, float y, float a
 void World::begin(IHeightSource* src, uint32_t seed, const Takeoff& to, float windSpeed) {
   // The takeoff is the origin of the local frame; fly into the wind, 3 minutes into the sim day so thermals
   // are already working.
-  beginAt(src, seed, 0.0f, 0.0f, 30.0f, to.windFromDeg, to.windFromDeg, windSpeed, 180.0f);
+  beginAt(src, seed, 0.0f, 0.0f, 60.0f, to.windFromDeg, to.windFromDeg, windSpeed, 180.0f);
 }
 
 void World::step(const Controls& c, float dt) {

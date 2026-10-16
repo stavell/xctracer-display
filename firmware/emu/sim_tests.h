@@ -14,6 +14,8 @@
 #include "apps/games/sim/voxel.h"
 #include "apps/games/sim/world.h"
 #include "sim_shots.h"
+#include "box.h"
+#include "apps/vario/app/terrain_kit.h"
 
 namespace sim_tests {
 using namespace sim;
@@ -620,6 +622,56 @@ static void app_logic() {
   delete app;
 }
 
+// The sim inside the box: started from the home grid, steady 50 fps through the real host, Home through the pause menu.
+static void in_the_box() {
+  static std::vector<uint8_t> bytes;
+  static terrain::MemReader rd;
+  static TerrainKit kit;
+  FILE* f = fopen("fixtures/sopot.pack", "rb");
+  CHECK(f != nullptr);
+  if (!f) return;
+  fseek(f, 0, SEEK_END);
+  bytes.resize((size_t)ftell(f));
+  fseek(f, 0, SEEK_SET);
+  CHECK(fread(bytes.data(), 1, bytes.size(), f) == bytes.size());
+  fclose(f);
+  rd = terrain::MemReader(bytes.data(), (uint32_t)bytes.size());
+  CHECK(kit.open(&rd));
+  static Box b(1, true);
+  b.setTerrain(&kit);
+  uint32_t now = 0;
+  auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) b.tick(now); };
+  auto tap = [&](Key k) { b.r.input.setKey(k, true, now); run(30); b.r.input.setKey(k, false, now); run(30); };
+  b.boot(0);
+  CHECK(b.registry.count() == 5 && strcmp(b.registry.at(4).title, "Flight sim") == 0);
+  b.host.start(Box::APP_LAUNCHER, now);
+  run(300);
+  simshots::dumpPanel(b.r.panel, "out", "sim_launcher");
+  b.host.start(Box::APP_SIM, now);
+  run(3000);
+  CHECK(b.host.active() == b.flightSim.get() && b.flightSim->mode() == SimApp::Mode::FLYING);
+  CHECK(b.host.gameMode());
+  CHECK(b.host.stats().fps >= 49 && b.host.stats().fps <= 51);
+  CHECK(b.host.stats().steps >= 145 && b.host.stats().steps <= 151);   // 3 s at 50 Hz
+  b.r.input.setKey(KEY_RIGHT, true, now);
+  run(1000);
+  CHECK(b.flightSim->controls().bank > 0.9f);
+  b.r.input.setKey(KEY_RIGHT, false, now);
+  // B pauses, UP wraps to the last row (Home), A leaves for the home screen.
+  tap(KEY_B);
+  CHECK(b.flightSim->mode() == SimApp::Mode::PAUSED);
+  tap(KEY_UP);
+  tap(KEY_ACTION);
+  run(100);
+  CHECK(b.host.active() == &b.launcher && !b.host.gameMode());
+  // The way in again, and out through the 3 s hold of the switch like every other app.
+  b.host.start(Box::APP_SIM, now);
+  run(500);
+  b.r.input.press(now + 10, 3300);
+  run(3600);
+  CHECK(b.host.active() == &b.launcher);
+}
+
 static void run() {
   puts("sim");
   polar();
@@ -634,6 +686,7 @@ static void run() {
   topdown();
   game_mode();
   app_logic();
+  in_the_box();
 }
 
 }  // namespace sim_tests

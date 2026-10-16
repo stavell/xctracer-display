@@ -9,6 +9,7 @@
 #                                   (the whole box: home screen + vario + Tetris + compass tool + Settings). The box loads a map pack
 #                                   (--pack FILE; default the Bulgaria pack from the study if present, else the Sopot
 #                                   fixture; --pack none for a box without terrain)
+#   ./build.sh simbench [PACK]      flight sim frame timing on the PC, scaled to the device (see sim_bench.cpp)
 #   ./build.sh smoke                headless run of the whole box: renders the launcher, vario pages, Tetris
 #                                   started from the launcher and the way back (emu/out/box_*.png)
 set -e
@@ -30,6 +31,13 @@ LAUNCHER="$L/launcher_app.cpp $L/launcher_view.cpp"
 SETTINGS="$S/settings_app.cpp $S/settings_view.cpp $P/settings/box_settings.cpp $P/settings/compass_cal.cpp $P/settings/cal_view.cpp"
 GFX="$P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $P/gfx/ui.cpp $P/gfx/icons.cpp"
 VARIO="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/terrain_map.cpp $V/view/prof.cpp $V/app/app.cpp"
+if [ "$1" = "simbench" ]; then
+  # Frame timing of the flight sim, calibrated against vario pages of known device time (no sanitizers, -O2).
+  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" \
+    $SIM $GFX $VARIO $SETTINGS $TETRIS $LAUNCHER $TERRAIN out/Adafruit_GFX_host.cpp sim_bench.cpp -o out/sim_bench
+  shift
+  exec out/sim_bench "${1:-fixtures/sopot.pack}"
+fi
 if [ "$1" = "play" ] || [ "$1" = "smoke" ]; then
   # The player: no sanitizers (speed), SDL2 from Homebrew, the whole box over mock ports.
   c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" $(sdl2-config --cflags) \

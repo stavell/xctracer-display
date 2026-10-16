@@ -489,3 +489,59 @@ feed the result to the view (`ViewModel::mapLive/mapCx/mapCy/mapHdg/mapScale`). 
 - **Home screen design notes.** Tiles 108 x 136 (rows of two, fewer rows get taller tiles; three rows drop the second
   text line); the chosen tile is a filled rounded box with inverted icon and text. The time is the tracer's GPS time of day
   extrapolated with the millisecond counter, `--:--` until the vario saw a fix and after 12 h without one.
+
+## Flight simulator, step 1 (2026-10-16, emulator and builds only, not flashed)
+
+- **What**: `apps/games/sim/` (glider, air, world, height cache, top-down and voxel views, HUD, tilt mapping, `SimApp : IApp`), the
+  platform's game mode (`AppHost`, `IApp::frameIntervalMs/step`, `IPanel::ready`, `AppHost::stats`), `build.sh play sim`,
+  `build.sh simbench`, tests `emu/sim_tests.h` (about 570 checks), renders `emu/sim_shots.h` (`out/sim_*.png`, from the Sopot
+  fixture; `sim_demo PACK OUTDIR` renders the same from the real pack).
+- **The vario did not change.** `frameIntervalMs()` defaults to 0 and the host's game branch is only taken when it is > 0. Proof: all 48
+  emulator screens that existed before are byte-identical to a build of the previous commit (including the vario pages, map,
+  profile, home and the box's launcher), `box_vario_matches_alone` and the behaviour digests in the tests pass, and the vario-only
+  device image built. Tetris stays change-driven on purpose: its picture changes only on a key, a gravity step or a clear
+  animation (a few frames a second), so a 50 fps clock would only burn power and DMA time for identical pictures; opting in is
+  one override (`frameIntervalMs() { return 20; }`) when it gets animations.
+- **Game mode behaviour** (tests `game_mode`): 500 +-2 steps in 10 s whatever the host tick period (1, 2, 5, 10, 13 ms), a host that is
+  ticked 15 ms late still runs 50 steps per second (catch-up), a panel that is busy 50 % of the time delays frames but loses no
+  sim time, a 500 ms stall catches up 4 steps and counts the rest as dropped, a plain app sees no steps and the 10 ms loop.
+- **Height cache** (`HeightCache`): 128 x 128 cells of 200 m, int16 height + uint8 shade = 48 kB, toroidal; the valid area is a
+  rectangle that grows by whole rows/columns inside the wanted window, at most 48 cells per physics step (a 200 m cell is
+  crossed every ~15 s at 13 m/s, a row is 128 cells). Fill from the map pack on the PC: 16384 cells in 0.7 ms (tile cache warm
+  and PC fast); on the device 16 tile decodes (~14 us x 35-80 each) plus 16k bilinear lookups: a start-up pause of
+  roughly 0.1-0.3 s (not measured).
+- **3D renderer** (`voxel.cpp`): 240 x 400, 70 degrees horizontal, one ray per pair of screen columns (120 rays), 48 steps per ray
+  at most (24 m + 7 % of the distance, to 9 km), bilinear height and shade for the first 24 steps (1.2 km), nearest beyond;
+  fog fades to a grey (12/16) so far ridges stay visible against the white sky; terraces = alternate 25 m height bands one or two
+  grey steps apart; roll is a vertical shear of the horizon; spans are written as bytes into native rows (pattern byte per level and
+  column phase, masked at both ends). **Work per frame**: 120 rays, 5760 steps, 2880 bilinear + 2880 nearest samples, about 6400 spans.
+- **Timing method.** PC (Apple silicon, -O2, `build.sh simbench`): 3D frame 0.04 ms, top-down frame 0.03 ms, top-down picture
+  0.66 ms (spread over ~20 frames), physics step 0.001 ms (an `Air::sample` is 1 us). The M4F estimate uses two methods that bracket the
+  answer: (1) *calibrated ratio*: the same binary times the vario's thermal page (device 5-6 ms) and compass page (device 7.6 ms);
+  the PC/device factor is 35 and 86 (mean 61) and gives 2.4 ms for the 3D renderer, 2.7 for the 3D frame, 2.0 for the top-down frame. This is the
+  optimistic bound: those pages are pixel-call heavy, the renderer is float and table-lookup heavy, which a Cortex-M4F without
+  cache runs relatively slower than a desktop core. (2) *cycle count*: the inner loop compiled for the device (arm-none-eabi-g++ -O2
+  -mcpu=cortex-m4, about 45 instructions per nearest sample and 85 per bilinear sample) at
+  110 / 60 cycles per sample (loads 2, VFP 1-3, branches 1-3, flash wait states), 40 per span: 0.79 M cycles = **12.3 ms**. That
+  is the number to design with: 3D frame about 12-14 ms (renderer 12 + HUD about 1 + clear 0.2 + present 2.5 ms CPU, the DMA
+  send overlaps), which fits the 20 ms budget with about 30 % headroom. The top-down view: picture slice 4500 px/frame x 90 cycles =
+  6 ms + blit and overlays 2 ms = about 8 ms; the full picture takes ~20 frames (0.4 s), so a heading change reaches the
+  map with that lag (the glider symbol turns exactly, the map follows). To be measured on the device with the cycle counter
+  (`prof` sections) when the box runs it.
+- **Fallbacks if the device measures over budget**: 1) kColStep 3 (80 rays, -33 %); 2) kBilinearSteps 16; 3) fewer steps
+  (`ds = 24 + 0.10 s`, 36 steps); 4) 160 x 267 rendering doubled in both directions. Each is a constant in `voxel.h` / the step table.
+- **Sizes** (device builds): box image flash 299720 -> 337432 B (+37.7 kB), RAM 90088 -> 173024 B (+83 kB: height cache 48 kB, top-down
+  pictures 22.6 kB, trail, thermal tile cache, voxel tables). When the pack reader is wired the box also needs the 47.7 kB
+  TerrainKit: about 221 kB of 249 kB. If that is too tight: window 96 x 96 (27 kB), one top-down buffer (-11 kB).
+- **Looks, critically.** The map view reads well (heading up, contours every 200 m, hillshade); the glider symbol is small against
+  the contours and could use a bigger halo; the assist rings are subtle (dithered 4 px rings) as intended. The 3D view works but
+  is plain: the 200 m DEM has no detail below its cell size, so close to the ground the terrain is smooth, and the bilinear
+  heights show as long gentle slopes with terraces as the only texture. Ideas: forest/rock tone from altitude and slope, clouds
+  at the cloud base, a canopy edge at the top of the screen.
+- **Physics notes.** Sink in a turn: the first idea (sqrt(n) x polar(V / sqrt(n))) gives only +4 % at 35 degrees and trim speed because trim is
+  above the minimum-sink speed; induced drag (n^2) gives +30 %, which matches what pilots feel. Max bank is 35 degrees (40 gave
+  46 deg/s, too nervous). A thermal column leans with the wind and the glider drifts with the air mass, so a pilot has to keep
+  re-centring (relative speed 3-7 m/s); the first version also drifted the whole thermal at 25 % of the wind and nobody could stay in it.
+  The ridge lift sign was wrong in the first version (caught by looking at the vario in the ridge screenshot, then by the test).
+- **Site coordinates.** The given Sopot coordinates are the town (530 m). The takeoff in the table is the 1400 m slope 3.8 km to the
+  north; all five sites were checked against the DEM and are marked approximate.

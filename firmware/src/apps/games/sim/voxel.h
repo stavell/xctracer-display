@@ -34,10 +34,11 @@ class VoxelView {
   static constexpr float kNear = 25.0f;                 // first step distance, m
   static constexpr float kMaxDist = 9000.0f;
   static constexpr int kMaxSteps = 96;
-  static constexpr int kBilinearSteps = 26;             // steps (from the camera) that interpolate
+  static constexpr int kBilinearSteps = 24;             // steps (from the camera) that interpolate (about the first 1.2 km)
+  static constexpr int kColStep = 2;                    // screen columns per ray
 
   struct Stats {                                        // work of the last render
-    int columns = 0, steps = 0, samples = 0, bilinear = 0, spans = 0, bytes = 0, early = 0;
+    int columns = 0, rays = 0, steps = 0, samples = 0, bilinear = 0, spans = 0, bytes = 0, early = 0;
   };
 
   VoxelView();
@@ -59,6 +60,9 @@ class VoxelView {
   float ds_[kMaxSteps];        // step length
   float fs_[kMaxSteps];        // focal / s: projects a height difference to pixels
   uint8_t fog_[kMaxSteps];     // 0..16
+  float ka_[kMaxSteps], kb_[kMaxSteps];   // grey level = shade * ka + kb
+  struct Span { int16_t y0, y1; uint8_t lvl; };
+  Span spans_[kMaxSteps + 1];  // the spans of the ray being drawn
   uint8_t pat_[17][8];         // dither byte per level and column phase
 };
 

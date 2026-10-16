@@ -5,7 +5,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <string>
+#include <vector>
 #include "apps/games/sim/sim_app.h"
+#include "mocks.h"
 #include "platform/gfx/bitmap1.h"
 
 namespace simshots {
@@ -31,6 +33,10 @@ static void dump(SimApp& app, const char* dir, const char* name, uint32_t frame 
   fclose(f);
 }
 
+static void dumpPanel(MockPanel& p, const char* dir, const char* name) {
+  p.dump((std::string(dir) + "/" + name + ".pgm").c_str());
+}
+
 static void run(SimApp& app, int steps, uint32_t& simMs) {
   for (int i = 0; i < steps; i++) { simMs += 20; app.step(simMs, 20); }
 }
@@ -45,22 +51,26 @@ static void ridge(SimApp& app, terrain::Terrain& t) {
   app.startAt(0.0f, -1000.0f, 90.0f, 20.0f, 190.0f, 8.0f, 7, 600.0f);
 }
 
-// Put the glider in the strongest thermal within range and circle in it for a while.
+// Put the glider in the strongest thermal within 6 km at any time of the next half hour (the day is seeded, so it is the same
+// thermal on every run) and let it circle a while.
 static bool thermal(SimApp& app, terrain::Terrain& t, uint32_t& simMs) {
+  (void)simMs;
   app.setTerrain(&t);
   app.setSite(0);
   app.begin(0);
   World& w = app.world();
   ThermalInfo th[Air::kMaxInfo];
-  float bestX = 0, bestY = 0, bestS = 0;
-  const float z = 1900.0f;
-  const int n = w.air().nearby(0, 0, z, 600.0f, 6000.0f, th, Air::kMaxInfo);
-  for (int i = 0; i < n; i++)
-    if (th[i].strength > bestS) { bestS = th[i].strength; bestX = th[i].x; bestY = th[i].y; }
-  if (n == 0) return false;
+  float bestX = 0, bestY = 0, bestS = 0, bestT = 600;
+  const float z = 1700.0f;
+  for (float tm = 300.0f; tm <= 2100.0f; tm += 100.0f) {
+    const int n = w.air().nearby(0, 0, z, tm, 6000.0f, th, Air::kMaxInfo);
+    for (int i = 0; i < n; i++)
+      if (th[i].strength > bestS) { bestS = th[i].strength; bestX = th[i].x; bestY = th[i].y; bestT = tm; }
+  }
+  if (bestS <= 0) return false;
   float g = 0;
   w.cache().height(bestX, bestY, &g);
-  app.startAt(bestX, bestY, 1900.0f - g, 0.0f, 190.0f, 8.0f, 7, 600.0f);
+  app.startAt(bestX, bestY, z - g, 0.0f, 190.0f, 8.0f, 7, bestT);
   return true;
 }
 
@@ -86,6 +96,24 @@ static void shots(const char* dir, terrain::Terrain& t) {
     app2.setView(SimApp::View::FPV);
     dump(app2, dir, "sim_fpv_thermal", 3);
   }
+}
+
+// The standard renders from the Sopot fixture pack (run by emu_main shots).
+static void fixtureShots(const char* dir) {
+  static std::vector<uint8_t> bytes;
+  static terrain::MemReader rd;
+  static terrain::Terrain t;
+  FILE* f = fopen("fixtures/sopot.pack", "rb");
+  if (!f) return;
+  fseek(f, 0, SEEK_END);
+  bytes.resize((size_t)ftell(f));
+  fseek(f, 0, SEEK_SET);
+  const bool ok = fread(bytes.data(), 1, bytes.size(), f) == bytes.size();
+  fclose(f);
+  if (!ok) return;
+  rd = terrain::MemReader(bytes.data(), (uint32_t)bytes.size());
+  if (t.open(&rd) != terrain::Terrain::OK) return;
+  shots(dir, t);
 }
 
 }  // namespace simshots
