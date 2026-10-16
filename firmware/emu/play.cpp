@@ -406,7 +406,7 @@ static const char* kHelp =
     "       Enter / Esc = the user switch (hold it: 0.7-1.5 s long press, 3 s hold; the title shows the time)\n"
     "       A + B held 1.5 s = back to the launcher      , and . or the mouse wheel = turn the compass\n"
     "       C = Tetris hold piece (a 0.46 s press of the switch)    R = restart    Q or close the window = quit\n"
-    "Flight sim (game mode, 50 fps): LEFT/RIGHT bank, UP speed bar, DOWN brake, X (A) = map / 3D view, Z (B) or Esc = pause menu\n"
+    "Flight sim (game mode, 50 fps): LEFT/RIGHT bank, UP speed bar, DOWN brake, X (A) = map / 3D view, F = time x1/x3/x5, Z (B) or Esc = pause menu\n"
     "       (resume, view, assist, site, controls, zero tilt, new flight, home); after landing X = new flight\n"
     "       T = tilt steering with the mouse (x = roll, y = pitch, top of the window = top away = speed bar); T again = buttons\n";
 
@@ -491,6 +491,7 @@ static int runWindow(Machine& m, World& w, Args& a) {
             m.flightSim()->setControl(tiltOn ? sim::SimApp::Control::TILT : sim::SimApp::Control::BUTTONS);
           }
           break;
+        case SDLK_f: if (down && m.flightSim()) m.flightSim()->cycleTimeScale(); break;
         case SDLK_r: if (down) m.restart(now); break;
         case SDLK_q: running = false; break;
         default: break;

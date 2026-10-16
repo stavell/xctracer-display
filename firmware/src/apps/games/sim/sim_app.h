@@ -8,7 +8,11 @@
 //   LEFT / RIGHT   bank (ramps to full over 0.4 s, back to level when released)
 //   UP             speed bar (accelerate)      DOWN   brake (slow down; with a stall warning at the end)
 //   A              toggle top-down map / first-person 3D
-//   B or MAIN      pause menu: Resume, View, Assist (thermals shown on the map), Site, New flight, Home
+//   B or MAIN      pause menu: Resume, View, Assist (thermals shown on the map), Site, Controls, Zero tilt, Speed
+//                  (x1 / x3 / x5), New flight, Home
+// Time scale: the world (glider, air, flight clock, trail) runs `scale` x faster than real time, in 20 ms substeps so the
+//   physics is exactly what x1 would compute; rendering stays 50 fps. The player's own response (button and tilt ramps)
+//   stays in real time, the wing's lags (roll, speed, stall) are physics and run in sim time.
 //   after landing: A new flight, B Home
 // Controls (pause menu: Controls Buttons / Tilt; the PC player starts with Buttons):
 //   Tilt:    roll of the box = bank, pitch = speed bar (top away) / brakes (top toward you), through TiltMap
@@ -33,13 +37,17 @@ class SimApp : public IApp {
   enum class View : uint8_t { TOP, FPV };
   enum class Mode : uint8_t { NOMAP, FLYING, PAUSED, ENDED, CALIB };
   enum class Control : uint8_t { BUTTONS, TILT };
-  static constexpr int kMenuRows = 8;
+  static constexpr int kMenuRows = 9;
 
   SimApp() {}
   // The map pack (platform Terrain); without it the app shows a message instead of flying.
   void setTerrain(terrain::Terrain* t) { terrain_ = t; }
   void setTilt(ITilt* t) { tilt_ = t; }
   Control control() const { return ctl_; }
+  // Time acceleration x1 / x3 / x5 (default x3): each 20 ms frame runs that many 20 ms physics substeps.
+  int timeScale() const { return scale_; }
+  void setTimeScale(int s) { scale_ = (s >= 5) ? 5 : (s >= 3 ? 3 : 1); }
+  void cycleTimeScale() { setTimeScale(scale_ == 1 ? 3 : (scale_ == 3 ? 5 : 1)); }
   void setControl(Control c);                         // Tilt opens the calibration page
   void zeroTilt();                                    // take the current tilt as level
 
@@ -97,6 +105,7 @@ class SimApp : public IApp {
   Mode mode_ = Mode::NOMAP;
   View view_ = View::TOP;
   bool assist_ = false;
+  int scale_ = 3;
   int site_ = 0, menuSel_ = 0, flights_ = 0;
   uint32_t seed_ = 7;
   uint32_t frame_ = 0;

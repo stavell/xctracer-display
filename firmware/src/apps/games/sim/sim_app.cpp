@@ -92,7 +92,8 @@ void SimApp::menuAct() {
     case 3: setSite(site_ + 1); break;
     case 4: setControl(ctl_ == Control::TILT ? Control::BUTTONS : Control::TILT); break;
     case 5: if (ctl_ == Control::TILT) mode_ = Mode::CALIB; break;
-    case 6: startFlight(); break;
+    case 6: cycleTimeScale(); break;
+    case 7: startFlight(); break;
     default: if (nav()) nav()->openLauncher(); break;
   }
 }
@@ -149,8 +150,9 @@ void SimApp::step(uint32_t simMs, uint32_t dtMs) {
   (void)simMs;
   if (mode_ != Mode::FLYING) return;
   const float dt = dtMs * 0.001f;
-  applyKeys(dt);
-  world_.step(c_, dt);
+  applyKeys(dt);                                      // the pilot's hands: real time
+  // The world: scale_ substeps of one frame's dt each (never one big step), so x5 is 5 x the x1 steps and stable.
+  for (int i = 0; i < scale_ && world_.status() == Status::FLYING; i++) world_.step(c_, dt);
   if (world_.status() != Status::FLYING) {
     mode_ = Mode::ENDED;
     c_ = Controls();
@@ -175,6 +177,7 @@ HudData SimApp::hud() const {
   d.bankDeg = g.bank * kRad2Deg;
   d.stalled = g.stalled;
   d.assist = assist_;
+  d.timeScale = scale_;
   return d;
 }
 
@@ -262,8 +265,9 @@ void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
     snprintf(gRows[3], sizeof gRows[3], "Site: %s", kTakeoffs[site_].name);
     snprintf(gRows[4], sizeof gRows[4], "Controls: %s", ctl_ == Control::TILT ? "tilt" : "buttons");
     snprintf(gRows[5], sizeof gRows[5], "Zero tilt");
-    snprintf(gRows[6], sizeof gRows[6], "New flight");
-    snprintf(gRows[7], sizeof gRows[7], "Home");
+    snprintf(gRows[6], sizeof gRows[6], "Speed: x%d", scale_);
+    snprintf(gRows[7], sizeof gRows[7], "New flight");
+    snprintf(gRows[8], sizeof gRows[8], "Home");
     const char* rows[kMenuRows];
     for (int i = 0; i < kMenuRows; i++) rows[i] = gRows[i];
     hud_.menu(bm, "PAUSED", rows, kMenuRows, menuSel_);
