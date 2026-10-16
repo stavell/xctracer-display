@@ -314,7 +314,7 @@ static void drawStandalone(const ViewModel& vm, const Bitmap1* bm) {
   const char* title = vm.link == ViewModel::LINK_CONNECTED ? "CONNECTED"
                       : vm.link == ViewModel::LINK_CONNECTING ? "CONNECTING"
                       : vm.link == ViewModel::LINK_SEARCHING ? "SEARCHING" : "NO VARIO";
-  if (vm.link == ViewModel::LINK_CONNECTED) snprintf(top, sizeof top, "%s  waiting for data", title);
+  if (vm.link == ViewModel::LINK_CONNECTED) snprintf(top, sizeof top, "%s  no data yet", title);
   else if (vm.link == ViewModel::LINK_NONE) snprintf(top, sizeof top, "%s  hold: choose device", title);
   else if (vm.hasSaved) snprintf(top, sizeof top, "%s  %.14s", title, vm.device);
   else snprintf(top, sizeof top, "%s  filter: %.10s", title, vm.filter);
