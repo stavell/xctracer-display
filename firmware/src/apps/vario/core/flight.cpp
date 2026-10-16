@@ -114,9 +114,7 @@ void FlightModel::tick() {
   updateProfile();
   updateTemperature();
   updateThermals();
-  double cwx = 0, cwy = 0;
-  windXY(cwx, cwy);
-  col_.push(clock_, cur_.fix, cur_.lat, cur_.lon, cur_.alt, cur_.vario, (float)cwx, (float)cwy);
+  col_.push(clock_, cur_.fix, cur_.lat, cur_.lon, cur_.alt, cur_.vario);
 }
 
 const ThermalColumn& FlightModel::column() {

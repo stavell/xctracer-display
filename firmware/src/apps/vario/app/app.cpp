@@ -59,11 +59,10 @@ void App::setTerrain(TerrainKit* kit) {
 
 bool App::hasTerrain() const { return kit_ && kit_->ok; }
 
-// compass, thermal, climb side view, climb 3D view, map (only with a pack), wind profile, home
+// compass, thermal, centring, map (only with a pack), wind profile, home
 ViewModel::Page App::nextPage(ViewModel::Page p) const {
-  static const ViewModel::Page order[] = {ViewModel::PAGE_COMPASS, ViewModel::PAGE_THERMAL, ViewModel::PAGE_CLIMB_SIDE,
-                                          ViewModel::PAGE_CLIMB_3D, ViewModel::PAGE_MAP, ViewModel::PAGE_PROFILE,
-                                          ViewModel::PAGE_HOME};
+  static const ViewModel::Page order[] = {ViewModel::PAGE_COMPASS, ViewModel::PAGE_THERMAL, ViewModel::PAGE_CENTER,
+                                          ViewModel::PAGE_MAP, ViewModel::PAGE_PROFILE, ViewModel::PAGE_HOME};
   const int n = sizeof order / sizeof order[0];
   int i = 0;
   while (i < n && order[i] != p) i++;
@@ -333,8 +332,7 @@ const ViewModel& App::buildViewModel(uint32_t now) {
     }
   }
   vm.col = nullptr;
-  vm.colYaw = cfg_.climb3dYaw;
-  if (page_ == ViewModel::PAGE_CLIMB_SIDE || page_ == ViewModel::PAGE_CLIMB_3D) vm.col = &flight_.column();
+  if (page_ == ViewModel::PAGE_CENTER) vm.col = &flight_.column();
   vm.profileCount = 0;
   vm.homeValid = false;
   if (page_ == ViewModel::PAGE_PROFILE) {

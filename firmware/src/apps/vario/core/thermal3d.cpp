@@ -3,6 +3,10 @@
 
 static const float R2D = 57.29577951f;
 
+float ThermalColumn::cueGain = 2.5f;
+bool ThermalColumn::cueLean = false;
+float ThermalColumn::cueW[3] = {1.0f, 0.0f, 0.0f};
+
 static float wrap180(float a) {
   a = fmodf(a, 360.0f);
   if (a > 180) a -= 360;
@@ -30,12 +34,11 @@ void ThermalColumn::clearResults() {
   leanValid = false;
   leanDeg = leanPer100 = leanRms = 0;
   coreX0 = coreY0 = coreZ0 = coreSx = coreSy = 0;
+  cue = CoreCue();
   trend = TREND_NONE;
   trendRatio = 0;
   zMin = zMax = 0;
-  axisDeg = 90;
-  axisKind = AXIS_EAST;
-  p0_ = nP_ = 0;
+  p0_ = nP_ = endPt_ = 0;
 }
 
 // The column's origin is the first point; a flight that wanders more than 6 km from it moves the origin so the
@@ -46,7 +49,7 @@ void ThermalColumn::rebase(double dx, double dy) {
   lat0_ += dy / 111320.0;
 }
 
-void ThermalColumn::push(uint32_t clockMs, bool fix, double lat, double lon, float alt, float vario, float windE, float windN) {
+void ThermalColumn::push(uint32_t clockMs, bool fix, double lat, double lon, float alt, float vario) {
   if (!fix || !isfinite(lat) || !isfinite(lon) || !isfinite(alt)) return;
   if (n_ > 0 && (int32_t)(clockMs - pts_[n_ - 1].tMs) <= 0) return;
   if (!haveOrigin_ || n_ == 0) {
@@ -76,8 +79,10 @@ void ThermalColumn::push(uint32_t clockMs, bool fix, double lat, double lon, flo
     const Pt& q = pts_[n_ - 1];
     const float dt = (clockMs - q.tMs) / 1000.0f;
     if (dt > 0 && dt <= 3.0f) {
-      // the air-mass velocity: ground velocity minus the wind, so a circle turns at a steady rate in any wind
-      const float vx = (p.gx - q.gx) / dt - windE, vy = (p.gy - q.gy) / dt - windN;
+      // The heading of the ground track, not of the air-frame velocity: the turn count must not depend on how
+      // good the wind estimate is (a wind that is a few m/s off makes the air-frame heading spin wildly at a
+      // glider speed of 8 m/s). A circle still turns the ground course by 360 degrees unless the wind beats the glider.
+      const float vx = (p.gx - q.gx) / dt, vy = (p.gy - q.gy) / dt;
       if (hypotf(vx, vy) >= 1.5f) {
         p.hdg = atan2f(vx, vy) * R2D;
         if (isfinite(q.hdg)) p.rate = wrap180(p.hdg - q.hdg) / dt;
@@ -179,6 +184,66 @@ Fit fitLine(const CoreCircle* c, int i0, int i1, const bool* skip) {
 }
 }  // namespace
 
+// The cue. Windows of one full turn of heading each, counted back from the newest point (not aligned with the
+// circles above, so the cue moves every second), the newest first. sg: turn direction, lowest: first point the
+// climb may use. Per window: centre, lift-weighted core point (circleMetrics), the core pushed away from the centre
+// by cueGain (the centroid of a circle only gets part of the way to the core). The estimate is the newest turn alone
+// (cueW = 1, 0, 0): on the real climbs blending in older turns made the cue worse, because the pilot moves the circle
+// and the lift field changes (docs/MATH.md 6b, NOTES.md). The older turns only give the spread. cueLean (off) would move each
+// turn's estimate along the lean to the current altitude: no gain measured with the newest turn alone.
+void ThermalColumn::computeCue(int sg, int lowest) {
+  const int n = n_;
+  int cut[4];
+  int nw = 0;
+  cut[0] = n - 1;
+  float acc = 0;
+  for (int i = n - 1; i > lowest && nw < 3; i--) {
+    if (isfinite(pts_[i].rate)) acc += sg * pts_[i].rate * (pts_[i].tMs - pts_[i - 1].tMs) / 1000.0f;
+    if (acc >= 360.0f) { cut[++nw] = i; acc -= 360.0f; }
+  }
+  if (nw == 0) return;
+  const bool useLean = cueLean && leanValid && leanPer100 <= 50.0f;
+  const float slx = useLean ? coreSx : 0.0f, sly = useLean ? coreSy : 0.0f;
+  const float zNow = pts_[n - 1].z;
+  const float* wt = cueW;
+  float kx[3], ky[3], wsum = 0, mx = 0, my = 0;
+  for (int k = 0; k < nw; k++) {
+    CoreCircle w;
+    w.a = cut[k + 1];
+    w.b = cut[k];
+    circleMetrics(w);
+    kx[k] = w.cx + cueGain * (w.x - w.cx) + slx * (zNow - w.z);
+    ky[k] = w.cy + cueGain * (w.y - w.cy) + sly * (zNow - w.z);
+    if (k == 0) {
+      cue.cx = w.cx; cue.cy = w.cy;
+      cue.rawX = w.x; cue.rawY = w.y;
+      cue.turnS = (pts_[n - 1].tMs - pts_[cut[1]].tMs) / 1000.0f;
+      cue.meanClimb = w.climb; cue.bestClimb = w.bestClimb; cue.bestX = w.bestX; cue.bestY = w.bestY;
+    }
+    wsum += wt[k]; mx += wt[k] * kx[k]; my += wt[k] * ky[k];
+  }
+  cue.x = mx / wsum;
+  cue.y = my / wsum;
+  // how far the older turns' estimates are from the newest one's: the cue's uncertainty (0 with one turn)
+  float sp = 0;
+  for (int k = 1; k < nw; k++) sp += (kx[k] - kx[0]) * (kx[k] - kx[0]) + (ky[k] - ky[0]) * (ky[k] - ky[0]);
+  cue.spread = nw > 1 ? sqrtf(sp / (nw - 1)) : 0.0f;
+  cue.shiftX = cue.x - cue.cx;
+  cue.shiftY = cue.y - cue.cy;
+  cue.shiftM = hypotf(cue.shiftX, cue.shiftY);
+  if (cue.shiftM > 80.0f) {                                   // a cue that far off is noise: clamp, keep the direction
+    cue.shiftX *= 80.0f / cue.shiftM; cue.shiftY *= 80.0f / cue.shiftM; cue.shiftM = 80.0f;
+    cue.x = cue.cx + cue.shiftX; cue.y = cue.cy + cue.shiftY;
+  }
+  float d = atan2f(cue.shiftX, cue.shiftY) * R2D;
+  cue.shiftDeg = d < 0 ? d + 360.0f : d;
+  cue.turns = nw;
+  cue.a0 = cut[1] > p0_ ? cut[1] - p0_ : 0;
+  cue.a1 = nw > 1 ? (cut[2] > p0_ ? cut[2] - p0_ : 0) : cue.a0;
+  cue.a2 = nw > 2 ? (cut[3] > p0_ ? cut[3] - p0_ : 0) : cue.a1;
+  cue.valid = true;
+}
+
 void ThermalColumn::analyze(float windE, float windN) {
   if (analyzedRev_ == rev_ && analyzedWE_ == windE && analyzedWN_ == windN) { placeHead(); return; }
   analyzedRev_ = rev_;
@@ -197,14 +262,15 @@ void ThermalColumn::analyze(float windE, float windN) {
     ay_[i] = pts_[i].gy - gyN + windN * age;
   }
 
-  // 2. circling runs: smoothed turn rate of at least 6 deg/s, one direction, gaps up to 3 s bridged
+  // 2. circling runs: smoothed turn rate of at least 4 deg/s, one direction, gaps up to 8 s bridged (the ground
+  //    track of a circle in wind barely turns while it runs downwind)
   static int8_t circ[MAXP];            // static: too big for the 4 KB loop stack
   for (int i = 0; i < n; i++) {
     float s = 0;
     int c = 0;
     for (int k = i - 2; k <= i + 2; k++)
       if (k >= 1 && k < n && isfinite(pts_[k].rate)) { s += pts_[k].rate; c++; }
-    circ[i] = (c >= 3 && fabsf(s / c) >= 6.0f) ? (s > 0 ? 1 : -1) : 0;
+    circ[i] = (c >= 3 && fabsf(s / c) >= 4.0f) ? (s > 0 ? 1 : -1) : 0;
   }
   Run runs[16];
   int nr = 0;
@@ -215,7 +281,7 @@ void ThermalColumn::analyze(float windE, float windN) {
     for (; j < n; j++) {
       if (circ[j] == sg) { e = j; gap = 0; }
       else if (circ[j] == -sg) break;
-      else if (++gap > 3) break;
+      else if (++gap > 8) break;
     }
     Run r;
     r.s = i > 2 ? i - 2 : 1;               // the smoothing window lets the turn start two points early
@@ -267,10 +333,11 @@ void ThermalColumn::analyze(float windE, float windN) {
 
   // 4. per circle metrics; then circle indices are renumbered relative to the climb's first point
   for (int i = 0; i < nCircles; i++) circleMetrics(circles[i]);
-  p0_ = circles[0].a > 5 ? circles[0].a - 5 : 0;
+  p0_ = circles[0].a;                                    // the climb starts with its first circle (no lead-in glide)
   nP_ = n - p0_;
+  endPt_ = lastPt - p0_;
   for (int i = 0; i < nCircles; i++) { circles[i].a -= p0_; circles[i].b -= p0_; }
-  const int endAbs = circles[nCircles - 1].b + p0_;
+  const int endAbs = lastPt;
 
   // 5. the lean: a line through the core points of the newest circles, with one pass that drops outliers
   const int i0 = nCircles > LEAN_CIRCLES ? nCircles - LEAN_CIRCLES : 0;
@@ -360,14 +427,6 @@ void ThermalColumn::analyze(float windE, float windN) {
     else trend = TREND_STEADY;
   }
 
-  // 8. the side view's cross-section: along the lean when there is one worth showing, else along the wind
-  if (leanValid && leanPer100 >= 3.0f) {
-    axisKind = AXIS_LEAN;
-    axisDeg = leanDeg;
-  } else if (hypotf(windE, windN) >= 1.0f) {
-    axisKind = AXIS_WIND;
-    float d = atan2f(windE, windN) * R2D;
-    axisDeg = d < 0 ? d + 360.0f : d;
-  }
+  if (circling) computeCue(runs[nr - 1].ang > 0 ? 1 : -1, runs[first].s);
   placeHead();
 }

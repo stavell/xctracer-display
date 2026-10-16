@@ -886,6 +886,279 @@ static void drawMapPage(const ViewModel& vm, const Bitmap1* bm) {
   }
 }
 
+// ---- CENTRING PAGE -------------------------------------------------------------
+// The thermal assistant for the circle you are flying (core/thermal3d.h, CoreCue). Heading up, the centre of your
+// newest turn in the middle of the map:
+//   top      which way and how far to shift the circle (arrow, distance, word) or CENTRED
+//   map      the last turns in the air-mass frame, thick where it climbed (the thick part is the lift), a ring
+//            of 25 m, the core marker, the shift as a line from your centre to the core, you
+//   bottom   climb now, average and best on this turn, and a small lean readout
+//   right    strength by height, a strip, current altitude at the top
+// It needs one full turn of circling; before that, or after leaving the lift, it says so instead of guessing.
+
+// A pixel, a line w pixels wide (parallel lines: no gaps on diagonals), a dotted line.
+static void cPix(int x, int y, uint16_t col) {
+  if (fbm) fbm->pixel(x, y, col ? DRAW_SET : DRAW_CLEAR);
+  else d->drawPixel(x, y, col);
+}
+static void cLine(int x0, int y0, int x1, int y1, int w, uint16_t col) {
+  if (w <= 1) { gLine(x0, y0, x1, y1, col); return; }
+  const bool flat = abs(x1 - x0) >= abs(y1 - y0);
+  for (int k = 0; k < w; k++) {
+    const int o = k - (w - 1) / 2;
+    if (flat) gLine(x0, y0 + o, x1, y1 + o, col);
+    else gLine(x0 + o, y0, x1 + o, y1, col);
+  }
+}
+// on/off pixels along the segment (period on + off), the phase carried across segments in dashPhase
+static void cDots(int x0, int y0, int x1, int y1, int on, int off, uint16_t col) {
+  const int dx = x1 - x0, dy = y1 - y0;
+  int steps = abs(dx) > abs(dy) ? abs(dx) : abs(dy);
+  if (steps < 1) steps = 1;
+  for (int i = 0; i <= steps; i++) {
+    if ((dashPhase++ % (on + off)) >= on) continue;
+    cPix(x0 + (int)lroundf((float)dx * i / steps), y0 + (int)lroundf((float)dy * i / steps), col);
+  }
+}
+static void cDisc(int cx, int cy, int r, uint16_t col) {
+  if (fbm) fillDisc(*fbm, cx, cy, r, col ? DRAW_SET : DRAW_CLEAR);
+  else d->fillCircle(cx, cy, r, col);
+}
+// stroke width by climb: sink is a dotted line, strong lift a thick one
+static int cWidth(float v) { return v < 0.3f ? 1 : (v < 1.0f ? 2 : (v < 2.0f ? 3 : (v < 3.0f ? 4 : 5))); }
+static void cTrackSeg(int x0, int y0, int x1, int y1, float v, bool older) {
+  if (v < 0.0f) { cDots(x0, y0, x1, y1, 1, 2, BLK); return; }
+  int w = cWidth(v);
+  if (older) {                                  // the turn before: a grey stroke, thinner
+    if (fbm) greyLine(*fbm, x0, y0, x1, y1, w > 1 ? w - 1 : 1, MID + 1);
+    else cDots(x0, y0, x1, y1, 1, 1, BLK);
+    return;
+  }
+  cLine(x0, y0, x1, y1, w, BLK);
+}
+
+// Strength by altitude as horizontal bars growing right from x0, one per band, to scale (6.5 px per m/s), altitude
+// along y at `pxPerM` with zRef at yRef.
+static void climbBars(const ThermalColumn& c, int x0, int ylo, int yhi, float zRef, int yRef, float pxPerM) {
+  for (int i = 0; i < c.nBands; i++) {
+    const ClimbBand& bd = c.bands[i];
+    const int yb = yRef + (int)lroundf((zRef - (bd.z0 + c.bandM)) * pxPerM), yt = yRef + (int)lroundf((zRef - bd.z0) * pxPerM);
+    int h = yt - yb - 1;
+    if (h < 2) h = 2;
+    if (yb < ylo || yb + h > yhi) continue;
+    int len = (int)lroundf(fminf(fmaxf(bd.climb, 0.0f), 4.5f) * 6.5f);
+    if (bd.climb < 0.15f) { d->drawFastHLine(x0 + 1, yb + h / 2, 3, BLK); continue; }
+    if (len < 2) len = 2;
+    d->fillRect(x0 + 1, yb, len, h, BLK);
+  }
+}
+
+static const char* shiftWord(float relDeg) {          // relDeg: clockwise from ahead
+  static const char* w[] = {"AHEAD", "AHEAD-R", "RIGHT", "BACK-R", "BEHIND", "BACK-L", "LEFT", "AHEAD-L"};
+  return w[((int)((relDeg + 22.5f) / 45.0f)) & 7];
+}
+
+// the zoom steps (pixels per metre): the picture does not breathe, it jumps when a step no longer fits
+static float centerPickScale(float extentM, float halfPx) {
+  static const float ladder[] = {3.0f, 2.2f, 1.6f, 1.2f, 0.9f, 0.65f, 0.45f};
+  for (float k : ladder) if (extentM * k <= halfPx) return k;
+  return 0.45f;
+}
+
+static const int CEN_CUE_H = 62, CEN_BOTTOM_H = 78, CEN_STRIP_W = 34;
+static const float CEN_OK_M = 12.0f;                   // a shift shorter than this is "centred"
+
+static void drawCenterPage(const ViewModel& vm, const Bitmap1* bm) {
+  int mx = THERMAL_X0, my = HDR, mw, mh;
+  mapPageSize(W, H, mw, mh);
+  thinVario(bm, 3, 9, vm.s.vario, vm.avgVario);
+  const ThermalColumn* c = vm.col;
+  const bool have = c && c->valid && c->circling && c->cue.valid;
+  const CoreCue* q = have ? &c->cue : nullptr;
+  char b[32], l[40];
+  d->drawRect(mx, my, mw, mh, BLK);
+
+  // ---- the point of view: up = the direction you fly in the air-mass frame (the last 3 s of the track)
+  float hdg = 0;                                        // radians clockwise from north
+  int n = 0;
+  float headX = 0, headY = 0;
+  if (have) {
+    n = c->count();
+    headX = c->headValid() ? c->headX() : c->px(n - 1);
+    headY = c->headValid() ? c->headY() : c->py(n - 1);
+    const int k = n > 4 ? n - 4 : 0;
+    hdg = atan2f(headX - c->px(k), headY - c->py(k));
+  }
+  const float sh = sinf(hdg), ch = cosf(hdg);
+  auto right = [&](float e, float nn) { return e * ch - nn * sh; };      // metres to the right of your heading
+  auto ahead = [&](float e, float nn) { return e * sh + nn * ch; };
+
+  // ---- top: the shift
+  d->drawFastHLine(mx, my + CEN_CUE_H, mw, BLK);
+  float relDeg = NAN;
+  if (q) relDeg = atan2f(right(q->shiftX, q->shiftY), ahead(q->shiftX, q->shiftY)) * 57.29578f;
+  const int ax = mx + 33, ay = my + 31;
+  if (q && q->shiftM >= CEN_OK_M) {
+    float rel = relDeg;
+    if (rel < 0) rel += 360.0f;
+    drawArrow(ax, ay, relDeg * PI_F / 180.0f, 22, 13);
+    text(mx + 68, my + 40, fnum(b, sizeof b, q->shiftM, "%.0f"), F24B);
+    text(mx + 68 + textW(b, F24B) + 5, my + 40, "m", F12B);
+    text(mx + 68, my + 58, shiftWord(rel), F12B);
+  } else if (q) {
+    gCircle(ax, ay, 18, BLK); gCircle(ax, ay, 17, BLK);
+    d->fillCircle(ax, ay, 6, BLK);
+    text(mx + 68, my + 40, "CENTRED", F18B);
+    text(mx + 68, my + 58, "hold the circle", F9);
+  } else {
+    text(ax, ay + 12, "--", F24B, AC);
+    const char* why = !c || !c->valid ? "no circles yet" : (!c->circling ? "not circling" : "first full turn");
+    text(mx + 68, my + 40, why, F12B);
+    if (c && c->valid && !c->circling) { snprintf(l, sizeof l, "left %u s ago", (unsigned)c->ageS); text(mx + 68, my + 58, l, F9); }
+    else if (c && c->valid) text(mx + 68, my + 58, "needs one turn", F9);
+    else text(mx + 68, my + 58, "turn to start", F9);
+  }
+
+  // ---- bottom: climb now / average / best, lean
+  const int by0 = my + mh - CEN_BOTTOM_H;
+  d->drawFastHLine(mx, by0, mw, BLK);
+  text(mx + 6, by0 + 14, "NOW m/s", F9);
+  text(mx + 6, by0 + 46, fnum(b, sizeof b, vm.s.vario, "%+.1f"), F24B);
+  text(mx + 104, by0 + 14, "turn avg", F9);
+  text(mx + mw - 6, by0 + 14, fnum(b, sizeof b, q ? q->meanClimb : NAN, "%+.1f"), F12B, AR);
+  text(mx + 104, by0 + 33, "best", F9);
+  text(mx + mw - 6, by0 + 33, fnum(b, sizeof b, q ? q->bestClimb : NAN, "%+.1f"), F12B, AR);
+  d->drawFastHLine(mx, by0 + 53, mw, BLK);
+  // lean: the way the lift moves as it goes up, relative to your heading, and by how much
+  if (c && c->valid && c->leanValid) {
+    const float lr = atan2f(right(sinf(c->leanDeg * PI_F / 180.0f), cosf(c->leanDeg * PI_F / 180.0f)),
+                            ahead(sinf(c->leanDeg * PI_F / 180.0f), cosf(c->leanDeg * PI_F / 180.0f)));
+    if (have) drawArrow(mx + 16, by0 + 66, lr, 6, 5);
+    snprintf(l, sizeof l, "lean %.0f m/100 m %s", c->leanPer100, cardinal16(c->leanDeg));
+  } else {
+    snprintf(l, sizeof l, "lean --");
+  }
+  text(mx + 30, by0 + 71, l, F9);
+  {
+    const char* tr = "";
+    if (c && c->valid) tr = c->trend == TREND_BUILDING ? "BUILDING" : c->trend == TREND_STEADY ? "STEADY" : c->trend == TREND_WEAKENING ? "FADING" : c->trend == TREND_TOP ? "TOP" : "";
+    text(mx + mw - 6, by0 + 71, tr, F9B, AR);
+  }
+
+  // ---- map frame
+  const int mapX0 = mx + 1, mapX1 = mx + mw - CEN_STRIP_W - 2, mapY0 = my + CEN_CUE_H + 2, mapY1 = by0 - 2;
+  const int ox = (mapX0 + mapX1) / 2, oy = (mapY0 + mapY1) / 2;
+  d->drawFastVLine(mapX1 + 1, mapY0, mapY1 - mapY0 + 1, BLK);
+  if (!q) {
+    text(ox, oy + 6, "centre of the circle", F9, AC);
+    text(ox, oy + 24, "and the lift appear here", F9, AC);
+    return;
+  }
+
+  // scale: the newest three turns and the core must fit
+  float ext = fminf(q->shiftM, 80.0f) + 10.0f;
+  for (int i = q->a2; i < n; i++) ext = fmaxf(ext, hypotf(c->px(i) - q->cx, c->py(i) - q->cy) + 6.0f);
+  const float k = centerPickScale(ext, 0.5f * fminf((float)(mapX1 - mapX0), (float)(mapY1 - mapY0)) - 6.0f);
+  auto SX = [&](float e, float nn) { return (int)lroundf(ox + right(e - q->cx, nn - q->cy) * k); };
+  auto SY = [&](float e, float nn) { return (int)lroundf(oy - ahead(e - q->cx, nn - q->cy) * k); };
+  const int clx0 = mapX0 + 2, cly0 = mapY0 + 2, clx1 = mapX1 - 2, cly1 = mapY1 - 2;
+  auto inside = [&](int x, int y) { return x >= clx0 && x <= clx1 && y >= cly0 && y <= cly1; };
+
+  // 25 m reference ring (dotted) around your centre
+  PROF_BEGIN(P_CLIMB);
+  {
+    dashPhase = 0;
+    int px = 0, py = 0;
+    for (int j = 0; j <= 36; j++) {
+      const float th = j * (2 * PI_F / 36);
+      const int x = ox + (int)lroundf(25.0f * k * sinf(th)), y = oy - (int)lroundf(25.0f * k * cosf(th));
+      if (j && inside(x, y) && inside(px, py)) cDots(px, py, x, y, 1, 3, BLK);
+      px = x; py = y;
+    }
+    text(ox + 3, oy - (int)lroundf(25.0f * k) + 12, "25 m", F9);
+  }
+
+  // turns: the one before the newest in grey, then the newest thick where it climbed (back to front)
+  for (int turn = q->turns >= 2 ? 1 : 0; turn >= 0; turn--) {
+    const int from = turn == 1 ? q->a1 : q->a0, to = turn == 1 ? q->a0 : n - 1;
+    dashPhase = 0;
+    for (int i = from + 1; i <= to; i++) {
+      const int x0 = SX(c->px(i - 1), c->py(i - 1)), y0 = SY(c->px(i - 1), c->py(i - 1));
+      const int x1 = SX(c->px(i), c->py(i)), y1 = SY(c->px(i), c->py(i));
+      if (!inside(x0, y0) || !inside(x1, y1)) continue;
+      cTrackSeg(x0, y0, x1, y1, 0.5f * (c->pv(i - 1) + c->pv(i)), turn == 1);
+    }
+  }
+  if (c->headValid()) {                                  // the newest 3 Hz sample: the last bit of the line
+    const int x0 = SX(c->px(n - 1), c->py(n - 1)), y0 = SY(c->px(n - 1), c->py(n - 1));
+    const int x1 = SX(headX, headY), y1 = SY(headX, headY);
+    if (inside(x0, y0) && inside(x1, y1)) cTrackSeg(x0, y0, x1, y1, c->headV(), false);
+  }
+  PROF_END(P_CLIMB);
+
+  // best lift on this turn: a bead on the line
+  {
+    const int bx = SX(q->bestX, q->bestY), byy = SY(q->bestX, q->bestY);
+    if (inside(bx, byy)) { cDisc(bx, byy, 7, WHT); cDisc(bx, byy, 5, BLK); cDisc(bx, byy, 2, WHT); }
+  }
+  // your centre, the core, and the shift between them
+  d->drawFastHLine(ox - 5, oy, 11, BLK);
+  d->drawFastVLine(ox, oy - 5, 11, BLK);
+  {
+    const int cx = SX(q->x, q->y), cy = SY(q->x, q->y);
+    if (q->shiftM >= CEN_OK_M && hypotf((float)(cx - ox), (float)(cy - oy)) > 22) {
+      const float len = hypotf((float)(cx - ox), (float)(cy - oy));
+      const float ux = (cx - ox) / len, uy = (cy - oy) / len;
+      cLine(ox + (int)(ux * 7), oy + (int)(uy * 7), cx - (int)(ux * 14), cy - (int)(uy * 14), 3, BLK);
+      const int hx = cx - (int)(ux * 13), hy = cy - (int)(uy * 13);
+      d->fillTriangle(cx - (int)(ux * 9), cy - (int)(uy * 9), hx - (int)(uy * 7), hy + (int)(ux * 7), hx + (int)(uy * 7), hy - (int)(ux * 7), BLK);
+    }
+    if (inside(cx, cy)) {                                // the core: a target
+      cDisc(cx, cy, 13, WHT);
+      gCircle(cx, cy, 12, BLK); gCircle(cx, cy, 11, BLK); gCircle(cx, cy, 10, BLK);
+      d->drawFastHLine(cx - 17, cy, 35, BLK); d->drawFastVLine(cx, cy - 17, 35, BLK);
+      d->drawFastHLine(cx - 17, cy + 1, 35, BLK); d->drawFastVLine(cx + 1, cy - 17, 35, BLK);
+      cDisc(cx, cy, 5, BLK);
+    }
+  }
+  // you, on the circle
+  {
+    const int hx = SX(headX, headY), hy = SY(headX, headY);
+    const float lx = hx - ox, ly = hy - oy;
+    if (inside(hx, hy)) {
+      d->fillTriangle(hx, hy - 9, hx - 7, hy + 7, hx + 7, hy + 7, WHT);
+      d->fillTriangle(hx, hy - 7, hx - 5, hy + 6, hx + 5, hy + 6, BLK);
+      d->fillTriangle(hx, hy - 2, hx - 2, hy + 3, hx + 2, hy + 3, WHT);
+    }
+    (void)lx; (void)ly;
+  }
+  // wind in the map's frame (top right of the map), and "ahead" is up
+  if (vm.wind.valid) {
+    d->fillRect(mapX1 - 34, mapY0 + 1, 33, 31, WHT);
+    drawArrow(mapX1 - 18, mapY0 + 17, vm.wind.toDeg * PI_F / 180.0f - hdg, 10, 7);
+  }
+
+  // ---- strength by height: bars, the current altitude at the top
+  {
+    const int sx0 = mx + mw - CEN_STRIP_W;
+    const int ytop = mapY0, ybot = by0 - 2;
+    const float zNow = c->headValid() ? c->headZ() : c->pz(n - 1);
+    const float pxPerM = 1.0f;
+    const int yRef = ytop + 22;
+    d->drawFastVLine(sx0, ytop, ybot - ytop + 1, BLK);
+    climbBars(*c, sx0, ytop, ybot, zNow, yRef, pxPerM);
+    d->fillTriangle(sx0 + 1, yRef, sx0 + 9, yRef - 5, sx0 + 9, yRef + 5, BLK);          // you
+    snprintf(b, sizeof b, "%.0f", zNow);
+    text(mx + mw - 3, ytop + 12, b, F9, AR);
+    d->drawFastHLine(sx0, yRef, 3, BLK);
+    for (int z = (int)floorf((zNow - (ybot - yRef) / pxPerM) / 50.0f) * 50; z <= zNow; z += 50) {
+      const int y = yRef + (int)lroundf((zNow - z) * pxPerM);
+      if (y > ytop + 30 && y < ybot - 2) d->drawFastHLine(sx0 + 1, y, 3, BLK);
+    }
+    text(sx0 + 3, ybot - 3, "m/s", F9);
+  }
+}
+
 // Portrait layout, 240 x 400. Priorities: GPS speed + glide, altitude + vertical speed, compass + wind.
 // Cells have a short inverted title band like the top toolbar.
 static void cell(int x, int y, int w, const char* title, const char* value) {
@@ -990,6 +1263,7 @@ void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitma
   header(vm);
   PROF_END(P_HEADER);
   if (vm.fresh && vm.page == ViewModel::PAGE_MAP && vm.terrainOn) drawMapPage(vm, bm);
+  else if (vm.fresh && vm.page == ViewModel::PAGE_CENTER) drawCenterPage(vm, bm);
   else if (vm.fresh) drawLiveBody(vm, bm);
   else drawStandalone(vm, bm);
   powerBanner(heldMs);

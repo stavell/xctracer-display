@@ -110,18 +110,19 @@ static void test_page_cycle() {
     Session s(nullptr);
     CHECK(s.cur() == ViewModel::PAGE_COMPASS);
     int seen[8], n = 0;
-    for (int i = 0; i < 5; i++) { s.press(); seen[n++] = s.cur(); }
-    CHECK(seen[0] == ViewModel::PAGE_THERMAL && seen[1] == ViewModel::PAGE_PROFILE && seen[2] == ViewModel::PAGE_HOME &&
-          seen[3] == ViewModel::PAGE_COMPASS && seen[4] == ViewModel::PAGE_THERMAL);
+    for (int i = 0; i < 6; i++) { s.press(); seen[n++] = s.cur(); }
+    CHECK(seen[0] == ViewModel::PAGE_THERMAL && seen[1] == ViewModel::PAGE_CENTER && seen[2] == ViewModel::PAGE_PROFILE &&
+          seen[3] == ViewModel::PAGE_HOME && seen[4] == ViewModel::PAGE_COMPASS && seen[5] == ViewModel::PAGE_THERMAL);
     s.page(ViewModel::PAGE_MAP);                           // the laptop cannot open it either
     CHECK(s.cur() != ViewModel::PAGE_MAP);
   }
   {
     Session s(&gKit);
     int seen[8], n = 0;
-    for (int i = 0; i < 6; i++) { s.press(); seen[n++] = s.cur(); }
-    CHECK(seen[0] == ViewModel::PAGE_THERMAL && seen[1] == ViewModel::PAGE_MAP && seen[2] == ViewModel::PAGE_PROFILE &&
-          seen[3] == ViewModel::PAGE_HOME && seen[4] == ViewModel::PAGE_COMPASS && seen[5] == ViewModel::PAGE_THERMAL);
+    for (int i = 0; i < 7; i++) { s.press(); seen[n++] = s.cur(); }
+    CHECK(seen[0] == ViewModel::PAGE_THERMAL && seen[1] == ViewModel::PAGE_CENTER && seen[2] == ViewModel::PAGE_MAP &&
+          seen[3] == ViewModel::PAGE_PROFILE && seen[4] == ViewModel::PAGE_HOME && seen[5] == ViewModel::PAGE_COMPASS &&
+          seen[6] == ViewModel::PAGE_THERMAL);
     s.page(ViewModel::PAGE_MAP);
     CHECK(s.cur() == ViewModel::PAGE_MAP);
     s.app.setTerrain(nullptr);                             // detaching while on the map page falls back to the compass

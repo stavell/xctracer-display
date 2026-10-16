@@ -2,6 +2,8 @@
 // Tests for the climb column (apps/vario/core/thermal3d.*): synthetic thermals with a known lean and core, noise,
 // no circling, a climb that ended, trend, strength bands, and the column behind the FlightModel.
 // Included by tests.cpp after the CHECK macros.
+#include <chrono>
+#include <string.h>
 #include "apps/vario/core/thermal3d.h"
 
 namespace t3 {
@@ -42,7 +44,7 @@ struct Synth {
     float v = (v0 + vSlope * (float)(z - 1500) / 100.0f) * expf(-(float)(r * r) / (2 * sigma * sigma));
     const double gx = px + windE * t + posNoise * gauss(), gy = py + windN * t + posNoise * gauss();
     const double lat = lat0 + gy / 111320.0, lon = lon0 + gx / (111320.0 * cos(lat0 * 0.017453292519943295));
-    if (push) col.push((uint32_t)(1000 + t * 1000), true, lat, lon, (float)z, v + varNoise * (float)gauss(), windE, windN);
+    if (push) col.push((uint32_t)(1000 + t * 1000), true, lat, lon, (float)z, v + varNoise * (float)gauss());
     z += v;
     hdg += turnDeg;
     t += 1;
@@ -56,7 +58,7 @@ struct Synth {
       py += airMs * cos(h);
       const double gx = px + windE * t, gy = py + windN * t;
       col.push((uint32_t)(1000 + t * 1000), true, lat0 + gy / 111320.0,
-               lon0 + gx / (111320.0 * cos(lat0 * 0.017453292519943295)), (float)z, (float)sinkMs, windE, windN);
+               lon0 + gx / (111320.0 * cos(lat0 * 0.017453292519943295)), (float)z, (float)sinkMs);
       z += sinkMs;
       t += 1;
     }
@@ -101,7 +103,6 @@ static void run() {
     s.trueCore(s.z, tx, ty);
     NEAR(gCol.coreX0 + gCol.coreSx * (s.z - gCol.coreZ0), tx, 4.0);
     NEAR(gCol.coreY0 + gCol.coreSy * (s.z - gCol.coreZ0), ty, 4.0);
-    CHECK(gCol.axisKind == AXIS_LEAN && bearingDiff(gCol.axisDeg, 60) < 4);
     CHECK(gCol.trend == TREND_STEADY);
     CHECK(gCol.count() > 150 && gCol.count() <= 600);
     // the track's points are in the air frame: a closed ring, not smeared by the wind (radius 34 m)
@@ -138,11 +139,11 @@ static void run() {
     CHECK(gCol.circles[2].bestClimb > gCol.circles[2].climb + 0.1f);
   }
   {
-    // noise: 0.4 m/s on the vario, 1.5 m on the position
+    // noise: 0.4 m/s on the vario, 0.7 m on every position (1 m/s on the velocity, ten times a good GPS)
     Synth s;
     s.sx = 0.05; s.sy = -0.04;
     s.windE = -4; s.windN = 1;
-    s.posNoise = 1.5; s.varNoise = 0.4f;
+    s.posNoise = 0.7; s.varNoise = 0.4f;
     s.offN = 6;
     gCol.reset();
     s.circles(gCol, 8.2);
@@ -166,6 +167,59 @@ static void run() {
     gCol.analyze(4.5f, 0);                                   // 0.5 m/s too much wind, climbing at 2.5 m/s
     NEAR(gCol.leanPer100, 20.0, 3.0);
     CHECK(bearingDiff(gCol.leanDeg, 270) < 8);              // the air-frame track is pushed upwind of where it was
+  }
+  {
+    // a wind two thirds of the glider's speed (6 of 9 m/s): the ground course still turns 360 degrees per circle
+    Synth s;
+    s.sigma = 1e6f;
+    s.windE = 6;
+    s.airMs = 9;
+    gCol.reset();
+    s.circles(gCol, 8.2);
+    gCol.analyze(6, 0);
+    CHECK(gCol.valid && gCol.nCircles >= 6 && gCol.nCircles <= 9);
+    NEAR(gCol.leanPer100, 0.0, 3.0);
+  }
+  {
+    // the cue: the circle is 12 m west of a Gaussian core: shift east; a centred pilot gets a short shift
+    Synth s;
+    s.offE = -12; s.sigma = 28;
+    gCol.reset();
+    s.circles(gCol, 3.2);
+    gCol.analyze(0, 0);
+    CHECK(gCol.cue.valid);
+    CHECK(bearingDiff(gCol.cue.shiftDeg, 90) < 25);
+    CHECK(gCol.cue.shiftM > 8 && gCol.cue.shiftM < 45);
+    CHECK(gCol.cue.turns >= 2);
+    CHECK(gCol.cue.a0 > gCol.cue.a1 && gCol.cue.a1 >= 0);
+    NEAR(gCol.cue.meanClimb, 1.3, 0.5);
+    CHECK(gCol.cue.bestClimb > gCol.cue.meanClimb);
+    CHECK(bearingDiff(atan2(gCol.cue.bestX - gCol.cue.cx, gCol.cue.bestY - gCol.cue.cy) / 0.0174533 + 360, 90) < 45);   // best lift on the east side
+    Synth c;
+    c.sigma = 28;
+    gCol.reset();
+    c.circles(gCol, 3.2);
+    gCol.analyze(0, 0);
+    CHECK(gCol.cue.valid && gCol.cue.shiftM < 12);                      // CENTRED
+    // not before a full turn, not when the climb is over
+    gCol.reset();
+    Synth h;
+    h.circles(gCol, 0.6);
+    gCol.analyze(0, 0);
+    CHECK(!gCol.cue.valid);
+    gCol.reset();
+    Synth e;
+    e.circles(gCol, 3.2);
+    e.glide(gCol, 30);
+    gCol.analyze(0, 0);
+    CHECK(gCol.valid && !gCol.cue.valid);
+    // wind: the cue does not depend on it (air frame): same shift with 6 m/s of wind as without
+    Synth w;
+    w.offE = -12; w.sigma = 28; w.windE = 6; w.windN = 2;
+    gCol.reset();
+    w.circles(gCol, 3.2);
+    gCol.analyze(6, 2);
+    CHECK(gCol.cue.valid && bearingDiff(gCol.cue.shiftDeg, 90) < 25);
   }
   {
     // no circling: a straight glide, then a long wiggle of 30 degrees of S-turns
@@ -280,11 +334,11 @@ static void run() {
   {
     // bad input: no fix, NaN altitude and vario, a repeated time stamp
     gCol.reset();
-    gCol.push(1000, false, 43, 26, 100, 0, 0, 0);
-    gCol.push(2000, true, 43, 26, NAN, 0, 0, 0);
+    gCol.push(1000, false, 43, 26, 100, 0);
+    gCol.push(2000, true, 43, 26, NAN, 0);
     CHECK(gCol.pushed() == 0);
-    gCol.push(3000, true, 43, 26, 100, NAN, 0, 0);
-    gCol.push(3000, true, 43, 26.001, 100, 1, 0, 0);
+    gCol.push(3000, true, 43, 26, 100, NAN);
+    gCol.push(3000, true, 43, 26.001, 100, 1);
     CHECK(gCol.pushed() == 1);
     gCol.analyze(NAN, NAN);                                 // a NaN wind must not crash it
     CHECK(!gCol.valid);
@@ -326,6 +380,97 @@ static void run() {
     fm.reset();
     CHECK(!fm.column().valid);
   }
+}
+
+
+// ---- the two pages
+static int blackIn(MockPanel& p, int x0, int y0, int x1, int y1) {
+  Bitmap1 bm = p.bitmap();
+  int n = 0;
+  for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) if (!bm.getPixel(x, y)) n++;
+  return n;
+}
+
+static void fillVm(ViewModel& vm, FlightModel& fm, int circlingSeconds, int glideSeconds) {
+  Synth s;
+  s.sx = 0.07; s.sy = 0.02; s.windE = 3; s.windN = 1; s.sigma = 40;
+  fm.reset();
+  int sec = 0;
+  auto feed = [&](float v) {
+    Sample m;
+    m.fix = true;
+    const double gx = s.px + s.windE * s.t, gy = s.py + s.windN * s.t;
+    m.lat = s.lat0 + gy / 111320.0;
+    m.lon = s.lon0 + gx / (111320.0 * cos(s.lat0 * 0.0174533));
+    m.alt = (float)s.z; m.vario = v;
+    const double vx = 9 * sin(s.hdg * 0.0174533) + s.windE, vy = 9 * cos(s.hdg * 0.0174533) + s.windN;
+    m.speedKmh = (float)(hypot(vx, vy) * 3.6);
+    m.course = (float)fmod(atan2(vx, vy) / 0.0174533 + 360, 360);
+    m.hh = 10; m.mm = (uint8_t)(sec / 60); m.ss = (uint8_t)(sec % 60);
+    fm.feed(m);
+    sec++;
+  };
+  for (int i = 0; i < circlingSeconds; i++) {
+    s.place();
+    const double r = hypot(s.px - s.coreX(s.z), s.py - s.coreY(s.z));
+    const float v = 2.5f * expf(-(float)(r * r) / (2 * 40 * 40));
+    feed(v);
+    s.z += v; s.hdg += 15; s.t += 1;
+  }
+  for (int i = 0; i < glideSeconds; i++) {
+    s.px += 9 * sin(s.hdg * 0.0174533); s.py += 9 * cos(s.hdg * 0.0174533);
+    feed(-1.0f);
+    s.z -= 1; s.t += 1;
+  }
+  vm = ViewModel();
+  vm.fresh = true; vm.link = ViewModel::LINK_CONNECTED;
+  vm.s = fm.last(); vm.avgVario = fm.avgVario(); vm.wind = fm.wind();
+  vm.heading = vm.s.course; vm.headingSrc = HDG_GPS;
+  vm.localMinutes = 600; vm.localBattPct = 80;
+  vm.col = &fm.column();
+}
+
+static void runView() {
+  puts("centring page");
+  static ViewModel vm;
+  static FlightModel fm;
+  static MockPanel p;
+  p.setRotation(1);
+  struct Case { const char* name; int circ, glide; bool cue; };
+  const Case cases[] = {{"circling", 9 * 24, 0, true}, {"left the lift", 9 * 24, 40, false}, {"half a circle", 12, 0, false},
+                        {"nothing", 0, 90, false}, {"long climb, ring full", 40 * 24, 0, true}, {"very old climb", 9 * 24, 150, false}};
+  for (const Case& cs : cases) {
+    fillVm(vm, fm, cs.circ, cs.glide);
+    vm.page = ViewModel::PAGE_CENTER;
+    CHECK(vm.col->cue.valid == cs.cue);
+    p.clear();
+    drawLive(p.gfx(), vm, 0);
+    Bitmap1 bm = p.bitmap();
+    const int ink = blackIn(p, 22, 24, 240, 400);
+    printf("  %-22s cue %d, black pixels in the page frame: %d\n", cs.name, (int)vm.col->cue.valid, ink);
+    CHECK(ink > 400);
+    // through the fast path (a Bitmap1) as well, and with every optional field missing
+    p.clear();
+    drawLive(p.gfx(), vm, 0, &bm);
+    vm.s.alt = NAN; vm.s.vario = NAN; vm.wind.valid = false; vm.heading = NAN; vm.avgVario = NAN;
+    p.clear();
+    drawLive(p.gfx(), vm, 0, &bm);
+  }
+  // no column (a model built for another page): no crash
+  fillVm(vm, fm, 0, 0);
+  vm.col = nullptr;
+  vm.page = ViewModel::PAGE_CENTER;
+  p.clear();
+  drawLive(p.gfx(), vm, 0);
+  CHECK(blackIn(p, 22, 24, 240, 400) > 300);
+  // the page cost on the PC: one turn and three turns on screen
+  fillVm(vm, fm, 9 * 24, 0);
+  vm.page = ViewModel::PAGE_CENTER;
+  Bitmap1 bm = p.bitmap();
+  auto t0 = std::chrono::steady_clock::now();
+  for (int i = 0; i < 50; i++) { p.clear(); drawLive(p.gfx(), vm, 0, &bm); }
+  const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() / 50;
+  printf("  PC draw time (sanitizers on, includes the panel clear): %.2f ms, %d track points in the column\n", ms, vm.col->count());
 }
 
 }  // namespace t3

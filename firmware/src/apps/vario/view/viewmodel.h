@@ -24,7 +24,7 @@ struct ViewModel {
   int localMinutes = -1;         // minutes since midnight, local time; -1 = unknown
   int localBattPct = 0;
 
-  enum Page { PAGE_COMPASS, PAGE_THERMAL, PAGE_PROFILE, PAGE_HOME, PAGE_MAP, PAGE_CLIMB_SIDE, PAGE_CLIMB_3D, PAGE_COUNT };   // new pages last: the host's page numbers stay; cycling puts them after the thermal page
+  enum Page { PAGE_COMPASS, PAGE_THERMAL, PAGE_PROFILE, PAGE_HOME, PAGE_MAP, PAGE_CENTER, PAGE_COUNT };   // new pages last: the host's page numbers stay; cycling puts the centring page after the thermal page
   Page page = PAGE_COMPASS;
   static const int TRAIL_MAX = 180;      // 3 minutes of dense track
   AirPoint trail[TRAIL_MAX];      // wind-compensated track, filled for the thermal page
@@ -44,10 +44,8 @@ struct ViewModel {
   float mapScale = NAN;            // pixels per metre (NaN: the view picks a fixed zoom step)
   float mapTailVario = 0;
 
-  // climb column pages (SIDE and 3D): the analysed last climb (core/thermal3d.h, owned by the flight model), null on
-  // the other pages. colYaw: where the oblique view looks (COLYAW_*), colHdg/colWind steer it.
+  // centring page: the analysed climb (core/thermal3d.h, owned by the flight model), null on the other pages
   const ThermalColumn* col = nullptr;
-  uint8_t colYaw = 1;
 
   // wind profile page: bands with data, lowest first
   static const int PROFILE_MAX = WindProfile::BANDS;
