@@ -12,6 +12,11 @@ struct AppConfig {
   uint32_t hostGraceMs = 10000;      // laptop frames keep the screen this long after the last draw command
   uint32_t freshMs = 3000;           // data older than this counts as no data
   uint32_t drawEveryMs = 333;        // live screen redraw cadence (3 Hz, the tracer's data rate)
+  uint32_t animCompassEveryMs = 33;  // compass page and standalone compass while the dial glides (30 fps)
+  float gpsGlideTauMs = 250.0f;      // dial glide for the GPS track (about 3 updates per second)
+  float magGlideTauMs = 90.0f;       // dial glide for the magnetic compass (sensor already filtered, 80 Hz)
+  float magDeadbandDeg = 0.4f;       // compass target only moves beyond this, or after magDeadbandHoldMs of drift
+  uint32_t magDeadbandHoldMs = 300;
   uint32_t animEveryMs = 50;         // redraw cadence while the dial is still gliding (compass, home)
   uint32_t animThermalEveryMs = 50;  // same on the thermal page (its map costs about the same to draw)
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
@@ -76,6 +81,7 @@ class App {
   Compass compass_;
   bool compassOn_ = false;
   HeadingSelector heading_;          // GPS track or magnetic compass, whichever applies
+  HeadingSource smoothSrc_ = HDG_NONE;   // source the smoother is currently tuned for
   HeadingSmoother smooth_;           // what the dial shows; advanced once per tick, never when drawing
   float ambientC_ = NAN, ambientRh_ = NAN;   // latest thermometer reading and when it came
   uint32_t ambientMs_ = 0;

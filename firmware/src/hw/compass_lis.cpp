@@ -16,7 +16,9 @@ bool CompassLis::begin() {
   haveImu_ = imu.begin_I2C();
   haveMag_ = mag.begin_I2C();
   if (haveMag_) {
-    mag.setDataRate(LIS3MDL_DATARATE_10_HZ);
+    // 80 Hz needs medium performance (datasheet: UHP max 10 Hz, HP 40 Hz, MP 80 Hz). The library's
+    // setDataRate() leaves the mode alone for these rates, so set both.
+    mag.setDataRate(LIS3MDL_DATARATE_80_HZ);
     mag.setPerformanceMode(LIS3MDL_MEDIUMMODE);
     mag.setRange(LIS3MDL_RANGE_4_GAUSS);
   }
@@ -27,23 +29,32 @@ bool CompassLis::begin() {
 void CompassLis::enable(bool on) {
   on_ = on;
   if (haveImu_) {
-    imu.setAccelDataRate(on ? LSM6DS_RATE_26_HZ : LSM6DS_RATE_SHUTDOWN);
+    imu.setAccelDataRate(on ? LSM6DS_RATE_104_HZ : LSM6DS_RATE_SHUTDOWN);
     imu.setGyroDataRate(LSM6DS_RATE_SHUTDOWN);
   }
   if (haveMag_) mag.setOperationMode(on ? LIS3MDL_CONTINUOUSMODE : LIS3MDL_POWERDOWNMODE);
-  last_ = 0;
 }
 
+// LIS3MDL STATUS register: the library has no data-ready call, so read it directly (one byte).
+static const uint8_t MAG_ADDR = 0x1C, MAG_STATUS = 0x27;
+static bool magReady() {
+  Wire.beginTransmission(MAG_ADDR);
+  Wire.write(MAG_STATUS);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(MAG_ADDR, (uint8_t)1) != 1) return false;
+  return (Wire.read() & 0x08) != 0;                   // ZYXDA: a new sample on all three axes
+}
+
+// The magnetometer paces the pair (80 Hz); the accelerometer (104 Hz) is read right after, so it is never
+// older than 10 ms. Nothing is read (and no time is spent) when there is no new sample.
 bool CompassLis::read(Vec3& a, Vec3& m) {
   if (!on_ || !haveImu_ || !haveMag_) return false;
-  uint32_t now = millis();
-  if (last_ && now - last_ < 100) return false;
-  last_ = now;
-  sensors_event_t ea, eg, et, em;
-  imu.getEvent(&ea, &eg, &et);
-  mag.getEvent(&em);
+  if (!magReady()) return false;
+  mag.read();
+  m_ = toDeviceMag(mag.x_gauss * 100.0f, mag.y_gauss * 100.0f, mag.z_gauss * 100.0f);   // gauss -> microtesla
+  sensors_event_t ea, eg, et;
+  imu.getEvent(&ea, &eg, &et);                        // one burst; at 104 Hz it is always newer than the last pair
   a_ = toDeviceAccel(ea.acceleration.x, ea.acceleration.y, ea.acceleration.z);
-  m_ = toDeviceMag(em.magnetic.x, em.magnetic.y, em.magnetic.z);
   a = a_;
   m = m_;
   return true;

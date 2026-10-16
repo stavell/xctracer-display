@@ -62,7 +62,7 @@ bool Compass::finishCalibration(bool keep) {
   return true;
 }
 
-void Compass::update(const Vec3& a, const Vec3& m) {
+void Compass::update(const Vec3& a, const Vec3& m, uint32_t nowMs) {
   if (!isfinite(a.x) || !isfinite(a.y) || !isfinite(a.z) || !isfinite(m.x) || !isfinite(m.y) || !isfinite(m.z)) return;
   float raw[3] = {m.x, m.y, m.z};
   if (calibrating_) {
@@ -77,9 +77,13 @@ void Compass::update(const Vec3& a, const Vec3& m) {
   }
   Vec3 c = m;                                              // hard-iron offset
   if (cal_.valid) { c.x -= cal_.off[0]; c.y -= cal_.off[1]; c.z -= cal_.off[2]; }
-  if (!seeded_) { a_ = a; m_ = c; seeded_ = true; }
+  if (!seeded_) { a_ = a; m_ = c; seeded_ = true; lastMs_ = nowMs; }
   else {
-    const float ka = 0.5f, km = 0.4f;
+    // exponential low-pass by elapsed time, so the response does not depend on the sensor rate
+    float dt = (float)(uint32_t)(nowMs - lastMs_);       // unsigned: correct across the millis() wrap
+    lastMs_ = nowMs;
+    if (dt > MAX_DT_MS) dt = MAX_DT_MS;
+    const float ka = 1.0f - expf(-dt / ACCEL_TAU_MS), km = 1.0f - expf(-dt / MAG_TAU_MS);
     a_.x += ka * (a.x - a_.x); a_.y += ka * (a.y - a_.y); a_.z += ka * (a.z - a_.z);
     m_.x += km * (c.x - m_.x); m_.y += km * (c.y - m_.y); m_.z += km * (c.z - m_.z);
   }

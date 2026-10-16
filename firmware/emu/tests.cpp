@@ -734,7 +734,7 @@ static void test_compass() {
   for (int psi = 0; psi < 360; psi += 15) {
     mc.reading(psi, 0, 0, a, m);
     c.reset();
-    c.update(a, m);
+    c.update(a, m, 0);
     CHECK(c.valid());
     NEAR(fabsf(angDiff(c.heading(), (float)psi)), 0, 0.5);
   }
@@ -745,7 +745,7 @@ static void test_compass() {
       for (int roll = -50; roll <= 50; roll += 25) {
         mc.reading(psi, pitch, roll, a, m);
         c.reset();
-        c.update(a, m);
+        c.update(a, m, 0);
         if (!c.valid() || fabsf(angDiff(c.heading(), (float)psi)) > 1.0f) bad++;
       }
   CHECK(bad == 0);
@@ -753,23 +753,24 @@ static void test_compass() {
   mc.reading(90, 0, 0, a, m);
   a.x = a.y = a.z = 0.2f;
   c.reset();
-  c.update(a, m);
+  c.update(a, m, 0);
   CHECK(!c.valid());
   // hard iron: an uncalibrated offset shifts the heading, calibration removes it
   MockCompass hi;
   hi.hardIron[0] = 12; hi.hardIron[1] = -18; hi.hardIron[2] = 7;
   Compass u;
   hi.reading(90, 0, 0, a, m);
-  u.update(a, m);
+  u.update(a, m, 0);
   CHECK(fabsf(angDiff(u.heading(), 90)) > 5.0f);
   Compass k;
   CHECK(!k.calibration().valid);
   k.startCalibration();
+  uint32_t calT = 0;
   for (int psi = 0; psi < 360; psi += 20)                  // sweep orientations like a person turning the unit
     for (int pitch = -90; pitch <= 90; pitch += 30)
       for (int roll = -90; roll <= 90; roll += 45) {
         hi.reading(psi, pitch, roll, a, m);
-        k.update(a, m);
+        k.update(a, m, 0);
       }
   float span[3];
   k.calibrationSpan(span);
@@ -781,7 +782,7 @@ static void test_compass() {
     for (int tilt = -30; tilt <= 30; tilt += 30) {
       hi.reading(psi, tilt, tilt / 2, a, m);
       k.reset();                                           // reset keeps the calibration
-      k.update(a, m);
+      k.update(a, m, 0);
       worst = fmaxf(worst, fabsf(angDiff(k.heading(), (float)psi)));
     }
   printf("  worst heading error after calibration: %.1f degrees\n", worst);
@@ -790,7 +791,7 @@ static void test_compass() {
   Compass lazy;
   lazy.startCalibration();
   hi.reading(0, 0, 0, a, m);
-  lazy.update(a, m);
+  lazy.update(a, m, 0);
   CHECK(!lazy.finishCalibration(true));
   CHECK(!lazy.calibration().valid);
 }
@@ -1224,6 +1225,103 @@ static void test_heading_smoother() {
     CHECK(ok); }
 }
 
+// Full chain as the app runs it: sensor at `hz`, Compass low-pass, heading selector-free smoother.
+struct ChainResult { float reach90Ms; float finalErr; };
+static ChainResult chainStep(int hz, float stepDeg, float tauMs, float noiseDeg, uint32_t seed) {
+  MockCompass mc;
+  Compass c;
+  HeadingSmoother sm(tauMs);
+  Vec3 a, m;
+  uint32_t period = 1000 / hz;
+  srand(seed);
+  auto noise = [&]() { return noiseDeg * (2.0f * rand() / (float)RAND_MAX - 1.0f); };
+  uint32_t t = 0;
+  for (; t < 1000; t += period) {                          // rest at 100 deg
+    mc.reading(100 + noise(), 10, -5, a, m); c.update(a, m, t);
+    sm.update(c.heading(), t);
+  }
+  uint32_t t0 = t; float reach = -1;
+  for (; t < t0 + 1500; t += period) {
+    mc.reading(100 + stepDeg + noise(), 10, -5, a, m); c.update(a, m, t);
+    float v = sm.update(c.heading(), t);
+    if (reach < 0 && fabsf(angDiff(v, 100)) >= 0.9f * stepDeg) reach = (float)(t - t0);
+  }
+  ChainResult r; r.reach90Ms = reach; r.finalErr = fabsf(angDiff(sm.value(), 100 + stepDeg));
+  return r;
+}
+
+static void test_compass_chain() {
+  puts("compass time-based filter and full chain");
+  // same time span, different sample rates: same filtered value
+  { MockCompass mc; Vec3 a, m, a2, m2;
+    Compass lo, hi;
+    mc.reading(100, 10, -5, a, m); mc.reading(190, 10, -5, a2, m2);
+    lo.update(a, m, 0); hi.update(a, m, 0);
+    for (uint32_t t = 100; t <= 200; t += 100) lo.update(a2, m2, t);       // 10 Hz
+    for (uint32_t t = 10; t <= 200; t += 10) hi.update(a2, m2, t);         // 100 Hz
+    NEAR(fabsf(angDiff(lo.heading(), hi.heading())), 0, 1.0);
+    CHECK(angDiff(hi.heading(), 100) > 40);
+    // 1 s later both are on the new heading
+    lo.update(a2, m2, 1200); hi.update(a2, m2, 1200);
+    NEAR(fabsf(angDiff(lo.heading(), 190)), 0, 1.0);
+    // 80 Hz vs 160 Hz over 150 ms
+    Compass p, q;
+    p.update(a, m, 0); q.update(a, m, 0);
+    for (uint32_t t = 0; t < 150; ) { t += 12; p.update(a2, m2, t); }       // ~83 Hz
+    for (uint32_t t = 0; t < 144; ) { t += 6; q.update(a2, m2, t); }        // ~166 Hz
+    NEAR(fabsf(angDiff(p.heading(), q.heading())), 0, 4.0);
+    // a huge gap does not blow up (dt clamped)
+    Compass g; g.update(a, m, 0); g.update(a2, m2, 100000);
+    CHECK(g.valid()); CHECK(fabsf(angDiff(g.heading(), 190)) < 1.0f);
+    // time going backwards (wrap) is harmless
+    Compass w; w.update(a, m, 5000); w.update(a2, m2, 4000);
+    CHECK(w.valid() && isfinite(w.heading())); }
+
+  // 90 degree turn, magnetic source tuning: 90% of the step within ~250 ms
+  for (int hz : {80, 40, 10}) {
+    ChainResult r = chainStep(hz, 90, 90, 0, 1);
+    printf("  step 90 deg at %2d Hz: 90%% reached after %.0f ms, final error %.2f\n", hz, r.reach90Ms, r.finalErr);
+    CHECK(r.reach90Ms > 0 && r.reach90Ms <= (hz >= 40 ? 260 : 400));
+    CHECK(r.finalErr < 0.6f);
+  }
+
+  // noisy still input (+-0.3 deg): the dial settles and stays settled, so the fast redraw stops
+  { MockCompass mc; Compass c; HeadingSmoother sm(90); sm.setDeadband(0.4f, 300);
+    Vec3 a, m; srand(7);
+    int unsettled = 0, total = 0; uint32_t t = 0; float lo = 1e9f, hi = -1e9f;
+    for (; t < 20000; t += 12) {
+      float n = 0.3f * (2.0f * rand() / (float)RAND_MAX - 1.0f);
+      mc.reading(200 + n, 10, -5, a, m); c.update(a, m, t);
+      sm.update(c.heading(), t);
+      if (t >= 3000) { total++; if (!sm.settled()) unsettled++; lo = fminf(lo, sm.value()); hi = fmaxf(hi, sm.value()); }
+    }
+    printf("  still, +-0.3 deg noise: unsettled %d of %d ticks, shown range %.2f deg\n", unsettled, total, hi - lo);
+    CHECK(unsettled == 0);
+    CHECK(hi - lo < 0.5f); }
+  // raw white noise straight into the smoother (no compass filter): also settles
+  { HeadingSmoother sm(90); sm.setDeadband(0.4f, 300); srand(11);
+    int unsettled = 0; 
+    for (uint32_t t = 0; t < 20000; t += 12) {
+      sm.update(200 + 0.3f * (2.0f * rand() / (float)RAND_MAX - 1.0f), t);
+      if (t >= 3000 && !sm.settled()) unsettled++;
+    }
+    CHECK(unsettled == 0); }
+  // the deadband does not hide real movement: a steady 0.25 deg offset (inside the band) is taken over after the hold time
+  { HeadingSmoother sm(90); sm.setDeadband(0.4f, 300); sm.update(100, 0);
+    float early = 0, v = 0;
+    for (uint32_t t = 12; t <= 4000; t += 12) { v = sm.update(100.25f, t); if (t == 240) early = v; }
+    NEAR(early, 100.0, 0.001); NEAR(v, 100.25, 0.001); }
+  // a step beyond the band passes at once
+  { HeadingSmoother sm(90); sm.setDeadband(0.4f, 300); sm.update(100, 0);
+    float v = 0; for (uint32_t t = 12; t < 1000; t += 12) v = sm.update(100.6f, t);
+    NEAR(v, 100.6, 0.001); CHECK(sm.settled()); }
+  // GPS-source smoothing is unchanged: no deadband by default, same glide as before
+  { HeadingSmoother g; g.update(100, 0);
+    float v = g.update(190, 250);                          // one tau: 1 - 1/e of 90 degrees
+    NEAR(v, 100 + 90 * (1 - expf(-1.0f)), 0.01);
+    g.update(190.3f, 300); CHECK(!g.settled() || g.value() == 190.3f); }
+}
+
 static void test_app_anim_cadence() {
   puts("app heading animation cadence");
   Rig r;
@@ -1373,6 +1471,7 @@ int main() {
   test_compass();
   test_heading_selector();
   test_heading_smoother();
+  test_compass_chain();
   test_button();
   test_app();
   test_app_heading();

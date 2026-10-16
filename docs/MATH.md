@@ -273,9 +273,11 @@ height is given. The wind used is `FlightModel::wind()`; with no wind estimate, 
 `firmware/src/core/compass.cpp`. Pure maths; the hardware layer maps the sensor axes to the device frame
 (x right of the screen, y top of the screen, z out of the screen).
 
-**Smoothing before the maths.** Each reading is blended into a running vector,
-$\mathbf a\leftarrow\mathbf a+0.5(\mathbf a_{new}-\mathbf a)$ for the accelerometer and
-$\mathbf m\leftarrow\mathbf m+0.4(\mathbf m_{new}-\mathbf m)$ for the (calibrated) magnetometer.
+**Smoothing before the maths.** Each reading is blended into a running vector with a time-based
+exponential low-pass, $\mathbf a\leftarrow\mathbf a+\alpha(\mathbf a_{new}-\mathbf a)$ with
+$\alpha=1-e^{-\Delta t/\tau}$, $\tau_a=60$ ms for the accelerometer and $\tau_m=50$ ms for the (calibrated)
+magnetometer. $\Delta t$ is the time since the previous reading (clamped to 500 ms; the first reading seeds
+the filter), so the response does not depend on the sensor rate (magnetometer 80 Hz, accelerometer 104 Hz).
 
 **Validity.** No heading while the accelerometer magnitude $g$ is outside 6..14 m/s$^2$ (free fall or hard
 acceleration, so gravity is not a good "down") or the field is below 5 uT.
@@ -323,13 +325,20 @@ used if valid, otherwise there is no heading and the dial shows `--`. The screen
 UI tick using the UI clock (this is display animation, not flight data). With target $\psi_t$, shown value
 $\psi$, shortest signed difference $\delta\in(-180,180]$ and elapsed time $\Delta t$:
 
-$$\psi\leftarrow\psi+\delta\,\bigl(1-e^{-\Delta t/\tau}\bigr),\qquad \tau=250\ \text{ms}$$
+$$\psi\leftarrow\psi+\delta\,\bigl(1-e^{-\Delta t/\tau}\bigr),\qquad \tau=90\ \text{ms (compass)},\ 250\ \text{ms (GPS track)}$$
 
 The exponential form makes the result independent of the frame rate, and the shortest arc means 350 to 10
 degrees turns through 0, not the long way. It **snaps** to the target (no animation) when: the shown value is
 not yet known (first value or after NaN), more than 2000 ms have passed since the last update, or the
 remaining difference is under 0.5 deg. A non-finite target resets it. While it has not settled the app
-redraws every 50 ms.
+redraws every 33 ms on the compass page and the standalone compass (50 ms on the home and thermal pages).
+
+The app picks $\tau$ by source: the GPS track updates about 3 times per second and needs the long glide;
+the magnetic heading arrives at 80 Hz already filtered (section 8), so 90 ms is enough. For the magnetic
+source a **deadband** keeps sensor noise from running the animation forever: the target moves only when the
+new heading is more than 0.4 deg from it, or when it has stayed more than 0.15 deg to one side for over
+300 ms (a slow real drift). A retarget that lands within 0.8 deg of the shown value snaps instead of gliding.
+With the box still the dial settles and the slow redraw cadence resumes. The GPS source has no deadband.
 
 ## 10. Rendering
 

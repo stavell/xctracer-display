@@ -110,9 +110,16 @@ void App::updateHeading(uint32_t now) {
     compassHw_.enable(true);
   }
   Vec3 a, m;
-  if (compassOn_ && compassHw_.read(a, m)) compass_.update(a, m);
+  if (compassOn_ && compassHw_.read(a, m)) compass_.update(a, m, now);
   heading_.feedMag(compassOn_ && compass_.valid(), compass_.heading());
-  smooth_.update(heading_.current().deg, now);   // once per tick: buildViewModel only reads it
+  Heading h = heading_.current();
+  if (h.src != smoothSrc_) {                      // GPS track: ~3 updates/s, long glide; compass: fast, with a deadband
+    smoothSrc_ = h.src;
+    bool gps = h.src == HDG_GPS;
+    smooth_.setTau(gps ? cfg_.gpsGlideTauMs : cfg_.magGlideTauMs);
+    smooth_.setDeadband(gps ? 0.0f : cfg_.magDeadbandDeg, cfg_.magDeadbandHoldMs);
+  }
+  smooth_.update(h.deg, now);   // once per tick: buildViewModel only reads it
 }
 
 const ViewModel& App::buildViewModel(uint32_t now) {
@@ -290,8 +297,9 @@ void App::tick(uint32_t now) {
     }
     uint32_t every = held >= ButtonFsm::ARM_MS ? 150 : cfg_.drawEveryMs;
     uint32_t anim = page_ == ViewModel::PAGE_THERMAL ? cfg_.animThermalEveryMs
-                  : (page_ == ViewModel::PAGE_COMPASS || page_ == ViewModel::PAGE_HOME) ? cfg_.animEveryMs : every;
-    if (!hasData(now)) anim = cfg_.animEveryMs;      // the standalone compass glides on every page
+                  : page_ == ViewModel::PAGE_COMPASS ? cfg_.animCompassEveryMs
+                  : page_ == ViewModel::PAGE_HOME ? cfg_.animEveryMs : every;
+    if (!hasData(now)) anim = cfg_.animCompassEveryMs;      // the standalone compass glides on every page
     if (!smooth_.settled() && anim < every) every = anim;
     if (!listOpen_ && (redraw_ || now - lastDraw_ >= every)) {
       lastDraw_ = now;

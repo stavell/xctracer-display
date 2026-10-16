@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 #include "core/types.h"
 
 // Tilt-compensated magnetic compass from an accelerometer and a magnetometer, plus the calibration
@@ -12,7 +13,11 @@ class Compass {
   const MagCal& calibration() const { return cal_; }
 
   // accel: m/s^2 as the sensor reports it (+g along the axis pointing up when at rest); mag: microtesla.
-  void update(const Vec3& accel, const Vec3& mag);
+  // nowMs: time of the reading; the low-pass filters are time-based (ACCEL_TAU_MS / MAG_TAU_MS).
+  void update(const Vec3& accel, const Vec3& mag, uint32_t nowMs);
+  static constexpr float ACCEL_TAU_MS = 60.0f;
+  static constexpr float MAG_TAU_MS = 50.0f;
+  static constexpr float MAX_DT_MS = 500.0f;     // a longer gap counts as this long (nearly a re-seed)
   bool valid() const { return valid_; }
   float heading() const { return heading_; }    // degrees, 0..360
   float fieldUt() const { return field_; }
@@ -31,6 +36,7 @@ class Compass {
   double ata_[4][4], atb_[4];           // normal equations of the sphere fit
   int nCal_ = 0;
   bool seeded_ = false, valid_ = false;
+  uint32_t lastMs_ = 0;
   Vec3 a_, m_;
   float heading_ = 0, field_ = 0;
 };

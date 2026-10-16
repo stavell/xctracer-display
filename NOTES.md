@@ -262,3 +262,14 @@ project is and how to run it; this file says what we found and why things are th
   5918 read-modify-writes of a native row per frame (a screen row is a native column in portrait), each
   recomputing an 8-pixel dither pattern. All screens are pixel-identical to before.
 - Seen while measuring: `windfit=` costs about 5.7 ms per tick even with no data and no fix.
+- Instant compass (2026-10-16, not yet measured on the device): LIS3MDL 10 -> 80 Hz (medium performance:
+  datasheet limits UHP to 10 Hz, HP to 40 Hz, MP to 80 Hz; same mode as before, so per-sample noise is
+  unchanged and the filter averages more), LSM6DS33 accelerometer 26 -> 104 Hz. The mag is read only when
+  its STATUS ZYXDA bit is set (one-byte I2C read; the Adafruit library has no data-ready call). Compass
+  low-pass is time-based (accel tau 60 ms, mag tau 50 ms; was 0.5/0.4 per 100 ms sample, tau about 200 ms).
+  HeadingSmoother tau 90 ms for MAG, 250 ms for the GPS track (App sets it when the source changes), with
+  a 0.4 deg deadband / 300 ms drift hold for MAG so noise does not keep the glide running. Compass page
+  redraws every 33 ms while gliding. Emulator step test (90 deg turn, whole chain): 90% after about
+  250 ms at 80 Hz (252 ms), 200 ms at 10 Hz; still input with +-0.3 deg noise stays settled.
+  To check on the device: `compass=` time in the status line (one 80 Hz read per loop tick) and the
+  dial jitter with the box lying still.

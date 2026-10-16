@@ -82,7 +82,7 @@ static void runFlightBench() {
   Vec3 a, mg;
   a.x = 0.5f; a.y = 0.3f; a.z = 9.7f; mg.x = 20; mg.y = -10; mg.z = -35;
   uint32_t t0 = fastMicros();
-  for (int i = 0; i < 10; i++) c.update(a, mg);
+  for (int i = 0; i < 10; i++) c.update(a, mg, (uint32_t)i * 12);
   benchCompassUs = (fastMicros() - t0) / 10;
 }
 
