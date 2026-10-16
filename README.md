@@ -9,6 +9,8 @@ Hardware: Adafruit Feather nRF52840 Sense, LiPo, PlatformIO with the Arduino fra
 
 - `NOTES.md`: measurements, findings and the open-items list.
 - `PLAN.md`: the current review and improvement plan.
+- `docs/MATH.md`: the maths: wind circle fit and Kalman filter, wind and temperature profile,
+  thermal memory, home, tilt-compensated compass and calibration, heading smoothing, dithering.
 - `CLAUDE.md`: rules for contributors and AI agents (layering, stack limit, how to check).
 - `case/`: the 3D-printed enclosure (CadQuery model, STL/STEP, previews); see `case/README.md`.
 
@@ -28,6 +30,38 @@ Rendered by the PC emulator from the same drawing code that runs on the device (
 | **Standalone**: no tracer connected, the box is a compass with temperature and humidity | **Device list**: pick the tracer, sorted by signal | **Compass calibration**: turn the box until the bars fill | **Status**: connecting / waiting for data |
 
 Grey tones are an 8x8 ordered dither on the 1-bit panel.
+
+## Under the hood: what we are proud of
+
+- **A game-grade 1-bit renderer on a 64 MHz microcontroller.** `firmware/src/gfx/` draws straight into
+  the panel's native frame buffer in whole bytes and spans instead of Adafruit_GFX's one virtual call
+  per pixel. The busiest frame (thermal map, 3 minutes of track, four big numbers) went from
+  **103 ms to 5-6 ms**; a 100x20 filled rectangle from 4.6 ms to 0.08 ms. The output is tested to be
+  bit-identical to the library's, in all four rotations.
+- **Fast text.** Fonts are pre-rotated at boot into glyph atlases laid out in the panel's native byte
+  order, so a glyph is a byte copy: "1234" in a 24 pt bold font draws in 0.33 ms instead of 2.8 ms
+  (22 KB of RAM for four fonts).
+- **Grey on a black-and-white screen.** 17 grey levels from an 8x8 ordered (Bayer) dither anchored to
+  the screen, used for the compass ring, the older track, thermal discs and the inversion band; a host
+  tool converts images into 4-bit sprites.
+- **The panel transfer runs in the background.** Changed lines are packed into a second buffer and sent
+  by EasyDMA on SPIM2 at 8 MHz while the next frame is drawn (SPIM3 was avoided because of the chip's
+  anomaly 198). Presenting a frame costs the loop about 2.5 ms instead of up to 14 ms. Animation runs
+  at 20 fps: the compass glides along the shortest arc instead of jumping.
+- **Wind from circling alone.** A least-squares circle fit on ground velocity while turning gives wind
+  and airspeed after one full circle, and a Kalman filter refines it in between; the thermal map is drawn in the air-mass frame, so a thermal
+  stays put while you drift. See [docs/MATH.md](docs/MATH.md).
+- **A compass that never goes away.** The magnetometer runs all the time with tilt compensation and a
+  hard-iron sphere-fit calibration; the heading switches between GPS track and magnetic with
+  hysteresis, and with no tracer at all the box is a standalone compass with temperature and humidity.
+- **Everything runs on the PC too.** The same core, view and app code builds into an emulator with
+  address and undefined-behaviour sanitizers: over 113,000 test checks, screen renders (the pictures
+  above) and whole recorded flights replayed through the app before anything touches the device.
+- **Bugs that taught us something** (all in `NOTES.md`): the core's `-Ofast` silently implied
+  `-ffinite-math-only`, which deleted every NaN check on the device (the build now refuses that flag);
+  parsing inside a BLE callback once hung the box (callbacks now only copy bytes into lock-free
+  queues); a forgotten serial logger starved firmware uploads (`scripts/flash.sh` now refuses while
+  the port is busy).
 
 ## Hardware and wiring (as built)
 
@@ -81,8 +115,8 @@ the heading. It is drawn only when the heading is the GPS track and a wind estim
 **Thermal page.** A heading-up map replaces the dial; you are the arrow in the centre. It shows the last
 3 minutes of track in the air-mass frame (shifted by the wind drift, so a thermal holds still while you
 circle). The last 90 s is solid, thicker where you climbed faster; older track is dashed. Up to 6
-remembered thermals appear as rings with their average climb; a thermal is remembered after a climb of
-at least 15 m with circling, drifts with the wind and expires after 15 minutes. When the newest thermal
+remembered thermals appear as rings with their average climb; a thermal is remembered after at least 8
+points of 0.5 m/s or more adding up to 15 m of climb (the circling part sets its centre), drifts with the wind and expires after 15 minutes. When the newest thermal
 is off the map an arrow badge at the frame edge points to it with the distance. The map has a north
 marker (top-left), a wind arrow (top-right) and a scale bar. It reads `no GPS track` until there is a
 track.
