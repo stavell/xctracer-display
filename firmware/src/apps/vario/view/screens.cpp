@@ -1,4 +1,5 @@
 #include "apps/vario/view/screens.h"
+#include "apps/vario/view/terrain_map.h"
 #include "apps/vario/view/prof.h"
 #include "platform/gfx/gray.h"
 #include "platform/gfx/shapes.h"
@@ -752,6 +753,139 @@ static void drawHome(const ViewModel& vm, int mx, int my, int mw, int mh) {
   }
 }
 
+// ---- MAP PAGE ------------------------------------------------------------------
+// The frame right of the thin vario and below the header, all of it map.
+void mapPageSize(int canvasW, int canvasH, int& mw, int& mh) {
+  mw = canvasW - THERMAL_X0;
+  mh = canvasH - HDR;
+}
+
+// Copy the cached relief layer (view/terrain_map.h) into the frame. Both are in the panel's native layout when the
+// canvas is the portrait panel, then whole bytes move; anything else goes through the generic blit.
+static void blitMapCache(const Bitmap1& dst, int x0, int y0, const Bitmap1& src) {
+  const int sw = src.width(), sh = src.height();                 // logical size of the layer
+  const int off = dst.w - y0 - sh;                               // native column of the layer's first column
+  if (dst.rotation == 1 && src.rotation == 1 && (sh & 7) == 0 && off >= 0 && (off & 7) == 0 && x0 >= 0 &&
+      x0 + sw <= dst.h && dst.stride >= (off >> 3) + (sh >> 3)) {
+    for (int r = 0; r < sw; r++) memcpy(dst.buf + (size_t)(x0 + r) * dst.stride + (off >> 3), src.buf + (size_t)r * src.stride, sh >> 3);
+    return;
+  }
+  Bitmap1::blit(dst, x0, y0, src, 0, 0, sw, sh, DRAW_COPY);
+}
+
+static void mapNotice(int mx, int my, int mw, int mh, const char* l1, const char* l2) {
+  const int bw = mw - 24, bx = mx + 12, by = my + mh / 2 - 30;
+  d->fillRect(bx, by, bw, 60, WHT);
+  d->drawRect(bx, by, bw, 60, BLK);
+  d->drawRect(bx + 1, by + 1, bw - 2, 58, BLK);
+  textMid(mx + mw / 2, by + (l2 ? 20 : 30), l1, F12B);
+  if (l2) textMid(mx + mw / 2, by + 42, l2, F9);
+}
+
+// A round ground distance for the scale bar: 30..90 px long.
+static void mapScaleBar(int x, int y, float mPerPx) {
+  static const int meters[] = {500, 1000, 2000, 5000, 10000, 20000};
+  int m = meters[0];
+  for (int c : meters) if (c / mPerPx >= 30 && c / mPerPx <= 90) { m = c; break; }
+  const int len = (int)lroundf(m / mPerPx);
+  char b[16];
+  if (m >= 1000) snprintf(b, sizeof b, "%d km", m / 1000);
+  else snprintf(b, sizeof b, "%d m", m);
+  d->fillRect(x - len - 8, y - 22, len + 12, 28, WHT);
+  d->drawFastHLine(x - len, y, len, BLK);
+  d->drawFastVLine(x - len, y - 3, 7, BLK);
+  d->drawFastVLine(x, y - 3, 7, BLK);
+  text(x - len, y - 7, b, F9);
+}
+
+// Ground track (white casing, black core) then the pilot, in the cached window's frame. The window can be a few
+// pixels behind the pilot (it is re-rendered only after ~10 px or ~5 degrees), the arrow shows the true spot.
+static void mapTrackAndPilot(const ViewModel& vm, int mx, int my, int mw, int mh, float px, float py, float th) {
+  const TerrainMap& m = *vm.map;
+  const Bitmap1* bm = fbm;
+  const float xmin = mx + 2, ymin = my + 2, xmax = mx + mw - 3, ymax = my + mh - 3;
+  const int n = m.trackCount();
+  float lx = 0, ly = 0;
+  bool have = false;
+  for (int pass = 0; pass < 2; pass++) {
+    have = false;
+    for (int i = 0; i <= n; i++) {                                // the points, then the pilot as the last one
+      float x, y;
+      double la, lo;
+      if (i < n) { if (!m.trackAt(i, &la, &lo) || !m.project(la, lo, &x, &y)) { have = false; continue; } }
+      else { x = px; y = py; }
+      x += mx; y += my;
+      if (have) {
+        float x0 = lx, y0 = ly, x1 = x, y1 = y;
+        if (clipSeg(x0, y0, x1, y1, xmin, ymin, xmax, ymax)) {
+          const int ax = (int)lroundf(x0), ay = (int)lroundf(y0), bx = (int)lroundf(x1), by = (int)lroundf(y1);
+          const int lw = pass == 0 ? 4 : 2;                       // casing 4 px, core 2 px
+          for (int a = -(lw - 1) / 2; a <= lw / 2; a++)
+            for (int b = -(lw - 1) / 2; b <= lw / 2; b++) line(*bm, ax + a, ay + b, bx + a, by + b, pass == 0 ? DRAW_SET : DRAW_CLEAR);
+        }
+      }
+      lx = x; ly = y; have = true;
+    }
+  }
+  const int ax = mx + (int)lroundf(px), ay = my + (int)lroundf(py);
+  if (ax < mx + 8 || ax > mx + mw - 8 || ay < my + 8 || ay > my + mh - 8) return;
+  fillDisc(*bm, ax, ay, 13, DRAW_SET);                            // white badge, so the arrow reads over any relief
+  circle(*bm, ax, ay, 13, DRAW_CLEAR);
+  drawArrow(ax, ay, th, 9, 7);
+}
+
+static void drawMapPage(const ViewModel& vm, const Bitmap1* bm) {
+  int mx = THERMAL_X0, my = HDR, mw, mh;
+  mapPageSize(W, H, mw, mh);
+  thinVario(bm, 3, 9, vm.s.vario, vm.avgVario);
+  char b[24], lb[24];
+  TerrainMap* m = vm.map;
+  if (!bm || !m) { d->drawRect(mx, my, mw, mh, BLK); mapNotice(mx, my, mw, mh, "NO MAP", nullptr); return; }
+  if (!vm.s.fix) { d->drawRect(mx, my, mw, mh, BLK); mapNotice(mx, my, mw, mh, "NO FIX", "waiting for GPS"); return; }
+  if (!m->valid()) { d->drawRect(mx, my, mw, mh, BLK); mapNotice(mx, my, mw, mh, "NO MAP", "reading the pack"); return; }
+  blitMapCache(*bm, mx, my, m->cache());
+  d->drawRect(mx, my, mw, mh, BLK);
+
+  float px, py;
+  if (!m->project(vm.s.lat, vm.s.lon, &px, &py)) { mapNotice(mx, my, mw, mh, "NO MAP", nullptr); return; }
+  const float hdgMap = m->headingDeg();                            // the cached window's "up", degrees
+  const float th = isfinite(vm.heading) ? (vm.heading - hdgMap) * PI_F / 180.0f : 0.0f;
+  mapTrackAndPilot(vm, mx, my, mw, mh, px, py, th);
+
+  // north marker (top left) and wind arrow (top right), both in the map's frame
+  const float nth = -hdgMap * PI_F / 180.0f;
+  const int nax = mx + 26, nay = my + 28;
+  d->fillRect(mx + 2, my + 2, 46, 50, WHT);
+  drawArrow(nax, nay, nth, 11);
+  textMid(nax + (int)lroundf(21 * sinf(nth)), nay - (int)lroundf(21 * cosf(nth)), "N", F9);
+  if (vm.wind.valid) {
+    d->fillRect(mx + mw - 42, my + 2, 40, 38, WHT);
+    drawArrow(mx + mw - 22, my + 21, vm.wind.toDeg * PI_F / 180.0f - hdgMap * PI_F / 180.0f, 14);
+  }
+
+  // altitude box (bottom left) and scale bar (bottom right)
+  const int by = my + mh;
+  d->fillRect(mx + 2, by - 46, 112, 44, WHT);
+  d->drawFastHLine(mx + 2, by - 47, 112, BLK);
+  d->drawFastVLine(mx + 113, by - 47, 46, BLK);
+  snprintf(lb, sizeof lb, "AGL %s", fnum(b, sizeof b, vm.agl, "%.0f"));
+  text(mx + 6, by - 24, lb, F12B);
+  snprintf(lb, sizeof lb, "alt %s", fnum(b, sizeof b, vm.s.alt, "%.0f"));
+  text(mx + 6, by - 7, lb, F9);
+  mapScaleBar(mx + mw - 8, by - 8, m->mPerPx());
+
+  if (m->noData()) mapNotice(mx, my, mw, mh, "OUTSIDE MAP", "no terrain data here");
+  if (vm.mapAbout) {                                               // first seconds on the page: attribution, caveat
+    const int bx = mx + 6, bw = mw - 12, ty = my + 62;
+    d->fillRect(bx, ty, bw, 84, WHT);
+    d->drawRect(bx, ty, bw, 84, BLK);
+    text(bx + 6, ty + 17, "(c) OpenStreetMap", F9);
+    text(bx + 6, ty + 34, "Copernicus DEM", F9);
+    text(bx + 6, ty + 51, "AGL: terrain model,", F9);
+    text(bx + 6, ty + 68, "+-10 m, 80 at peaks", F9);
+  }
+}
+
 // Portrait layout, 240 x 400. Priorities: GPS speed + glide, altitude + vertical speed, compass + wind.
 // Cells have a short inverted title band like the top toolbar.
 static void cell(int x, int y, int w, const char* title, const char* value) {
@@ -820,15 +954,23 @@ static void drawLiveBody(const ViewModel& vm, const Bitmap1* bm) {
     int x = cx0;
     text(x, ly, b, F18B);
     x += textW(b, F18B) + 5;
-    text(x, ly, "km/h", F12B);
-    x += textW("km/h", F12B) + 10;
+    // With terrain the right end of the row is the AGL tile; a stale wind then says "old" in place of the unit.
+    const bool old = w.ageS > 300;
+    const char* unit = vm.terrainOn && old ? "old" : "km/h";
+    text(x, ly, unit, F12B);
+    x += textW(unit, F12B) + 10;
     text(x, ly, cardinal16(from), F18B);
-    if (w.ageS > 300) text(W - 6, ly, "old", F9, AR);
+    if (old && !vm.terrainOn) text(W - 6, ly, "old", F9, AR);
   } else {
     text(cx0, ly, "0", F18B);
     text(cx0 + textW("0", F18B) + 5, ly, "km/h", F12B);
   }
   PROF_END(P_WLINE);
+  if (vm.terrainOn) {          // height above the terrain model (not the baro altitude): bottom right, label above the number
+    char a[16];
+    text(W - 6, ly - 20, "AGL", F9, AR);
+    text(W - 6, ly, fnum(a, sizeof a, vm.agl, "%.0f"), F12B, AR);
+  }
 }
 
 static void powerBanner(uint32_t heldMs) {
@@ -847,7 +989,8 @@ void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitma
   PROF_BEGIN(P_HEADER);
   header(vm);
   PROF_END(P_HEADER);
-  if (vm.fresh) drawLiveBody(vm, bm);
+  if (vm.fresh && vm.page == ViewModel::PAGE_MAP && vm.terrainOn) drawMapPage(vm, bm);
+  else if (vm.fresh) drawLiveBody(vm, bm);
   else drawStandalone(vm, bm);
   powerBanner(heldMs);
   PROF_END(P_LIVE);

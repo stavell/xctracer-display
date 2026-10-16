@@ -9,6 +9,8 @@
 #include "apps/vario/core/sim.h"
 #include "apps/vario/view/viewmodel.h"
 
+struct TerrainKit;
+
 struct AppConfig {
   uint8_t rotation = 1;              // 1 = portrait, 3 = portrait flipped
   uint32_t hostGraceMs = 10000;      // laptop frames keep the screen this long after the last draw command
@@ -32,6 +34,9 @@ struct AppConfig {
   // frame: the centre (pixels at the current scale), or the rotation (at about the map's half height).
   static constexpr float MAP_HALF_RADIUS_PX = 104.0f;
   static constexpr float MAP_HALF_PIXEL_RAD = 0.5f / MAP_HALF_RADIUS_PX;
+  bool mapHeadingUp = false;         // map page: north up (default, cheap to cache) or heading up (re-renders every 5 degrees)
+  float mapMPerPx = 100.0f;          // map page scale (ground metres per pixel): the window shows 22 x 38 km
+  uint32_t mapAboutMs = 10000;       // the map page shows its attribution and the AGL caveat this long after it opens
   bool standalone = false;           // the compass & weather tool: no tracer, no page switching, always the compass page
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
   float gpsHeadingOnKmh = 4.0f;      // GPS track counts as a heading above this speed ...
@@ -62,7 +67,11 @@ class App {
   bool wantsFrame(uint32_t nowMs) const;
   void draw(Bitmap1& bm, Adafruit_GFX& g, uint32_t nowMs);
   bool hostDrawing() const { return !local_; }       // the laptop owns the screen
-  void setLauncher(ILauncherHook* h) { launcher_ = h; }   // adds the "Apps..." row to the device list
+  void setLauncher(ILauncherHook* h) { launcher_ = h; }
+  // Attach a map pack (platform/terrain). With none (the default) nothing terrain-related is computed, drawn
+  // or in the page cycle. The kit must outlive the App; pass nullptr to detach.
+  void setTerrain(TerrainKit* kit);
+  bool hasTerrain() const;   // adds the "Apps..." row to the device list
 
   const FlightModel& flight() const { return flight_; }
   uint32_t linesOk() const { return linesOk_; }
@@ -89,7 +98,9 @@ class App {
   void updateHeading(uint32_t now);
   void feedFlight(const Sample& s, uint32_t now);   // flight model and map motion together
   MapView mapView(uint32_t now, int trailN);
-  void updateMap(uint32_t now);                     // thermal page, once per tick: scale glide, moving flag
+  void updateMap(uint32_t now);
+  ViewModel::Page nextPage(ViewModel::Page p) const;   // the page cycle: compass, thermal, [map], profile, home
+  void prepareMapPage(const ViewModel& vm, uint32_t now);   // renders the cached relief when the pilot left its window                     // thermal page, once per tick: scale glide, moving flag
   bool hasData(uint32_t now) const;   // a valid sample arrived recently
   void drawCalibrateScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held);
   void drawLiveScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held);
@@ -139,6 +150,9 @@ class App {
   bool calibrating_ = false;
   ViewModel vm_;
   ViewModel::Page page_ = ViewModel::PAGE_COMPASS;
+  ViewModel::Page lastPage_ = ViewModel::PAGE_COMPASS;
+  TerrainKit* kit_ = nullptr;
+  uint32_t mapEntryMs_ = 0;          // when the map page was opened (for its about overlay)
   bool wasLocal_ = true;
   bool listOpen_ = false;
   int listSel_ = 0;

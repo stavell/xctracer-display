@@ -5,6 +5,8 @@
 //   build.sh play tetris [--scale 2] [--plain] [--seed N]       Tetris alone (no launcher)
 //   build.sh play box [--igc f.igc --start S --speed N] [--lines f.txt] [--sim] [--battery P] [--temp C]
 //                                                               the whole box: launcher + vario + Tetris + compass
+//   --pack FILE          map pack for the vario's AGL and map page (default: the Bulgaria pack of the terrain study if
+//                        it exists, else fixtures/sopot.pack; "none" = no terrain, the box as it was)
 //   build.sh play <app> --frames 300 --screenshot out.png --keys "main 10 left a up shot:x.png"
 //   build.sh smoke                                              scripted run of the box, writes out/box_*.png
 //
@@ -136,6 +138,7 @@ struct Args {
   uint32_t seed = 1;
   bool seedGiven = false;
   std::string igc, lines;
+  std::string pack = "default";
   bool sim = false;                                  // the vario's built-in test flight instead of tracer lines
   int start = 0, seconds = 3600;
   double speed = 3;                                  // tracer lines per second
@@ -169,9 +172,43 @@ struct TetrisMachine : Machine {
   }
 };
 
+static const char* kStudyPack =
+    "/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/bulgaria.pack";
+static const char* kFixturePack = "fixtures/sopot.pack";
+
+// The pack is read into memory (1.7 MB; the device reads the QSPI flash instead, through the same IBlockReader).
+struct PackHolder {
+  std::vector<uint8_t> bytes;
+  terrain::MemReader reader;
+  TerrainKit* kit = new TerrainKit();               // ~65 kB: not on the stack
+  std::string loaded;
+  bool load(const std::string& spec) {
+    std::string path = spec;
+    if (spec == "none") return false;
+    if (spec == "default") path = access(kStudyPack, R_OK) == 0 ? kStudyPack : kFixturePack;
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) { fprintf(stderr, "pack %s: cannot open (running without terrain)\n", path.c_str()); return false; }
+    fseek(f, 0, SEEK_END);
+    bytes.resize((size_t)ftell(f));
+    fseek(f, 0, SEEK_SET);
+    bool ok = fread(bytes.data(), 1, bytes.size(), f) == bytes.size();
+    fclose(f);
+    reader = terrain::MemReader(bytes.data(), (uint32_t)bytes.size());
+    if (!ok || !kit->open(&reader)) { fprintf(stderr, "pack %s: rejected (running without terrain)\n", path.c_str()); return false; }
+    loaded = path;
+    return true;
+  }
+};
+
 struct BoxMachine : Machine {
   Box b;
-  explicit BoxMachine(uint32_t seed) : b(seed) {}
+  PackHolder pack;
+  BoxMachine(uint32_t seed, const std::string& packSpec) : b(seed) {
+    if (pack.load(packSpec)) {
+      b.setTerrain(pack.kit);
+      printf("terrain: %s (%zu bytes)\n", pack.loaded.c_str(), pack.bytes.size());
+    }
+  }
   MockPanel& panel() override { return b.r.panel; }
   MockInput& input() override { return b.r.input; }
   AppHost& host() override { return b.host; }
@@ -458,6 +495,7 @@ int main(int argc, char** argv) {
     else if (s == "--keys" && more) { a.keys = argv[++i]; a.headless = true; }
     else if (s == "--seed" && more) { a.seed = (uint32_t)strtoul(argv[++i], nullptr, 10); a.seedGiven = true; }
     else if (s == "--sim") a.sim = true;
+    else if (s == "--pack" && more) a.pack = argv[++i];
     else if (s == "--igc" && more) a.igc = argv[++i];
     else if (s == "--lines" && more) a.lines = argv[++i];
     else if (s == "--start" && more) a.start = atoi(argv[++i]);
@@ -475,7 +513,7 @@ int main(int argc, char** argv) {
   if (a.headless && !a.seedGiven) seed = 1;           // scripted runs are reproducible
   Machine* m = nullptr;
   if (a.app == "tetris") m = new TetrisMachine(seed);
-  else if (a.app == "box") m = new BoxMachine(seed);
+  else if (a.app == "box") m = new BoxMachine(seed, a.pack);
   else {
     fprintf(stderr, "unknown app '%s' (known: tetris, box)\n", a.app.c_str());
     return 2;

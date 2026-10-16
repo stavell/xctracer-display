@@ -1,4 +1,5 @@
 #include "apps/vario/app/app.h"
+#include "apps/vario/app/terrain_kit.h"
 #include <string.h>
 #include "platform/input/button_fsm.h"
 #include "apps/vario/core/home.h"
@@ -50,6 +51,28 @@ void App::end() {
   left_ = true;
 }
 
+void App::setTerrain(TerrainKit* kit) {
+  kit_ = kit;
+  if (!kit_ && page_ == ViewModel::PAGE_MAP) page_ = ViewModel::PAGE_COMPASS;
+  redraw_ = true;
+}
+
+bool App::hasTerrain() const { return kit_ && kit_->ok; }
+
+// compass, thermal, map (only with a pack), wind profile, home
+ViewModel::Page App::nextPage(ViewModel::Page p) const {
+  static const ViewModel::Page order[] = {ViewModel::PAGE_COMPASS, ViewModel::PAGE_THERMAL, ViewModel::PAGE_MAP,
+                                          ViewModel::PAGE_PROFILE, ViewModel::PAGE_HOME};
+  const int n = sizeof order / sizeof order[0];
+  int i = 0;
+  while (i < n && order[i] != p) i++;
+  for (int k = 1; k <= n; k++) {
+    ViewModel::Page q = order[(i + k) % n];
+    if (q != ViewModel::PAGE_MAP || hasTerrain()) return q;
+  }
+  return ViewModel::PAGE_COMPASS;
+}
+
 bool App::injecting(uint32_t now) const {
   return simOn_ || (haveInject_ && now - injectMs_ < cfg_.injectHoldMs);
 }
@@ -71,6 +94,7 @@ void App::ingestLine(const char* line, uint32_t now) {
 void App::feedFlight(const Sample& s, uint32_t now) {
   bool newSecond = flight_.feed(s);
   map_.feed(now, s, newSecond, flight_.clockMs());
+  if (kit_ && s.fix) kit_->map.feedTrack(s.lat, s.lon, flight_.clockMs());   // flight clock: replays at any speed
 }
 
 void App::handle(const Command& c, uint32_t now) {
@@ -79,6 +103,7 @@ void App::handle(const Command& c, uint32_t now) {
       simOn_ = c.value != 0;
       flight_.reset();
       map_.reset();
+      if (kit_) kit_->map.clearTrack();
       if (simOn_) sim_.reset(now);
       break;
     case Command::TZ:
@@ -105,7 +130,7 @@ void App::handle(const Command& c, uint32_t now) {
       else if (calibrating_) finishCalibration(c.value == 2);
       break;
     case Command::PAGE:
-      if (c.value >= 0 && c.value < ViewModel::PAGE_COUNT) {
+      if (c.value >= 0 && c.value < ViewModel::PAGE_COUNT && (c.value != ViewModel::PAGE_MAP || hasTerrain())) {
         page_ = (ViewModel::Page)c.value;
         redraw_ = true;
       }
@@ -264,6 +289,23 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   bool ambientFresh = haveAmbient_ && now - ambientMs_ <= 10000;   // the sensor reports every 2 s
   vm.ambientC = ambientFresh ? ambientC_ : NAN;
   vm.humidityPct = ambientFresh ? ambientRh_ : NAN;
+  vm.terrainOn = hasTerrain();
+  vm.agl = NAN;
+  vm.clearance = NAN;
+  vm.map = nullptr;
+  vm.mapMPerPx = cfg_.mapMPerPx;
+  vm.mapAbout = false;
+  if (vm.terrainOn) {
+    // GNSS altitude (the tracer's GPS height, which is what the DEM's heights are comparable to), never the
+    // barometric one: the study found the baro altitude 64-80 m off. Only with a fresh fix and a lookup that worked.
+    if (vm.fresh && vm.s.fix && isfinite(vm.s.alt)) {
+      float g, c;
+      if (kit_->terrain.elevation(vm.s.lat, vm.s.lon, &g)) vm.agl = vm.s.alt - g;
+      if (kit_->terrain.ceiling(vm.s.lat, vm.s.lon, &c)) vm.clearance = vm.s.alt - c;
+    }
+    vm.map = &kit_->map;
+    vm.mapAbout = page_ == ViewModel::PAGE_MAP && now - mapEntryMs_ < cfg_.mapAboutMs;
+  }
   vm.trailCount = 0;
   vm.markCount = 0;
   if (page_ == ViewModel::PAGE_THERMAL) {
@@ -322,8 +364,22 @@ void App::shutdown() {
   power_.shutdown();             // blanks the panel, stops BLE and VCOM, enters System OFF
 }
 
+// Map page: bring the cached relief up to date before the view copies it. The render is the only slow thing
+// the page does (it is why the view caches), and it happens here, in draw(), on the loop task like every draw.
+void App::prepareMapPage(const ViewModel& vm, uint32_t now) {
+  if (vm.page != ViewModel::PAGE_MAP || !hasTerrain() || !vm.fresh || !vm.s.fix) return;
+  TerrainMap::Params p;
+  p.lat = vm.s.lat;
+  p.lon = vm.s.lon;
+  p.headingDeg = cfg_.mapHeadingUp ? vm.heading : NAN;   // NaN (also: no heading yet) = north up
+  p.mPerPx = cfg_.mapMPerPx;
+  mapPageSize(panel_.gfx().width(), panel_.gfx().height(), p.w, p.h);
+  kit_->map.update(kit_->terrain, kit_->vec, p, viewFont(viewGfxFont(1), TerrainMap::kCacheRotation), now);
+}
+
 void App::drawLiveScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held) {
   const ViewModel& vm = buildViewModel(now);
+  prepareMapPage(vm, now);
   drawnHeading_ = vm.heading;
   mapDrawnLive_ = vm.page == ViewModel::PAGE_THERMAL && vm.mapLive;
   if (mapDrawnLive_) {
@@ -373,6 +429,10 @@ void App::tick(uint32_t now) {
   }
   laptop_.service(now);
   updateHeading(now);
+  if (page_ != lastPage_) {                          // a page change, from the switch or the laptop
+    if (page_ == ViewModel::PAGE_MAP) mapEntryMs_ = now;
+    lastPage_ = page_;
+  }
   updateMap(now);
 
   bool local = !laptop_.hostDrawing(now);
@@ -405,7 +465,7 @@ void App::tick(uint32_t now) {
     if (listSel_ > n + 1 + extra) listSel_ = 0;
   } else {
     if (ev == BTN_SHORT && !cfg_.standalone) {
-      page_ = (ViewModel::Page)((page_ + 1) % ViewModel::PAGE_COUNT);
+      page_ = nextPage(page_);
       redraw_ = true;
     }
     if (ev == BTN_LONG) {

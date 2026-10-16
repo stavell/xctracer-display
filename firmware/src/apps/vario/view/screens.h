@@ -28,3 +28,7 @@ const Font1* viewFont(const GFXfont* f, int rot);
 // map would pick for this view model: the app glides the shown scale toward it (ViewModel::mapScale).
 void thermalMapSize(int canvasW, int canvasH, int& mw, int& mh);
 float thermalMapScale(const ViewModel& vm, int mw, int mh);
+
+// The map page: the frame (everything right of the thin vario and below the header) for a canvas of this size.
+// Its cached picture (view/terrain_map.h) is rendered for exactly this size.
+void mapPageSize(int canvasW, int canvasH, int& mw, int& mh);

@@ -444,3 +444,22 @@ feed the result to the view (`ViewModel::mapLive/mapCx/mapCy/mapHdg/mapScale`). 
   The "light" style (flat = white, darkest level 10, 1.5x exaggeration, knee 0.15) keeps black contours readable; the first
   try (flat 15, darkest 9) dotted all flat ground in a regular grid, so flat ground is pure white now.
 - Renders: `host/terrain/img/map_pack_sopot_100mpp.png` (fixture), `map_pack_rila_100mpp.png` (real pack).
+
+## Terrain on the vario: AGL and the map page (2026-10-16, emulator only, not flashed)
+
+- **AGL**: `ViewModel::agl` = tracer GNSS altitude - `Terrain::elevation()` at the fix; `clearance` = altitude - `ceiling()`. NaN (`--`)
+  without a fresh fix, without a successful lookup, outside the pack. Shown bottom right of the live pages (label `AGL` above the
+  number, in the wind row; a stale wind says `old` in place of `km/h` when terrain is on). Tried first in the ALT title band: too
+  narrow (needs 84 px next to `ALT`). Without a pack the live pages are byte-identical to before (all 24 older renders compared).
+- **Map page** (`apps/vario/view/terrain_map.*`, `screens.cpp` drawMapPage): north-up (heading-up is `AppConfig::mapHeadingUp`),
+  fixed 100 m/px (`mapMPerPx`), full frame right of the thin vario (218 x 376). North-up because the relief cache then re-renders only
+  after ~10 px of movement (~1 km: every minute or two in a glide, hardly ever in a thermal); heading-up re-renders per 5 degrees
+  (every second while circling) and the labels jump. The relief, roads and labels are rendered into a 1-bit cache (10 kB); each frame
+  copies it (row memcpy, the cache has the panel's native layout) and draws track, arrow, N, wind, AGL box and scale bar over it, so
+  the arrow wanders up to 10 px from home between renders. The renders happen in `App::draw()`.
+- **RAM** (a `TerrainKit`, owned by main/the player, 47.7 kB): Terrain 21.7 kB (tile cache 18 + buffers), TerrainMap 25.6 kB (cache
+  10.2, 24-row bands 10.5, road/town iterators, track 1.9). Nothing in images without a pack.
+- **PC timing** (-O1 with sanitizers in the tests, real pack, 218 x 376, roads + towns + labels): about 7 ms per render; `terrain_demo bench` at
+  -O2: relief 240 x 400 = 2.6 ms. Device estimate (64 MHz M4F, no cache): 0.2-0.4 s per render, to be measured when the QSPI reader exists.
+- Tests: `emu/map_page_tests.h` (AGL by hand on the fixture, no fix / stale / outside / no pack, page cycle, render determinism,
+  cache re-render rules, projection, track ring). Screens: `emu/map_page_shots.h`.

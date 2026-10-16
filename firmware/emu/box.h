@@ -5,6 +5,7 @@
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/vario/app/null_ports.h"
+#include "apps/vario/app/terrain_kit.h"
 #include "mocks.h"
 
 struct Box {
@@ -51,6 +52,9 @@ struct Box {
     launcher.addEntry("Tetris", "falling blocks", APP_TETRIS, ICON_TETRIS);
     launcher.addEntry("Compass", "compass, weather", APP_COMPASS, ICON_COMPASS);
   }
+
+  // A map pack for the vario (the kit must outlive the box); the compass tool has no terrain.
+  void setTerrain(TerrainKit* kit) { varioCore.setTerrain(kit); }
 
   // Boot like main_box.cpp: straight into the start-up app (the vario unless the launcher chose another).
   void boot(uint32_t now) {
