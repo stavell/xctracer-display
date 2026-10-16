@@ -196,3 +196,21 @@ divider ~20 uA dominate): about a year on the ~1000 mAh LiPo. Measure before pro
   A+B held 1.5 s on the six-button hardware.
 - Open: laptop commands are only read while the vario is active (as before); a platform-level command reader would let
   `ctl.py cal` work from the home screen. The home grid shows six tiles at most (two columns, three rows).
+
+## Games: maximum frame rate (user rule, 2026-10-16)
+
+Games push the box to its maximum refresh rate; no power-saving cadence while a game runs.
+- Platform game mode: fixed-timestep loop, a new frame as soon as the previous DMA transfer is done (vario keeps its
+  change-driven cadence). Show fps and the worst frame time.
+- Measure the real ceiling on the device: full frame 12.5 KB = ~13 ms at 8 MHz SPI (~75 fps transfer limit, partial
+  lines faster); the liquid crystal response (ghosting) decides what still looks sharp -> moving-bar test at 30/45/60/75 fps.
+- Try SPIM2 at 10-16 MHz (panel already overclocked; check artefacts, also cold).
+- Renderer: native-layout sprites/tiles, dirty-line tracking while drawing (no 12 KB memcmp per frame).
+
+## Flight simulator (idea 2026-10-16, after the thermal 3D page)
+
+Paragliding sim on the box: real Bulgaria terrain from the map pack, tilt control via the AHRS (bank = turn,
+pitch = speed bar), glider polar + pendulum lag, thermals from terrain/sun triggers drifting with wind, ridge lift
+from wind x DEM slope, lee sink, cloudbase; it feeds the real vario app (same $XCTRC stream as the built-in sim).
+Views: top-down (map page + thermals) first, then a first-person voxel-space renderer (PC prototype + M4 estimate).
+Modes: free flight from real takeoffs, XC tasks, ghost race against your own IGC. PC first in the box player.
