@@ -170,7 +170,12 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   static uint32_t last = 0;
   if (now - last < 2000) return;
   last = now;
-  if (!Serial || Serial.availableForWrite() < 120) return;
+  // Nobody listening: stop the profiler too (it only feeds these lines). The release build has no clock.
+  const bool listening = Serial && Serial.availableForWrite() >= 120;
+#ifdef DIAGNOSTICS
+  profSetClock(listening ? fastMicros : nullptr);
+#endif
+  if (!listening) return;
   runBench();
   runFlightBench();
   uint32_t v0 = fastMicros();
