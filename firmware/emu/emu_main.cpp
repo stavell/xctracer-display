@@ -39,6 +39,7 @@
 #include "soak.h"
 #include "gfx/gray.h"
 #include "hw/fast_sharp.h"
+#include "count.h"
 
 static void watchdog(int) {
   fputs("WATCHDOG: the emulator is stuck (infinite loop?)\n", stderr);
@@ -119,12 +120,23 @@ static void renderGray(const std::string& out, int rot) {
   disp.dumpPgm((out + "/gray.pgm").c_str());
 }
 
+static bool gCountMode = false;
+
 static int cmdShots(const std::string& out, int rot) {
   struct Sc { const char* name; };
   const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag", "calibrate",
                          "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
   for (const char* n : names) {
+    if (gCountMode && strcmp(n, "live") && strcmp(n, "nofix") && strcmp(n, "mag") && strcmp(n, "standalone") &&
+        strcmp(n, "standalone_nodata") && strncmp(n, "thermal", 7)) continue;
     if (!strncmp(n, "thermal", 7)) {
+      if (gCountMode) {
+        ViewModel* tv = thermalVm(0);
+        static CountingSharp ct;
+        ct.setRotation((uint8_t)rot);
+        countReport(n, ct, [&] { Bitmap1 bm = ct.bm(); drawLive(ct, *tv, 0, &bm); });
+        continue;
+      }
       ViewModel* tv = thermalVm(strcmp(n, "thermal_lost") == 0 ? 1 : strcmp(n, "thermal_memory") == 0 ? 2 : 0);
       MockPanel tp;
       tp.setRotation(rot);
@@ -208,6 +220,11 @@ static int cmdShots(const std::string& out, int rot) {
     } else if (s == "calibrate") {
       Bitmap1 bm = p.bitmap();
       drawCalibrate(p.gfx(), vm, 0, &bm);
+    } else if (gCountMode) {
+      static CountingSharp cd;
+      cd.setRotation((uint8_t)rot);
+      countReport(n, cd, [&] { Bitmap1 bm = cd.bm(); drawLive(cd, vm, 0, &bm); });
+      continue;
     } else {
       Bitmap1 bm = p.bitmap();
       drawLive(p.gfx(), vm, 0, &bm);
@@ -379,6 +396,10 @@ int main(int argc, char** argv) {
   if (argc >= 2 && !strcmp(argv[1], "soak")) return cmdSoak(argc, argv, readLines);
   if (argc >= 3 && !strcmp(argv[1], "wind")) return cmdWind(argv[2]);
   alarm(120);
+  if (argc >= 3 && !strcmp(argv[1], "count")) {   // emu count <outdir> [rot]: per-section work of the live page
+    gCountMode = true;
+    return cmdShots(argv[2], argc > 3 ? atoi(argv[3]) : 1);
+  }
   if (argc >= 3 && !strcmp(argv[1], "shots")) return cmdShots(argv[2], argc > 3 ? atoi(argv[3]) : 1);
   if (argc >= 4 && !strcmp(argv[1], "replay")) return cmdReplay(argc, argv);
   fputs("usage: emu shots <outdir> [rot] | emu replay <lines.txt> <outdir> [--hz N] [--inject] [--mix FILE] [--shot-every S] [--rot R]\n", stderr);

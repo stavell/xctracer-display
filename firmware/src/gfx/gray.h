@@ -24,14 +24,12 @@ struct Gray {
   explicit Gray(int l) : level((uint8_t)(l < 0 ? 0 : l > 16 ? 16 : l)) {}
 };
 
-// Bayer threshold 0..63 at a screen position.
+// Bayer threshold 0..63 at a screen position, from a 64-entry table (kBayer8, in gray.cpp). The closed
+// form is v = sum over i<3 of (((x^y)>>i)&1) << (5-2i) | ((y>>i)&1) << (4-2i); the tests check both.
+extern const uint8_t kBayer8[64];
 inline int bayer8(int x, int y) {
-  int v = 0;
-  for (int i = 0; i < 3; i++) {
-    v |= (((x ^ y) >> i) & 1) << (5 - 2 * i);
-    v |= ((y >> i) & 1) << (4 - 2 * i);
-  }
-  return v;
+  GFX_TALLY(bayer, 1);
+  return kBayer8[((y & 7) << 3) | (x & 7)];
 }
 
 void rectIncl(const Bitmap1& bm, int x0, int y0, int x1, int y1, Gray g);   // inclusive corners

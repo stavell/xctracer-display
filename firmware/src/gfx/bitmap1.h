@@ -28,6 +28,7 @@
 // Coordinates are int so sums like x + w never overflow; widths and heights <= 0 draw nothing.
 #include <stddef.h>
 #include <stdint.h>
+#include "gfx/count.h"
 
 enum DrawMode : uint8_t { DRAW_SET, DRAW_CLEAR, DRAW_INVERT, DRAW_COPY };
 // Source pixels that blit leaves alone.
@@ -45,6 +46,7 @@ struct Bitmap1 {
   // Single pixel, inline: text and lines call this once per pixel, so it skips the rect machinery.
   void pixel(int x, int y, DrawMode m) const {
     if ((unsigned)x >= (unsigned)width() || (unsigned)y >= (unsigned)height()) return;
+    GFX_TALLY(pixel, 1);
     int nx, ny;
     switch (rotation & 3) {
       case 1: nx = w - 1 - y; ny = x; break;

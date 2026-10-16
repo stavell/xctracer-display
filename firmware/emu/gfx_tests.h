@@ -13,6 +13,7 @@
 #include "gfx/bitmap1.h"
 #include "gfx/font.h"
 #include "gfx/gray.h"
+#include "gfx/shapes.h"
 #include "hw/fast_sharp.h"
 #include "view/screens.h"
 
@@ -440,6 +441,8 @@ static void testBlitGray() {
 }
 
 #include "font_tests.h"
+#include "count.h"
+#include "shape_tests.h"
 
 static void run(int& totalOps) {
   setvbuf(stdout, nullptr, _IOLBF, 0);
@@ -455,6 +458,8 @@ static void run(int& totalOps) {
   testFontGlyphs();
   testFontStrings();
   testScreensFastText();
+  testShapes();
+  testCompassWork();
 }
 
 }  // namespace gt
