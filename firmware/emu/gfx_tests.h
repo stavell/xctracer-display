@@ -9,13 +9,13 @@
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSansBold18pt7b.h>
 #include <Fonts/FreeSansBold24pt7b.h>
-#include "gfx/atlas.h"
-#include "gfx/bitmap1.h"
-#include "gfx/font.h"
-#include "gfx/gray.h"
-#include "gfx/shapes.h"
-#include "hw/fast_sharp.h"
-#include "view/screens.h"
+#include "platform/gfx/atlas.h"
+#include "platform/gfx/bitmap1.h"
+#include "platform/gfx/font.h"
+#include "platform/gfx/gray.h"
+#include "platform/gfx/shapes.h"
+#include "platform/hw/fast_sharp.h"
+#include "apps/vario/view/screens.h"
 
 namespace gt {
 

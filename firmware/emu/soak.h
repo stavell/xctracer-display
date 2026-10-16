@@ -6,10 +6,10 @@
 #include <new>
 #include <string>
 #include <vector>
-#include "app/app.h"
-#include "core/flight.h"
-#include "core/sim.h"
-#include "core/thermal.h"
+#include "apps/vario/app/app.h"
+#include "apps/vario/core/flight.h"
+#include "apps/vario/core/sim.h"
+#include "apps/vario/core/thermal.h"
 #include "fuzzgen.h"
 #include "mocks.h"
 

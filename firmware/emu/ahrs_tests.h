@@ -2,8 +2,8 @@
 // Included by tests.cpp (uses its CHECK / NEAR).
 #pragma once
 #include <random>
-#include "core/ahrs.h"
-#include "core/mount.h"
+#include "platform/sensors/ahrs.h"
+#include "platform/sensors/mount.h"
 
 // A rigid body with a known attitude R (world east/north/up <- device), turned by commanded body rates.
 // Sensors: gyro = rate + bias + noise, accel = +g along "up" (+ noise), mag = Earth's field (+ noise).

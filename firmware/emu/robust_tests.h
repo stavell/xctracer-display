@@ -265,7 +265,7 @@ static void test_known_bug_nonfinite_position() {
 // ---------------------------------------------------------------------------------------------
 // millis() wrap
 // ---------------------------------------------------------------------------------------------
-// The laptop link as LaptopBle (hw/laptop_ble.cpp) implements it: a draw command stamps millis(); the laptop
+// The laptop link as LaptopBle (apps/vario/hw/laptop_ble.cpp) implements it: a draw command stamps millis(); the laptop
 // owns the screen for `grace` ms after the last stamp; 0 means "never drew". Same expressions, mock clock.
 class StampLaptop : public MockLaptop {
  public:

@@ -33,7 +33,7 @@ Grey tones are an 8x8 ordered dither on the 1-bit panel.
 
 ## Under the hood: what we are proud of
 
-- **A game-grade 1-bit renderer on a 64 MHz microcontroller.** `firmware/src/gfx/` draws straight into
+- **A game-grade 1-bit renderer on a 64 MHz microcontroller.** `firmware/src/platform/gfx/` draws straight into
   the panel's native frame buffer in whole bytes and spans instead of Adafruit_GFX's one virtual call
   per pixel. The busiest frame (thermal map, 3 minutes of track, four big numbers) went from
   **103 ms to 5-6 ms**; a 100x20 filled rectangle from 4.6 ms to 0.08 ms. The output is tested to be
@@ -76,7 +76,7 @@ Grey tones are an 8x8 ordered dither on the 1-bit panel.
 | User switch | on board | 7 (`PIN_BUTTON1`) | P1.02, active low |
 
 - Display: Adafruit SHARP Memory Display breakout, 2.7" 400x240 monochrome (product 4694), used in
-  portrait. Pins are defined only in `firmware/src/pins.h`. `DISPLAY_ROTATION` is 1; 3 flips the picture
+  portrait. Pins are defined only in `firmware/src/platform/hw/pins.h`. `DISPLAY_ROTATION` is 1; 3 flips the picture
   180 degrees (to be confirmed once the box is mounted).
 - Where DISP and EXTMODE are wired was never recorded. The display works, so they are presumably tied high.
 - VCOM is toggled at 1 Hz on EXTCOMIN by a FreeRTOS timer.
@@ -245,7 +245,7 @@ While a replay feeds the box it ignores the live tracer. After the replay stops,
 - **Heading is not trustworthy yet when it shows `MAG`** until the board mounting is set: record a session
   with `orient_log.py`, run `orient_analyze.py` on it and send the index it prints with
   `ctl.py orient <index>` (stored in flash; the per-chip axes `toBoardAccel`/`toBoardMag` in
-  `firmware/src/hw/compass_lis.cpp` are still identity). `TRK` (GPS track) is not affected.
+  `firmware/src/platform/hw/compass_lis.cpp` are still identity). `TRK` (GPS track) is not affected.
 - **Speed unit**: the tracer's speed is assumed to be km/h; this is unverified until a capture with a
   real GPS fix.
 - **Serial status line** (printed every 2 s, only when a terminal is attached):

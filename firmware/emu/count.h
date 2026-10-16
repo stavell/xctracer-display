@@ -1,11 +1,11 @@
 #pragma once
 // Work counting for the draw path: a stand-in for device time, which the PC cannot measure.
 // CountingSharp is the device canvas (FastSharp) with every virtual Adafruit_GFX entry counted; with
-// -DGFX_COUNT the Bitmap1 / gray primitives count themselves (gfx/count.h). The draw profiler's clock
+// -DGFX_COUNT the Bitmap1 / gray primitives count themselves (platform/gfx/count.h). The draw profiler's clock
 // is pointed at one counter at a time, so every profiler section reports its own work.
-#include "gfx/count.h"
-#include "hw/fast_sharp.h"
-#include "view/prof.h"
+#include "platform/gfx/count.h"
+#include "platform/hw/fast_sharp.h"
+#include "apps/vario/view/prof.h"
 
 static uint32_t gCanvasPx = 0, gCanvasSpan = 0;
 

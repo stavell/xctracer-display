@@ -2,28 +2,29 @@
 #include <math.h>
 #include <stdio.h>
 #include <string>
-#include "app/app.h"
-#include "app/command_decode.h"
-#include "core/compass.h"
-#include "core/devmatch.h"
-#include "core/flight.h"
-#include "core/home.h"
-#include "core/linediff.h"
-#include "core/map_motion.h"
+#include "apps/vario/app/app.h"
+#include "apps/vario/app/command_decode.h"
+#include "platform/sensors/compass.h"
+#include "apps/vario/core/devmatch.h"
+#include "apps/vario/core/flight.h"
+#include "apps/vario/core/home.h"
+#include "platform/panel/linediff.h"
+#include "apps/vario/core/map_motion.h"
 #include <string.h>
-#include "core/windprofile.h"
-#include "core/heading.h"
-#include "core/heading_smoother.h"
-#include "core/sim.h"
-#include "core/spsc_ring.h"
-#include "protocol.h"
-#include "core/thermal.h"
-#include "core/wind.h"
-#include "core/windekf.h"
-#include "core/xctrc.h"
+#include "apps/vario/core/windprofile.h"
+#include "apps/vario/core/heading.h"
+#include "platform/sensors/heading_smoother.h"
+#include "apps/vario/core/sim.h"
+#include "platform/util/spsc_ring.h"
+#include "apps/vario/hw/protocol.h"
+#include "apps/vario/core/thermal.h"
+#include "apps/vario/core/wind.h"
+#include "apps/vario/core/windekf.h"
+#include "apps/vario/core/xctrc.h"
 #include "mocks.h"
-#include "view/prof.h"
-#include "view/screens.h"
+#include "platform/app_host.h"
+#include "apps/vario/view/prof.h"
+#include "apps/vario/view/screens.h"
 
 static int failures = 0, checks = 0;
 #define CHECK(cond) do { checks++; if (!(cond)) { failures++; printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); } } while (0)
@@ -1654,7 +1655,34 @@ static void test_prof() {
   profReset();
 }
 
+// The platform app host: one active app gets begin/tick/input, switching ends the old one first.
+struct FakeApp : IApp {
+  const char* n; int begun = 0, ended = 0, ticks = 0, keys = 0;
+  explicit FakeApp(const char* name) : n(name) {}
+  const char* name() const override { return n; }
+  void begin(uint32_t) override { begun++; }
+  void end() override { ended++; }
+  void tick(uint32_t) override { ticks++; }
+  void onInput(Key, ButtonEvent) override { keys++; }
+};
+static void test_app_host() {
+  AppHost h;
+  h.tick(0); h.input(KEY_MAIN, BTN_SHORT);           // no app: nothing happens
+  CHECK(h.active() == nullptr && !h.start(0, 0));
+  FakeApp a("a"), b("b");
+  CHECK(h.add(a)); CHECK(h.add(b)); CHECK(h.count() == 2);
+  CHECK(!h.start(2, 0)); CHECK(!h.start(-1, 0));
+  CHECK(h.start(0, 5)); CHECK(h.active() == &a && a.begun == 1);
+  h.tick(10); h.input(KEY_MAIN, BTN_LONG);
+  CHECK(a.ticks == 1 && a.keys == 1 && b.ticks == 0);
+  CHECK(h.start(1, 20)); CHECK(a.ended == 1 && b.begun == 1 && h.active() == &b);
+  h.tick(30); CHECK(a.ticks == 1 && b.ticks == 1);
+  for (int i = h.count(); i < AppHost::MAX_APPS; i++) CHECK(h.add(a));
+  CHECK(!h.add(a));
+}
+
 int main() {
+  test_app_host();
   { int ops = 0; gt::run(ops); printf("gfx: %d random canvas ops compared\n", ops); }
   test_spsc_ring();
   test_linediff();

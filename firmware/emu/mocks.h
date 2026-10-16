@@ -5,10 +5,10 @@
 #include <string>
 #include <vector>
 #include <Adafruit_SharpMem.h>      // host mock from emu/stubs
-#include "app/button_fsm.h"
-#include "core/mount.h"
-#include "core/types.h"
-#include "app/ports.h"
+#include "platform/input/button_fsm.h"
+#include "platform/sensors/mount.h"
+#include "apps/vario/core/types.h"
+#include "apps/vario/app/ports.h"
 
 class MockPanel : public IPanel {
  public:

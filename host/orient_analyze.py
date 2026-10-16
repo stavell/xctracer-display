@@ -6,10 +6,10 @@ the screen toward you, (3) on its left edge so the RIGHT edge points up (screen 
 
 Output: the mounting index (0..23) of the board in the case, to set with `python ctl.py orient <index>`.
 The log is in the BOARD frame (the `cmp` status line, after the per-chip toBoard* functions in
-src/hw/compass_lis.cpp). The gyro is in the accelerometer chip, so the accelerometer decides the index. If
+src/platform/hw/compass_lis.cpp). The gyro is in the accelerometer chip, so the accelerometer decides the index. If
 the magnetometer chip turns out to be mounted differently from the accelerometer chip, the fix for
 toBoardMag is printed as well (compose it with the existing function if that is not the identity).
-The index table is the one in src/core/mount.cpp: --selftest checks that this file generates the same one.
+The index table is the one in src/platform/sensors/mount.cpp: --selftest checks that this file generates the same one.
   python orient_analyze.py orient.log
   python orient_analyze.py --selftest
 """
@@ -34,7 +34,7 @@ def load(path):
 
 def rotations():
     """The 24 proper signed axis permutations (rotation matrices with entries 0, +1, -1), in the order of
-    the table in src/core/mount.cpp: the list index IS the mounting index. device = R @ board."""
+    the table in src/platform/sensors/mount.cpp: the list index IS the mounting index. device = R @ board."""
     out = []
     for perm in itertools.permutations(range(3)):
         for signs in itertools.product((1, -1), repeat=3):
@@ -55,7 +55,7 @@ def mount_index(R):
 
 
 def table_in_firmware():
-    """The table as written in src/core/mount.cpp, as rotation matrices."""
+    """The table as written in src/platform/sensors/mount.cpp, as rotation matrices."""
     import os
     src = open(os.path.join(os.path.dirname(__file__), "..", "firmware", "src", "core", "mount.cpp")).read()
     body = src.split("MOUNT_TABLE_BEGIN")[1].split("MOUNT_TABLE_END")[0]
@@ -136,7 +136,7 @@ def analyze(acc, mag, verbose=True):
 
 
 def code_for(R, name):
-    """C++ for a chip -> board mapping (hw/compass_lis.cpp)."""
+    """C++ for a chip -> board mapping (platform/hw/compass_lis.cpp)."""
     axes = "xyz"
     lines = []
     for r in range(3):
@@ -195,7 +195,7 @@ def selftest():
     fw = table_in_firmware()
     tbl = rotations()
     tab_ok = len(fw) == 24 and all(np.array_equal(a, b) for a, b in zip(fw, tbl))
-    print("table matches src/core/mount.cpp:", tab_ok)
+    print("table matches src/platform/sensors/mount.cpp:", tab_ok)
     ok &= tab_ok
     ok &= len({m.tobytes() for m in tbl}) == 24 and all(round(np.linalg.det(m)) == 1 for m in tbl)
     for i, (Ra, Pm) in enumerate(itertools.product(rotations()[::5], rotations()[::7])):
@@ -219,5 +219,5 @@ if __name__ == "__main__":
     idx = mount_index(Ra)
     print(f"\nMounting index: {idx}   ->   python host/ctl.py orient {idx}")
     if not np.array_equal(Ra, Pm):
-        print("\nThe magnetometer chip is not mounted like the accelerometer chip. In src/hw/compass_lis.cpp use:\n")
+        print("\nThe magnetometer chip is not mounted like the accelerometer chip. In src/platform/hw/compass_lis.cpp use:\n")
         print(code_for(chip_fix(Ra, Pm), "toBoardMag"))

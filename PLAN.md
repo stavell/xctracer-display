@@ -11,18 +11,18 @@ with a real failure mode, **L** = hygiene.
 
 | # | Sev | Finding | Where |
 |---|-----|---------|-------|
-| 1 | H | No watchdog. If the main loop hangs, the memory LCD keeps the last frame and the VCOM timer keeps it alive, so stale numbers look live. A hang already happened once during development. | `main.cpp` |
-| 2 | H | Laptop drawing runs in the BLE callback task: it writes the shared framebuffer, calls `clear()` and `setRotation(0)` while the main loop may be drawing the vario screen (108 ms per frame). Interleaved writes and a rotation change mid-draw corrupt the frame. | `hw/laptop_ble.cpp` |
+| 1 | H | No watchdog. If the main loop hangs, the memory LCD keeps the last frame and the VCOM timer keeps it alive, so stale numbers look live. A hang already happened once during development. | `main_vario.cpp` |
+| 2 | H | Laptop drawing runs in the BLE callback task: it writes the shared framebuffer, calls `clear()` and `setRotation(0)` while the main loop may be drawing the vario screen (108 ms per frame). Interleaved writes and a rotation change mid-draw corrupt the frame. | `apps/vario/hw/laptop_ble.cpp` |
 | 3 | M | The callback-to-loop queues use `volatile` indices only. Non-volatile payload stores may be reordered after the index store, so the consumer can read a half-written line or command. | `hw/tracer_ble.*`, `hw/laptop_ble.*` |
-| 4 | M | `Bluefruit.Scanner` is driven from two tasks: `onDisconnect` (callback task) calls `startScan()` while the loop calls it from `update()` / `listOpen()`. The scan list `items_` is written in the scan callback and read in the loop without synchronisation; `cfg_.updateAddr()` runs in the callback. | `hw/tracer_ble.cpp` |
-| 5 | M | Reconnect after a dropped link uses the low-duty scan (50 ms window per 1 s), so in flight the display can stay on "SEARCHING" for many seconds. | `hw/tracer_ble.cpp` |
-| 6 | M | Pure logic lives inside hardware adapters and has no tests: name glob, device-matching policy (the same-name bug came from here), RSSI sort (duplicated twice), laptop packet decoding and its length checks. | `hw/tracer_ble.cpp`, `hw/laptop_ble.cpp` |
-| 7 | M | Diagnostic benchmarks are compiled into the production firmware: a second `FlightModel` (about 10 KB RAM) and a one-off 120-sample run that blocks the loop when a terminal attaches. | `main.cpp` |
-| 8 | M | Config files are rewritten by remove-then-write; a power loss in between loses the saved tracer or calibration. | `hw/config_store.cpp` |
+| 4 | M | `Bluefruit.Scanner` is driven from two tasks: `onDisconnect` (callback task) calls `startScan()` while the loop calls it from `update()` / `listOpen()`. The scan list `items_` is written in the scan callback and read in the loop without synchronisation; `cfg_.updateAddr()` runs in the callback. | `apps/vario/hw/tracer_ble.cpp` |
+| 5 | M | Reconnect after a dropped link uses the low-duty scan (50 ms window per 1 s), so in flight the display can stay on "SEARCHING" for many seconds. | `apps/vario/hw/tracer_ble.cpp` |
+| 6 | M | Pure logic lives inside hardware adapters and has no tests: name glob, device-matching policy (the same-name bug came from here), RSSI sort (duplicated twice), laptop packet decoding and its length checks. | `apps/vario/hw/tracer_ble.cpp`, `apps/vario/hw/laptop_ble.cpp` |
+| 7 | M | Diagnostic benchmarks are compiled into the production firmware: a second `FlightModel` (about 10 KB RAM) and a one-off 120-sample run that blocks the loop when a terminal attaches. | `main_vario.cpp` |
+| 8 | M | Config files are rewritten by remove-then-write; a power loss in between loses the saved tracer or calibration. | `apps/vario/hw/config_store.cpp` |
 | 9 | M | No single check command; a commit (`3cd90a7`) did not build for the device. | repo |
 | 10 | L | README describes the early "laptop renders everything" design (one-way link, host renders, out-of-scope sensors). NOTES.md is current. | `README.md` |
 | 11 | L | Legacy laptop-drawing tools (`dashboard.py`, `send_test.py`, `bench.py`) are undocumented as such. | `host/` |
-| 12 | L | Strict warnings: only int to int16_t narrowing in Adafruit_GFX calls (harmless). No unused code, no shadowing. | `view/screens.cpp` |
+| 12 | L | Strict warnings: only int to int16_t narrowing in Adafruit_GFX calls (harmless). No unused code, no shadowing. | `apps/vario/view/screens.cpp` |
 
 Known open items that need the hardware or the user, not code review: compass axis mapping, GPS speed
 unit with a real fix, magnetic declination, power measurement, `DISPLAY_ROTATION`, DISP/EXTMODE wiring.
@@ -43,7 +43,7 @@ Every package must keep `firmware/emu/build.sh` green (all checks pass, sanitize
 
 ### A. BLE adapters: concurrency and testable logic (findings 2, 3, 4, 5, 6)
 
-1. `core/spsc_ring.h`: header-only single-producer/single-consumer ring (`std::atomic` indices,
+1. `platform/util/spsc_ring.h`: header-only single-producer/single-consumer ring (`std::atomic` indices,
    release on publish, acquire on consume). Unit tests in the emulator.
 2. Use it for the tracer line queue and the laptop command queue.
 3. Laptop frames: decode into a private 12 KB buffer in the panel's native layout inside the callback;
@@ -52,15 +52,15 @@ Every package must keep `firmware/emu/build.sh` green (all checks pass, sanitize
 4. Tracer: the scan callback only queues scan reports; the loop merges them into the list, does the
    matching and calls `connect()`. `onDisconnect` only sets a flag; the loop restarts scanning.
 5. Fast reconnect: after a disconnect, scan at full duty for 30 s, then fall back to low duty.
-6. Move `glob`, the RSSI sort and the auto-connect policy into `core/devmatch.*`, and laptop packet
-   decoding into `core/command_decode.*`, with tests (same-name devices, private addresses, short
+6. Move `glob`, the RSSI sort and the auto-connect policy into `apps/vario/core/devmatch.*`, and laptop packet
+   decoding into `apps/vario/app/command_decode.*`, with tests (same-name devices, private addresses, short
    and overlong packets, unknown commands).
 
 ### B. Resilience and build hygiene (findings 1, 7, 8)
 
-1. `hw/watchdog.*`: nRF52 WDT, 8 s timeout, paused while halted by a debugger, fed once per loop and in
+1. `platform/hw/watchdog.*`: nRF52 WDT, 8 s timeout, paused while halted by a debugger, fed once per loop and in
    every blocking wait (power-on gate, wait-for-release before System OFF).
-2. Diagnostics: move the status line and benchmarks out of `main.cpp` into `hw/diagnostics.*`; the
+2. Diagnostics: move the status line and benchmarks out of `main_vario.cpp` into `apps/vario/hw/diagnostics.*`; the
    benchmarks compile only with `-DDIAGNOSTICS` (a second PlatformIO env `feather_sense_diag`); the
    light status line stays in both builds.
 3. Atomic config writes: write a temp file, then rename over the old one.
@@ -100,7 +100,7 @@ For each branch: read the diff, run `scripts/check.sh` (or its two steps), check
 exercise the change, merge. After all three: flash, run the 3x IGC replay on both pages and watch the
 serial status, and check that a stuck loop is reset by the watchdog.
 
-## Multi-use box (proposed 2026-10-16, not started)
+## Multi-use box (proposed 2026-10-16; step 1 done)
 
 The same hardware as a flight display, a game console and a generic gadget, with firmware switched
 between seasons.
@@ -109,7 +109,7 @@ between seasons.
 
     platform/   hw (panel + DMA, sensors, BLE, power, flash settings), gfx renderer, input (switch,
                 later 4 buttons), fused compass, app lifecycle + switching, settings UI
-    apps/vario  the flight display (today's core/ maths + views)
+    apps/vario  the flight display (apps/vario/core maths + views)
     apps/games  breakout, soaring sim, ...
     apps/tools  standalone compass + temp/humidity, level, ...
 
@@ -121,5 +121,16 @@ between seasons.
   Settings live in the internal LittleFS area, which a UF2 app update should not touch (verify on
   the device). Release both .uf2 files on GitHub.
 
-**Order:** watchdog first; then move code into platform/ and apps/vario (pixel-identical screens, all
-tests green); app interface + launcher; two build envs + switch item; game engine basics + Breakout.
+**Order:** move code into platform/ and apps/vario (pixel-identical screens, all tests green) - DONE;
+app interface + launcher; two build envs + switch item; game engine basics + Breakout.
+The watchdog is deferred (it stays disabled in `main_vario.cpp`, see NOTES.md; decided 2026-10-16).
+
+**Done: restructure (zero behaviour change).** `src/platform/` (gfx, sensors, panel, input, util, hw,
+ports.h, app_host.h) and `src/apps/vario/` (core, view, app, hw); `main_vario.cpp` registers one app
+(`VarioApp`, an `IApp` adapter around `App`) with `AppHost`. Screens, test output and a 10-minute replay
+are byte-identical to before; flash/RAM within 400 bytes.
+**Next:** (1) move the present/redraw cadence out of `App` into the platform (apps ask for a redraw; the
+host owns clear/present/anim pacing) and let `AppHost` poll the switch and call `onInput`; (2) a launcher
+and settings UI; (3) the `console` env (`main_console.cpp`, `apps/games`, `apps/tools`; a commented
+placeholder is in platformio.ini); (4) move the mag-cal and mount-index storage out of `ConfigStore` /
+`ISettings` into a platform settings store, leaving the tracer filter and saved device in the vario.

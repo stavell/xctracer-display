@@ -17,7 +17,7 @@ Contents: [Input](#1-the-xctrc-line) / [Flight model](#2-flight-model) / [Wind, 
 
 ## 1. The `$XCTRC` line
 
-`firmware/src/core/xctrc.cpp`
+`firmware/src/apps/vario/core/xctrc.cpp`
 
 ```
 $XCTRC,Y,M,D,h,m,s,cs,lat,lon,alt,speed,course,vario,,,,pressure,battery%*CS
@@ -45,14 +45,14 @@ $XCTRC,Y,M,D,h,m,s,cs,lat,lon,alt,speed,course,vario,,,,pressure,battery%*CS
 and speed and course are forced to NaN even if the line carried numbers. Altitude and vario (from the
 barometer) stay usable without a fix.
 
-**Staleness.** `App::hasData` (`firmware/src/app/app.cpp`) is true only while the last valid line arrived
+**Staleness.** `App::hasData` (`firmware/src/apps/vario/app/app.cpp`) is true only while the last valid line arrived
 less than `freshMs` = 3000 ms ago by the box's own clock. Stale data is shown as no data and is not fed
 to the heading selector as GPS. This is the only place the wall clock matters; all flight maths below
 use the data's time stamps.
 
 ## 2. Flight model
 
-`firmware/src/core/flight.cpp`
+`firmware/src/apps/vario/core/flight.cpp`
 
 **Flight clock.** Each line has a time of day $t = 3600h + 60m + s$. A line with the same $t$ as the
 previous one is not a new data second and is ignored by the history (so at 3 lines/s one point per second
@@ -85,7 +85,7 @@ speed is above 8 km/h; it drops 16 s after the last such moment. (The flag is co
 
 ## 3. Wind from circling (circle fit)
 
-`firmware/src/core/wind.cpp`, called from `FlightModel::updateWind`.
+`firmware/src/apps/vario/core/wind.cpp`, called from `FlightModel::updateWind`.
 
 While turning at constant airspeed $V$ in wind $\mathbf w$, the ground velocity is $\mathbf g = \mathbf w + V(\sin\theta,\cos\theta)$.
 The ground-velocity vectors therefore lie on a circle whose **centre is the wind** and whose **radius is the
@@ -136,7 +136,7 @@ trigonometry. The results are bit-identical to evaluating them first.
 
 ## 4. Wind Kalman filter
 
-`firmware/src/core/windekf.cpp`
+`firmware/src/apps/vario/core/windekf.cpp`
 
 The circle fit needs a full turn. The extended Kalman filter (EKF) learns from ordinary heading changes.
 
@@ -186,7 +186,7 @@ minutes on purpose and would smear how the wind changes with height.
 
 ## 5. Wind and temperature by altitude
 
-`firmware/src/core/windprofile.cpp`, page drawn in `firmware/src/view/screens.cpp`.
+`firmware/src/apps/vario/core/windprofile.cpp`, page drawn in `firmware/src/apps/vario/view/screens.cpp`.
 
 * 60 bands of 100 m, from 0 to 6000 m. Below 0 goes to band 0, above the top to band 59.
 * **Wind**: one entry each time a circle fit is accepted in that second, stored at the current altitude
@@ -212,7 +212,7 @@ shades such bands grey and draws the temperature trace thick across them.
 
 ## 6. Thermal memory and the air-mass map
 
-`firmware/src/core/thermal.cpp`, `FlightModel::airTrail` / `updateThermals` in `flight.cpp`.
+`firmware/src/apps/vario/core/thermal.cpp`, `FlightModel::airTrail` / `updateThermals` in `flight.cpp`.
 
 **Air-mass frame.** A thermal is stationary in the air, not over the ground. To undo the drift, a point
 flown $a$ seconds ago is moved downwind by $a$ seconds of wind:
@@ -257,7 +257,7 @@ the last ~3 s of the air-frame trail (if it moved more than 3 m; otherwise the G
 snaps to fixed steps of 2.2, 1.6, 1.1, 0.7, 0.45, 0.28, 0.18, 0.11 px/m, the largest that fits the last
 30 s of track (and the newest thermal when it is within 800 m), so the picture does not breathe.
 
-**Motion between samples** (`core/map_motion.cpp`, `App::updateMap`). Samples arrive about 3 per second, so
+**Motion between samples** (`apps/vario/core/map_motion.cpp`, `App::updateMap`). Samples arrive about 3 per second, so
 the map is drawn as of a display time $t_d = t_{now} - (\bar\Delta + 50\,\text{ms})$, where $\bar\Delta$ is
 an exponential average of the arrival gaps. The pilot position is the linear interpolation between the
 two samples around $t_d$ (never extrapolated; $t_d$ is held at the newest sample when data stops, and
@@ -278,7 +278,7 @@ the last drawn frame.
 
 ## 7. Home
 
-`firmware/src/core/home.cpp`
+`firmware/src/apps/vario/core/home.cpp`
 
 **Which point.** The first fix is a provisional home. Takeoff is detected 5 s after the speed passed
 10 km/h (section 2), by which time the pilot is already along the track and in the air, so the position and
@@ -312,7 +312,7 @@ height is given. The wind used is `FlightModel::wind()`; with no wind estimate, 
 
 ## 8. Compass
 
-`firmware/src/core/compass.cpp`, `ahrs.cpp`, `mount.cpp`. Pure maths. The hardware layer maps each chip's axes to
+`firmware/src/platform/sensors/compass.cpp`, `ahrs.cpp`, `mount.cpp`. Pure maths. The hardware layer maps each chip's axes to
 the board frame; the app rotates board to device (x right of the screen, y top of the screen, z out of the
 screen) with the mounting index (8.2). Two heading paths: the **gyro fusion** (8.1, used when the gyro works)
 and the **plain tilt-compensated compass** (the rest of this section; the fallback, and always the source of
@@ -415,10 +415,10 @@ fused heading while the gyro delivers data and the filter is valid, otherwise th
 
 ### 8.2 Board mounting
 
-Two rotations: per chip, chip axes to the board frame (fixed by the PCB, in `hw/compass_lis.cpp`), then one of
+Two rotations: per chip, chip axes to the board frame (fixed by the PCB, in `platform/hw/compass_lis.cpp`), then one of
 the 24 signed axis permutations with determinant +1, selected by an index 0..23 (flash file `/mount.bin`,
 `ctl.py orient`), applied to accelerometer, gyro and field alike: $\text{device}_r=s_r\,\text{board}_{p_r}$. The
-table in `core/mount.cpp` is ordered like `itertools.permutations` of the axes times the sign triples
+table in `platform/sensors/mount.cpp` is ordered like `itertools.permutations` of the axes times the sign triples
 $(+,+,+),(+,+,-),\dots$, keeping $\det=+1$:
 
 | Index | perm | signs | Index | perm | signs | Index | perm | signs |
@@ -439,14 +439,14 @@ so changing the index rotates the stored offset along (and the fusion restarts).
 
 ## 9. Heading source and smoothing
 
-**Selector** (`firmware/src/core/heading.cpp`, thresholds from `AppConfig` in `app.h`). GPS track is
+**Selector** (`firmware/src/apps/vario/core/heading.cpp`, thresholds from `AppConfig` in `app.h`). GPS track is
 used once ground speed reaches **4 km/h** and is released only when it falls below **2.5 km/h**; between the
 two it keeps its current state (hysteresis, so it does not flap at walking speed). GPS counts only when the
 data is fresh (section 1), has a fix, and speed and course are finite. Otherwise the magnetic heading is
 used if valid, otherwise there is no heading and the dial shows `--`. The screen labels the source `TRK` or
 `MAG`.
 
-**Smoother** (`firmware/src/core/heading_smoother.cpp`). Source `MAG` has two tunings: with the gyro fusion
+**Smoother** (`firmware/src/platform/sensors/heading_smoother.cpp`). Source `MAG` has two tunings: with the gyro fusion
 $\tau=30$ ms (the fused heading is already smooth, so this is nearly pass-through), without it $\tau=90$ ms;
 the 0.4 degree deadband (below) applies to the compass alone only. The fused source has **no deadband** and does not snap
 at 0.5 deg (it snaps at 0.01 deg): a slow turn is a continuous glide. The dial shows a glided value, advanced once per
@@ -482,7 +482,7 @@ Grey levels, partial refresh and pre-rotated glyphs exist because this chip is s
 (Adafruit GFX cost 1.46 us per pixel; a full thermal frame took 103 ms before the fast path and 22 ms
 after, `NOTES.md`).
 
-**Ordered dither** (`firmware/src/gfx/gray.h`, `gray.cpp`). The panel is 1 bit per pixel. Grey is made
+**Ordered dither** (`firmware/src/platform/gfx/gray.h`, `gray.cpp`). The panel is 1 bit per pixel. Grey is made
 with an 8x8 Bayer matrix. The threshold $T(x,y)\in[0,63]$ is built by bit interleaving of $x\oplus y$ and $y$
 (`bayer8`). A grey level $L\in[0,16]$ (0 black, 16 white, 17 steps) lights a pixel when $T(x,y)<4L$, so
 level 8 lights exactly 32 of every aligned 64 pixels. The threshold uses **screen** coordinates, not the
@@ -490,14 +490,14 @@ shape's origin, so touching grey areas have no seam and a shape moved by one pix
 Grey sprites store 4 bits per pixel; nibble $n$ becomes level $\lfloor(16n+7)/15\rfloor$. The views use two
 shades: LIGHT = level 13 and MID = level 8 (`screens.cpp`).
 
-**Partial refresh** (`firmware/src/core/linediff.cpp`, `firmware/src/hw/panel_sharp.cpp`). The frame is 240
+**Partial refresh** (`firmware/src/platform/panel/linediff.cpp`, `firmware/src/platform/hw/panel_sharp.cpp`). The frame is 240
 native lines of 50 bytes. Each present compares every line with the snapshot of what was last sent
 (`memcmp`) and sends only the changed lines; each line is sent with its 1-based address. If more than 200
 lines changed (or the panel was marked dirty) the whole frame is sent, and if nothing changed nothing is sent.
 Measured at 8 MHz SPI: about 14 ms for a full refresh, 2-9 ms for a partial one (`NOTES.md`). The panel's
 VCOM inversion is toggled every 500 ms by a timer, i.e. a 1 Hz polarity flip.
 
-**Pre-rotated glyph atlases** (`firmware/src/gfx/atlas.cpp`, `font.cpp`). The panel is physically 400x240
+**Pre-rotated glyph atlases** (`firmware/src/platform/gfx/atlas.cpp`, `font.cpp`). The panel is physically 400x240
 and used rotated into portrait, so a row of text in the picture is a column in memory, which would need one
 bit written at a time. An `Atlas` stores each glyph already rotated into the panel's native orientation, so
 drawing is a shift-and-mask copy of whole bytes per native row. `Font1` builds one atlas per ASCII glyph
@@ -512,14 +512,14 @@ is float only.
 
 **Missing data is NaN.** Every missing or out-of-range value becomes NaN, derived values propagate it, and
 nothing is derived from what is missing. The single place a number becomes text is `fnum()` in
-`firmware/src/view/screens.cpp`, which prints `--` for any non-finite value. Angles passed to drawing code
+`firmware/src/apps/vario/view/screens.cpp`, which prints `--` for any non-finite value. Angles passed to drawing code
 are also checked, because converting NaN to int is undefined behaviour.
 
 **The `-Ofast` pitfall.** The Adafruit nRF52 core builds with `-Ofast`, which implies `-ffinite-math-only`.
 The compiler then assumes NaN never occurs and folds `isfinite()` / `isnan()` to constants, so every guard
 above was dead code on the device while the PC emulator (no `-Ofast`) looked fine. It was found when the
 heading smoother stuck at NaN (2026-10-15). `platformio.ini` now unflags `-Ofast` and builds with `-O2`, and
-`firmware/src/core/types.h` stops the build with `#error` if `__FINITE_MATH_ONLY__` is set.
+`firmware/src/apps/vario/core/types.h` stops the build with `#error` if `__FINITE_MATH_ONLY__` is set.
 
 **Stack and time.** Large work buffers (history, trails, view model) are members of long-lived objects, not
 locals, because the loop task has a 4 KB stack. Flight time never reads the wall clock (section 2).

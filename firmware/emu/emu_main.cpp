@@ -30,15 +30,15 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include "app/app.h"
-#include "core/flight.h"
-#include "core/thermal.h"
-#include "core/xctrc.h"
+#include "apps/vario/app/app.h"
+#include "apps/vario/core/flight.h"
+#include "apps/vario/core/thermal.h"
+#include "apps/vario/core/xctrc.h"
 #include "mocks.h"
-#include "view/screens.h"
+#include "apps/vario/view/screens.h"
 #include "soak.h"
-#include "gfx/gray.h"
-#include "hw/fast_sharp.h"
+#include "platform/gfx/gray.h"
+#include "platform/hw/fast_sharp.h"
 #include "count.h"
 
 static void watchdog(int) {

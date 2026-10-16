@@ -1,6 +1,6 @@
 #pragma once
 // Tests for core/sharp_frame (the packed SPI transaction). Included by tests.cpp.
-#include "core/sharp_frame.h"
+#include "platform/panel/sharp_frame.h"
 
 static void test_sharp_pack() {
   puts("sharp pack");

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a PNG to a 4-bit grey C header for gfx/gray.h (Gray4 / blitGray).
+"""Convert a PNG to a 4-bit grey C header for platform/gfx/gray.h (Gray4 / blitGray).
 
     .venv/bin/python host/img2gray.py sprite.png --name ship --width 32 -o firmware/src/ship.h
 

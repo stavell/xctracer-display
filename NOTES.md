@@ -110,14 +110,14 @@ project is and how to run it; this file says what we found and why things are th
 - The magnetic heading is magnetic north, not true north (no declination model), so it differs from the GPS
   track by the local declination.
 - **Not yet done on the unit: the axis mapping.** The sensors report in their own axes; `toDeviceAccel` and
-  `toDeviceMag` in `src/hw/compass_lis.cpp` are still identity. `host/orient_log.py` records a session and
+  `toDeviceMag` in `src/platform/hw/compass_lis.cpp` are still identity. `host/orient_log.py` records a session and
   `host/orient_analyze.py` solves both mappings (self-tested on synthetic data) and prints the code to paste.
   First reading from the unit: accelerometer gravity along -z at rest in its current pose.
 
 - Gyro fusion and board mounting (2026-10-16, emulator only, NOT yet tried on the device): the LSM6DS33 gyro
   runs at 104 Hz, +-500 dps, and is read in the same 14-byte burst as the accelerometer (the Adafruit
   `getEvent` already reads temp+gyro+accel, so the gyro adds no bus time, only supply current, to be
-  measured). `core/ahrs` is a Mahony filter on a quaternion: gravity corrects roll/pitch (tau 1 s, ignored
+  measured). `platform/sensors/ahrs` is a Mahony filter on a quaternion: gravity corrects roll/pitch (tau 1 s, ignored
   when |a| is not within 12% of g), the horizontal field corrects the heading only, about the vertical axis
   (tau 2 s; a field spike cannot tilt the attitude; magnitude and dip gates reject disturbed fields), gyro
   bias from the PI integral and, faster, from a still-detector (two quiet 0.5 s windows: gyro std < 0.6 dps,
@@ -129,9 +129,9 @@ project is and how to run it; this file says what we found and why things are th
   magnetometer removed after learning, the heading drifts 0.1 deg in 60 s; 90 deg turn at 180 dps: max
   error 0.34-0.43 deg during the turn; strong field spike: 0.1 deg heading, 0.05 deg tilt; a 25 deg field
   twist for 3 s moves the heading but tilts nothing (0.06 deg). Mounting: the single hardcoded mapping
-  became two: per-chip fixed `toBoardAccel/toBoardMag` in `hw/compass_lis.cpp` (identity: no board docs in
+  became two: per-chip fixed `toBoardAccel/toBoardMag` in `platform/hw/compass_lis.cpp` (identity: no board docs in
   the library folders, so the real chip axes are unknown) and the board -> case rotation, an index 0..23
-  (`core/mount.cpp`, stored in `/mount.bin`, `ctl.py orient`), applied to accel, gyro and mag in the app.
+  (`platform/sensors/mount.cpp`, stored in `/mount.bin`, `ctl.py orient`), applied to accel, gyro and mag in the app.
   The hard-iron offset is stored in the device frame and is rotated along when the index changes.
   `orient_analyze.py` now prints the index (and the toBoardMag fix if the two chips disagree).
   To check on the device: the `cmp` line noise when still (`hdg`, `bias`), the turn response, supply current.
@@ -178,7 +178,7 @@ project is and how to run it; this file says what we found and why things are th
 - Recovery kit: a tiny rescue firmware (Serial only) uploads in a few seconds even when full uploads fail;
   `firmware.uf2` dragged onto `FTHR840BOOT` in Finder also bypasses serial DFU (Terminal may lack permission
   to write to removable volumes).
-- The watchdog is disabled in `main.cpp` until uploads with it running are proven (or it is stopped by a
+- The watchdog is disabled in `main_vario.cpp` until uploads with it running are proven (or it is stopped by a
   longer timeout / the app hands over cleanly before DFU).
 - **Found later the same day:** it happened again with the watchdog off. A serial logger (`logger.py`, left
   running since the device soak at 17:44) held `/dev/cu.usbmodem*` and reopened it within 0.2 s after every
@@ -236,7 +236,7 @@ project is and how to run it; this file says what we found and why things are th
   GCC assumes NaN never occurs and folds `isfinite()` / `isnan()` to constants. Every NaN guard in the
   firmware (fnum's `--`, the arrow guard, the parser's fix checks from the fuzzing) was dead code on the
   device; the emulator (no `-Ofast`) never saw it. Found when the new heading smoother stayed at NaN.
-- Fix: `build_unflags = -Ofast`, `-O2` in `platformio.ini`; `core/types.h` refuses to compile when
+- Fix: `build_unflags = -Ofast`, `-O2` in `platformio.ini`; `apps/vario/core/types.h` refuses to compile when
   `__FINITE_MATH_ONLY__` is set, so it cannot come back silently.
 - Magnetometer is now always on (all pages), so it has a settled heading when the GPS track drops out.
 - Panel SPI: 2 MHz -> 4 MHz (full refresh 53 -> 27 ms) -> 8 MHz (about 14 ms full, 2-9 ms partial).
@@ -246,7 +246,7 @@ project is and how to run it; this file says what we found and why things are th
 ## Drawing speed (2026-10-15, diagnostics build profiler)
 
 - Adafruit_GFX's generic path cost 1.46 us per pixel; a thermal frame with a full trail took 103 ms to
-  draw (trail 41, cells 28, header 16). `gfx/Bitmap1` + `hw/FastSharp` write straight into the frame
+  draw (trail 41, cells 28, header 16). `platform/gfx` Bitmap1 + `platform/hw/fast_sharp.h` write straight into the frame
   buffer (bit-identical, tested against a copy of the library's mapping): the same frame now takes
   22 ms (trail 5, cells 9, header 2); fillRect 100x20 went from 4.6 ms to 0.08 ms.
 - Single pixels must not go through the rect code: that first version made pixels 3x slower (4.7 us).
@@ -255,7 +255,7 @@ project is and how to run it; this file says what we found and why things are th
 - Animation at 20 fps (50 ms) while the heading glides: worst loop tick 49-60 ms on the thermal page with
   a full trail, so it runs at roughly 17-20 fps. While circling the map never settles, so the CPU runs
   flat out the whole time (power cost not measured yet).
-- Fast text (2026-10-16, `gfx/atlas` + `gfx/font`, glyphs pre-rotated into native byte rows): "1234" in
+- Fast text (2026-10-16, `platform/gfx/atlas` + `font`, glyphs pre-rotated into native byte rows): "1234" in
   FreeSansBold24pt went from 2783 us to 332 us (8.4x); the four thermal cells from about 9 ms to 2-3 ms.
   The four fonts take 22.3 KB of RAM and 97 ms to build once, on the first frame; free heap after that
   is 62.8 KB. The thermal frame (live) now draws in 5-12 ms; the thermal memory block (up to 7 ms once
@@ -274,11 +274,11 @@ project is and how to run it; this file says what we found and why things are th
 - Cause of the 48 ms (found 2026-10-16 with the emulator work counters, `firmware/emu/build.sh count`): in portrait a
   horizontal grey span is a native column, so the grey ring (about 5900 pixels) cost one native row
   read-modify-write each plus a dither pattern of 8 Bayer evaluations each (47k per frame). Fix: pattern
-  cache per (rotation, w&7, h&7, level), table Bayer, and gfx/shapes `fillRing` that emits vertical
+  cache per (rotation, w&7, h&7, level), table Bayer, and platform/gfx/shapes `fillRing` that emits vertical
   runs (native rows) in rotations 1/3 (344 rows). Circles and ticks use `circle`/`line` (same pixels as
   Adafruit_GFX, no virtual call). Rendered screens are byte-identical in all rotations. Device time not
   yet measured; sections ring/bezel/ticks/labels/hdgnum added to the profiler line.
-- Compass page (2026-10-16, `gfx/shapes`: fillRing/fillDisc as native-row runs, cached Bayer row
+- Compass page (2026-10-16, `platform/gfx/shapes`: fillRing/fillDisc as native-row runs, cached Bayer row
   patterns, line/circle on the bitmap): live page without a fix 48 ms -> 7.6 ms on the device
   (ring 2.2, bezel 1.2, ticks 0.5, labels 0.6, heading number 0.3 ms); loop tick 18 ms. The ring was
   5918 read-modify-writes of a native row per frame (a screen row is a native column in portrait), each
@@ -299,7 +299,7 @@ project is and how to run it; this file says what we found and why things are th
   wandered 260-270 deg and ~180 lines changed every frame, so the 30 fps redraw never stopped. 50 ms of
   filtering cannot hide the magnetometer noise; gyro fusion is the fix (in progress).
 - Correction to the line above (2026-10-16): `windfit=` is not a per-tick cost of the flight model. It is
-  a synthetic benchmark in `hw/diagnostics.cpp` (one `fitWind` over a canned circle) that was re-run on
+  a synthetic benchmark in `apps/vario/hw/diagnostics.cpp` (one `fitWind` over a canned circle) that was re-run on
   every status line, so it showed up as ~5.7 ms in the loop tick of that moment even with no data. It now
   runs once. The real fit runs once per data second, only with a fix, and rejects straight windows before
   any trigonometry (emulator, 900 s real flight: 0.47 -> 0.37 us per call, identical outputs; the device
@@ -339,7 +339,7 @@ project is and how to run it; this file says what we found and why things are th
 ## Continuous thermal map (2026-10-16, emulator only, not yet on the device)
 
 The thermal map used to move only when a sample arrived (about 3 Hz), so trail and rings jumped several
-pixels. Now `core/map_motion.*` interpolates the view between samples; `App::updateMap` / `buildViewModel`
+pixels. Now `apps/vario/core/map_motion.*` interpolates the view between samples; `App::updateMap` / `buildViewModel`
 feed the result to the view (`ViewModel::mapLive/mapCx/mapCy/mapHdg/mapScale`). Design:
 
 - Display time = now minus (sample interval + 50 ms): 383 ms live, 161 ms in a 3x replay (the interval is an

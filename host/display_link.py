@@ -1,4 +1,4 @@
-"""BLE client for the SharpDisplay terminal. Protocol: firmware/src/protocol.h"""
+"""BLE client for the SharpDisplay terminal. Protocol: firmware/src/apps/vario/hw/protocol.h"""
 import asyncio
 import struct
 from bleak import BleakClient, BleakScanner
