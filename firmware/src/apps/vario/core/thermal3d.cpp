@@ -257,7 +257,7 @@ void ThermalColumn::analyze(float windE, float windN) {
       c.turn = sg;
     };
     for (int k = r.s + 1; k <= r.e; k++) {
-      if (isfinite(pts_[k].rate)) acc += fabsf(pts_[k].rate) * (pts_[k].tMs - pts_[k - 1].tMs) / 1000.0f;
+      if (isfinite(pts_[k].rate)) acc += sg * pts_[k].rate * (pts_[k].tMs - pts_[k - 1].tMs) / 1000.0f;   // signed: heading noise cancels
       if (acc >= 360.0f) { add(cut, k); cut = k; acc -= 360.0f; }
     }
     if (acc >= 270.0f) add(cut, r.e);

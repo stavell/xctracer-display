@@ -31,6 +31,7 @@ static int failures = 0, checks = 0;
 #define NEAR(a, b, tol) CHECK(fabs((double)(a) - (double)(b)) <= (tol))
 #include "gfx_tests.h"
 #include "ahrs_tests.h"
+#include "thermal3d_tests.h"
 
 static const double D2R = 0.017453292519943295;
 
@@ -1711,6 +1712,7 @@ int main() {
   test_air_trail();
   test_thermal();
   test_thermal_memory();
+  t3::run();
   test_compass();
   test_heading_selector();
   test_heading_smoother();

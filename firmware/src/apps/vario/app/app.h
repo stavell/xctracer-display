@@ -41,6 +41,7 @@ struct AppConfig {
   bool mapHeadingUp = false;         // map page: north up (default, cheap to cache) or heading up (re-renders every 5 degrees)
   float mapMPerPx = 100.0f;          // map page scale (ground metres per pixel): the window shows 22 x 38 km
   uint32_t mapAboutMs = 10000;       // the map page shows its attribution and the AGL caveat this long after it opens
+  uint8_t climb3dYaw = 1;            // oblique climb view: 0 heading up, 1 wind up (look downwind), 2 across the wind, 3 north up
   bool standalone = false;           // the compass & weather tool: no tracer, no page switching, always the compass page
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
   float gpsHeadingOnKmh = 4.0f;      // GPS track counts as a heading above this speed ...
@@ -104,7 +105,7 @@ class App {
   void feedFlight(const Sample& s, uint32_t now);   // flight model and map motion together
   MapView mapView(uint32_t now, int trailN);
   void updateMap(uint32_t now);
-  ViewModel::Page nextPage(ViewModel::Page p) const;   // the page cycle: compass, thermal, [map], profile, home
+  ViewModel::Page nextPage(ViewModel::Page p) const;   // the page cycle: compass, thermal, side, 3D, [map], profile, home
   void prepareMapPage(const ViewModel& vm, uint32_t now);   // renders the cached relief when the pilot left its window                     // thermal page, once per tick: scale glide, moving flag
   bool hasData(uint32_t now) const;   // a valid sample arrived recently
   void drawCalibrateScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held);

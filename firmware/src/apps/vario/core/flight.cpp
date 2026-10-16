@@ -33,6 +33,7 @@ void FlightModel::reset() {
   candLat_ = candLon_ = 0;
   candAlt_ = NAN;
   mem_.reset();
+  col_.reset();
   profile_.reset();
   tempC_ = NAN;
   tempAt_ = 0;
@@ -113,6 +114,17 @@ void FlightModel::tick() {
   updateProfile();
   updateTemperature();
   updateThermals();
+  double cwx = 0, cwy = 0;
+  windXY(cwx, cwy);
+  col_.push(clock_, cur_.fix, cur_.lat, cur_.lon, cur_.alt, cur_.vario, (float)cwx, (float)cwy);
+}
+
+const ThermalColumn& FlightModel::column() {
+  double wx = 0, wy = 0;
+  windXY(wx, wy);
+  col_.analyze((float)wx, (float)wy);
+  col_.setHead(have_ && cur_.fix, cur_.lat, cur_.lon, cur_.alt, cur_.vario);
+  return col_;
 }
 
 // One entry per fresh circle-fit estimate (the fit ran in this very tick), at the altitude it was flown
