@@ -4,3 +4,4 @@ pyrender
 Pillow
 numpy
 lxml
+shapely

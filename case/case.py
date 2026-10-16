@@ -1,3 +1,4 @@
+import math
 import cadquery as cq
 
 # ============================================================
@@ -38,25 +39,37 @@ skirt_h = 7.0
 skirt_t = 1.2         # skirt = snap-tab cantilever thickness
 fit = 0.25            # lid-to-shell sliding clearance
 
-# ---- buttons: 6 tact switches, separate printed caps ----
-dpad_pitch = 9.0      # D-pad centre-to-centre (up/down/left/right from the centre)
-ab_dx, ab_dy = 10.0, 3.5   # B is lower-left of A (seen from the front): distance = 10.6
-n_cap_layout = 6
-plate_t = 2.6         # front plate thickness in the button band
-cb_d = 1.6            # cap counterbore depth
-cb_dia = 7.6
-cap_head_d, cap_head_h = 7.0, 1.4
-cap_protrude = 0.15   # head stands this far proud of the front face at rest
-cap_stem_d, cap_hole_d = 4.2, 4.7
-cap_flange_d, cap_flange_t, cap_flange_ch = 6.4, 0.8, 0.6
+# ---- controls: ONE rocker D-pad + A/B, six 6x6 tact switches, Game-Boy-style caps ----
+# Cap = head (through the front-plate opening, stands proud) + flange behind the plate (>= 1.2 mm overlap all round).
+# The caps are dropped in from the inside (shell face down); a separate switch DECK (case_deck.stl) is then snapped on
+# over them: it carries the 6 switch cups and traps the flanges between plate and deck.
+plate_t = 2.0         # front plate thickness in the control band
+dp_len, dp_arm = 22.0, 7.5          # D-pad cross: across / arm width
+dp_proud = 2.5        # D-pad top above the front face
+dp_pitch = 8.0        # D-pad centre to each switch (pressing stub)
+ab_d, ab_proud = 9.5, 2.0           # A/B caps: diameter, height above the front face
+ab_pitch, ab_tilt = 14.0, 25.0      # centre distance, tilt of the A-B line (deg); B lower-left of A seen from the front
+ab_shift = -1.0       # A/B pair centre offset from the band centre (keeps A clear of the Feather posts)
+op_clr = 0.3          # opening = head outline + this clearance all round
+fl_ov, fl_t = 1.2, 1.2              # flange overlap beyond the opening, flange thickness
+head_ch = 0.6         # 45 deg chamfer on the cap top edge (prints face down)
+dish_d, dish_r = 0.3, 5.0           # shallow finger dish in the D-pad centre
+nub_h, nub_r = 0.9, 2.0             # D-pad pivot nub (dome) on the flange back; rests on the deck at 0.3 gap
+boss_h, boss_d = 0.8, 6.0           # A/B travel-limit boss on the flange back
+stub_h, stub_d = 0.8, 3.4           # pressing stubs
+plunger_gap = 0.1
+z_flange_back = plate_t + fl_t
+z_pt = z_flange_back + stub_h + plunger_gap     # plunger tip rest position
+z_deck = plate_t + 2.4              # deck underside (ceiling): flange back + 1.2
 sw_size, sw_body_h, sw_plunger = 6.0, 3.5, 1.5    # ASSUMED 6x6 tact: body 3.5 + plunger 1.5 (verify!)
 sw_leg_clear = 3.5    # mm - room behind the switch body for legs + wire solder
 sw_clear = 0.3
 cup_o = 8.6           # cup outer size
-chamber_d = 6.9       # flange chamber diameter
 plunger_hole_d = 4.0
-ring_t = 1.0
 lip_p, lip_len, lip_w = 0.35, 0.9, 3.0   # switch retention wedge
+deck_fit = 0.3        # deck outline clearance to the walls
+deck_peg_y = 10.6     # deck pins at x ~ 0, band_cy +- this
+rail_w = 1.3          # deck rests on 4 corner rails on the side walls
 
 # ---- Feather (components face the lid), carried by 4 posts rising from the front plate ----
 fe_holes = [(2.54, 2.54), (2.54, 20.32), (48.26, 2.54), (48.26, 20.32)]   # (u along length from USB end, v across)
@@ -94,8 +107,9 @@ strap_tip = 2.7       # solid bridge between the slot and the outer corner
 strap_z0 = 1.8
 
 # Buzzer
-piezo_d = 12.0
-piezo_cup_wall, piezo_cup_h = 1.0, 1.0
+piezo_d, piezo_h, piezo_pin_pitch = 12.2, 6.5, 5.0   # PS1240-type housed passive piezo (TDK PS1240P02BT); sound hole in the top face
+piezo_cup_h = 3.0     # cradle depth along the body axis (the rest is glue + leads + 100 ohm resistor)
+buz_z = 15.0          # axis height: clear of the display back components below and of the lid plate above
 snd_slots, snd_pitch, snd_w = 5, 2.0, 1.0
 
 # Lid access holes
@@ -108,19 +122,19 @@ reset_hole_d, user_hole_d = 1.8, 3.4
 sw_pocket = sw_size + sw_clear
 disp_w = pcb_h + pcb_clear                      # display pocket along X
 disp_l = pcb_w + pcb_clear                      # display pocket along Y
-band_margin = 0.2
-band_h = 2 * dpad_pitch + cup_o + 2 * band_margin
-inner_w = disp_w
+dp_fl_half = dp_len / 2 + op_clr + fl_ov        # D-pad flange half length (12.5)
+band_h = 2 * dp_fl_half + 1.0                   # control band inner height
+# Window centred on the case axis: the display PCB is shifted +X by pcb_dx (its glass sits off-centre on the PCB).
+win_x_pcb = -(pcb_h / 2 - disp_ear - 1.8 - active_h / 2)    # active-area centre on the PCB, case X (PCB centred)
+pcb_dx = -win_x_pcb
+inner_w = disp_w + 2 * abs(pcb_dx)
 inner_h = disp_l + band_h
+led_w = (inner_w - (batt_x - 3.7)) / 2          # battery rail width: free gap between rails 51.3 mm
 outer_w = inner_w + 2 * wall
 outer_h = inner_h + 2 * wall
 z_pcb_front = lip_t + glass_t
 front_z = z_pcb_front + pcb_t                   # PCB back plane
-cap_head_bottom = -cap_protrude + cap_head_h    # head underside at rest
-cap_stem_len = plate_t - cap_head_bottom
-head_gap = cb_d - cap_head_bottom               # cap travel before it bottoms out
-z_plunger_tip = plate_t + cap_flange_t + 0.1
-z_bf = z_plunger_tip + sw_plunger               # switch body front face
+z_bf = z_pt + sw_plunger                        # switch body front face
 z_bb = z_bf + sw_body_h                         # switch body back face
 fe_floor_z = z_bb + sw_leg_clear                # Feather PCB underside
 fe_top_z = fe_floor_z + fe_pcb_t                # Feather component face
@@ -129,6 +143,7 @@ total_depth = shell_depth + lid_t
 seam_z = shell_depth
 skirt_z0 = seam_z - skirt_h
 led_top = front_z + comp_zone
+cup_top = z_bb + 1.0
 assert led_top + batt_z + 0.5 <= shell_depth
 
 y_bot = -inner_h / 2                            # inner bottom wall face
@@ -146,17 +161,30 @@ def blk(cx, cy, z0, z1, w, h, r=0.0):
 def cyl(cx, cy, z0, z1, d):
     return cq.Workplane("XY").workplane(offset=z0).center(cx, cy).circle(d / 2).extrude(z1 - z0)
 
-# Button centres (case coords). D-pad at +X (user's left), A/B at -X.
-xL = inner_w / 2 - cup_o / 2 - 0.2
-dp_cx = xL - dpad_pitch
-xA = -inner_w / 2 + cup_o / 2 + 0.2
+def cross(h, w, z0, z1, off, cx=0.0, cy=0.0):
+    """cross-shaped prism, half length h, arm half width w, convex corner radius off (offset2D of a sharp cross)"""
+    h0, w0 = h - off, w - off
+    pts = [(w0, -h0), (w0, -w0), (h0, -w0), (h0, w0), (w0, w0), (w0, h0),
+           (-w0, h0), (-w0, w0), (-h0, w0), (-h0, -w0), (-w0, -w0), (-w0, -h0)]
+    return (cq.Workplane("XY").workplane(offset=z0).polyline(pts).close().offset2D(off).extrude(z1 - z0)
+            .translate((cx, cy, 0)))
+
+dp_h, dp_w, dp_r = dp_len / 2, dp_arm / 2, 1.0     # head half length, arm half width, corner radius
+
+# Control centres (case coords). Seen from the front the D-pad is on the user's left = case +X; A/B on the right.
+# D-pad centre and A/B pair centre are mirror images about the case axis (x = 0).
+dp_cx = inner_w / 2 - dp_fl_half - 0.4
+pair_cx = -dp_cx
+pair_cy = band_cy + ab_shift
+_t = math.radians(ab_tilt)
+ab_dx, ab_dy = ab_pitch * math.cos(_t), ab_pitch * math.sin(_t)
 buttons = {
-    "left":  (xL, band_cy),
-    "right": (dp_cx - dpad_pitch, band_cy),
-    "up":    (dp_cx, band_cy + dpad_pitch),
-    "down":  (dp_cx, band_cy - dpad_pitch),
-    "A":     (xA, band_cy + ab_dy / 2 + 0.5),
-    "B":     (xA + ab_dx, band_cy - ab_dy / 2 + 0.5),
+    "left":  (dp_cx + dp_pitch, band_cy),
+    "right": (dp_cx - dp_pitch, band_cy),
+    "up":    (dp_cx, band_cy + dp_pitch),
+    "down":  (dp_cx, band_cy - dp_pitch),
+    "A":     (pair_cx - ab_dx / 2, pair_cy + ab_dy / 2),
+    "B":     (pair_cx + ab_dx / 2, pair_cy - ab_dy / 2),
 }
 
 # Feather: USB end at +X wall, components up, rigid rotation of the Eagle top view (CW 90 deg).
@@ -184,13 +212,18 @@ rebate = (cq.Workplane("XY").workplane(offset=shell_depth - skirt_h)
           .edges("|Z").fillet(max(0.1, corner_r - (wall - skirt_t))))
 shell = outer.cut(cavity).cut(rebate)
 
-# --- display window, glass pocket, FFC relief, PCB pocket (display portrait, ear toward case -X) ---
-dwin_x = -(pcb_h / 2 - disp_ear - 1.8 - active_h / 2)     # active-area centre, case X
-gl_x = -(pcb_h / 2 - disp_ear - glass_h / 2)
-shell = shell.cut(blk(dwin_x, disp_cy, -1, z_pcb_front + 0.1, active_h + 2 * win_margin, active_w + 2 * win_margin, 0.5))
+# --- display window (centred on the case axis), glass pocket, FFC relief, PCB pocket ---
+# The PCB (glass off-centre on it) is shifted +X by pcb_dx so that the active area sits at x = 0.
+win_w, win_h = active_h + 2 * win_margin, active_w + 2 * win_margin     # window along X, along Y
+win_r, win_ch = 1.5, 0.6                                                # window corner radius, 45 deg bezel chamfer
+gl_x = -(pcb_h / 2 - disp_ear - glass_h / 2) + pcb_dx
+shell = shell.cut(blk(0, disp_cy, -1, z_pcb_front + 0.1, win_w, win_h, win_r))
+bez = (cq.Workplane("XY").workplane(offset=-0.01).center(0, disp_cy).sketch().rect(win_w + 2 * win_ch + 0.02, win_h + 2 * win_ch + 0.02)
+       .vertices().fillet(win_r + win_ch).finalize().extrude(win_ch + 0.01, taper=45))
+shell = shell.cut(bez)
 shell = shell.cut(blk(gl_x, disp_cy, lip_t, z_pcb_front + 0.1, glass_h + pcb_clear, pcb_w + pcb_clear))
-shell = shell.cut(blk(-(ffc_y0 + ffc_y1) / 2, disp_cy, lip_t, z_pcb_front + 0.1, ffc_y0 - ffc_y1, ffc_w))
-shell = shell.cut(blk(0, disp_cy, z_pcb_front, front_z + 0.1, disp_w, disp_l, 1.0))
+shell = shell.cut(blk(-(ffc_y0 + ffc_y1) / 2 + pcb_dx, disp_cy, lip_t, z_pcb_front + 0.1, ffc_y0 - ffc_y1, ffc_w))
+shell = shell.cut(blk(pcb_dx, disp_cy, z_pcb_front, front_z + 0.1, disp_w, disp_l, 1.0))
 
 def split_peg(x, y, z_base, z_top):
     """upright split peg: stem from z_base to z_top, head above"""
@@ -202,24 +235,28 @@ def split_peg(x, y, z_base, z_top):
 
 for sx in (-1, 1):
     for sy in (-1, 1):
-        x, y = sx * peg_xy[1], disp_cy + sy * peg_xy[0]
+        x, y = pcb_dx + sx * peg_xy[1], disp_cy + sy * peg_xy[0]
         shell = shell.union(split_peg(x, y, z_pcb_front - 0.1, front_z))
 
-# --- buttons: hole + counterbore in the plate, cup with flange chamber, plunger ring, switch pocket ---
-cup_top = z_bb + 1.0
-for name, (bx, by) in buttons.items():
-    shell = shell.union(blk(bx, by, plate_t - 0.1, cup_top, cup_o, cup_o))
-    shell = shell.cut(cyl(bx, by, -1, cb_d, cb_dia))
-    shell = shell.cut(cyl(bx, by, cb_d - 0.1, z_bf - ring_t + 0.0, cap_hole_d))
-    shell = shell.cut(cyl(bx, by, plate_t, z_bf - ring_t, chamber_d))
-    shell = shell.cut(cyl(bx, by, z_bf - ring_t - 0.1, z_bf + 0.1, plunger_hole_d))
-    shell = shell.cut(blk(bx, by, z_bf, cup_top + 1, sw_pocket, sw_pocket))
-    for sgn in (-1, 1):                       # retention wedges, flat underside just behind the body
-        xw = bx + sgn * sw_pocket / 2
-        za = z_bb + 0.1
-        pts = [(xw + sgn * 0.1, za), (xw - sgn * lip_p, za), (xw + sgn * 0.1, za + lip_len)]
-        w = cq.Workplane("XZ").polyline(pts).close().extrude(lip_w).translate((0, by + lip_w / 2, 0))
-        shell = shell.union(w)
+# --- controls: openings = head outline + op_clr straight through the plate; deck pins and rails ---
+def plate_controls(body):
+    """front-plate features of the control band (also used for the test plate)"""
+    body = body.cut(cross(dp_h + op_clr, dp_w + op_clr, -1, plate_t + 0.1, dp_r + op_clr, dp_cx, band_cy))
+    for k in ("A", "B"):
+        bx, by = buttons[k]
+        body = body.cut(cyl(bx, by, -1, plate_t + 0.1, ab_d + 2 * op_clr))
+    for sy in (-1, 1):                                    # two pins carry the deck (split pegs)
+        x, y = 0.0, band_cy + sy * deck_peg_y
+        body = body.union(cyl(x, y, plate_t - 0.1, z_deck, post_d))
+        body = body.union(split_peg(x, y, z_deck - 0.1, z_deck_back))
+    for sx in (-1, 1):                                    # four corner rails: the deck rests on them
+        for sy in (-1, 1):
+            body = body.union(blk(sx * (inner_w / 2 - rail_w / 2 + 0.05), band_cy + sy * 10.0, plate_t - 0.1, z_deck,
+                                  rail_w, 5.0))
+    return body
+
+z_deck_back = z_bf
+shell = plate_controls(shell)
 
 # --- Feather posts + split pegs (components face the lid) ---
 for (u, v) in fe_holes:
@@ -261,15 +298,20 @@ usb_cut = (cq.Workplane("XY").box(wall + 2, usb_hole_w, usb_hole_h)
            .edges("|X and >Z").chamfer(usb_ch).translate((usb_x, usb_y, usb_z)))
 shell = shell.cut(usb_cut)
 
-# --- buzzer: 12 mm disc glued to the inner face of the bottom wall, slots through the wall ---
-buz_x, buz_z = -2.0, plate_t + 0.3 + piezo_d / 2
-ring = (cq.Workplane("XZ").workplane(offset=-(y_bot + piezo_cup_h)).center(buz_x, buz_z)
-        .circle(piezo_d / 2 + 0.2 + piezo_cup_wall).circle(piezo_d / 2 + 0.2).extrude(piezo_cup_h + 0.2))
-ring = ring.intersect(blk(buz_x, y_bot, plate_t - 0.1, skirt_z0 - 0.2, 40, 6))
-shell = shell.union(ring)
+# --- buzzer: PS1240-type piezo, sound face against the inside of the TOP wall (axis along Y), glued in a cradle ---
+# Top wall = away from the strap and the thumbs; the grille is centred on the case axis, nothing else is on that wall.
+buz_x = 0.0
+y_top = inner_h / 2
+cr_w = piezo_d + 2 * 1.2 + 0.3
+prof = [(y_top + 0.1, front_z), (y_top + 0.1, skirt_z0 + 3.0), (y_top - piezo_cup_h, skirt_z0 + 3.0),
+        (y_top - piezo_cup_h, front_z + piezo_cup_h)]          # underside at 45 deg: no overhang
+cradle = cq.Workplane("YZ").polyline(prof).close().extrude(cr_w / 2, both=True).translate((buz_x, 0, 0))
+bore = (cq.Workplane("XZ").center(buz_x, buz_z).circle((piezo_d + 0.3) / 2).extrude(-(piezo_cup_h + 1.0))
+        .translate((0, y_top - piezo_cup_h, 0)))
+shell = shell.union(cradle).cut(bore)
 for i in range(snd_slots):
     xo = buz_x + (i - (snd_slots - 1) / 2) * snd_pitch
-    shell = shell.cut(blk(xo, y_bot - wall / 2, buz_z - 4.0, buz_z + 3.5, snd_w, wall + 1.5))
+    shell = shell.cut(blk(xo, y_top + wall / 2, buz_z - 3.75, buz_z + 3.75, snd_w, wall + 1.5))
 
 # --- lid snap grooves + pry notches ---
 sk_o_w, sk_o_h = outer_w - 2 * (wall - skirt_t) - 2 * fit, outer_h - 2 * (wall - skirt_t) - 2 * fit
@@ -317,7 +359,7 @@ for x, y, d in access:
 
 # notches in the skirt: USB plug, piezo disc
 lid_asm = lid_asm.cut(usb_cut)
-lid_asm = lid_asm.cut(blk(buz_x, y_bot - 1.5, skirt_z0 - 0.1, buz_z + piezo_d / 2 + 0.5, piezo_d + 6, 6))
+lid_asm = lid_asm.cut(blk(buz_x, y_top + 0.5, skirt_z0 - 0.1, seam_z + 0.1, cr_w + 2.0, 6))
 
 for side, c in tabs:
     if side in ("+X", "-X"):
@@ -333,35 +375,118 @@ lid_asm = pry(lid_asm)
 lid = lid_asm.rotate((0, 0, 0), (1, 0, 0), 180).translate((0, 0, total_depth))
 
 # ============================================================
-# BUTTON CAPS (head down on the bed; one cap, six copies)
+# BUTTON CAPS (Game-Boy style: head through the opening, flange behind the plate; printed head down)
 # ============================================================
-def make_cap():
-    head = cq.Workplane("XY").circle(cap_head_d / 2).extrude(cap_head_h).faces("<Z").chamfer(0.4)
-    stem = cyl(0, 0, cap_head_h - 0.01, cap_head_h + cap_stem_len, cap_stem_d)
-    fl = (cq.Workplane("XY").workplane(offset=cap_head_h + cap_stem_len - 0.01).circle(cap_flange_d / 2)
-          .extrude(cap_flange_t + 0.01).faces("<Z").chamfer(cap_flange_ch))
-    return head.union(stem).union(fl.union(cyl(0, 0, cap_head_h + cap_stem_len - 0.02, cap_head_h + cap_stem_len + 0.1, cap_stem_d)))
-cap = make_cap()
-caps_print = None
-for i in range(n_cap_layout):
-    c = cap.translate(((i - (n_cap_layout - 1) / 2) * 10.0, 0, 0))
-    caps_print = c if caps_print is None else caps_print.union(c)
-caps_asm = None
+def dished(head, r_dish, d, z0=0.0):
+    R = (r_dish ** 2 + d ** 2) / (2 * d)
+    return head.cut(cq.Workplane("XY").sphere(R).translate((0, 0, z0 + d - R)))
+
+fl_off = op_clr + fl_ov                      # flange outline beyond the head outline
+dp_th = dp_proud + plate_t                   # D-pad head length (front tip z = 0 in cap coordinates)
+ab_th = ab_proud + plate_t
+
+def make_dpad_cap():
+    head = cross(dp_h, dp_w, 0, dp_th, dp_r).faces("<Z").chamfer(head_ch)
+    head = dished(head, dish_r, dish_d)
+    fl = cross(dp_h + fl_off, dp_w + fl_off, dp_th, dp_th + fl_t, dp_r + fl_off).faces("<Z").chamfer(0.6)
+    z_fb = dp_th + fl_t
+    R = (nub_r ** 2 + nub_h ** 2) / (2 * nub_h)
+    nub = (cq.Workplane("XY").sphere(R).translate((0, 0, z_fb + nub_h - R))
+           .intersect(blk(0, 0, z_fb - 0.05, z_fb + nub_h + 1, 8, 8)))
+    cap = head.union(fl).union(nub)
+    for dx, dy in ((dp_pitch, 0), (-dp_pitch, 0), (0, dp_pitch), (0, -dp_pitch)):
+        cap = cap.union(cyl(dx, dy, z_fb - 0.05, z_fb + stub_h, stub_d))
+    return cap
+
+def make_ab_cap():
+    head = cq.Workplane("XY").circle(ab_d / 2).extrude(ab_th).faces("<Z").chamfer(head_ch)
+    head = dished(head, 4.0, 0.25)
+    fl = (cq.Workplane("XY").workplane(offset=ab_th).circle(ab_d / 2 + fl_off).extrude(fl_t).faces("<Z").chamfer(0.6))
+    z_fb = ab_th + fl_t
+    return head.union(fl).union(cyl(0, 0, z_fb - 0.05, z_fb + boss_h, boss_d))
+
+dp_cap, ab_cap = make_dpad_cap(), make_ab_cap()
+caps_print = (dp_cap.union(ab_cap.translate((fl_off + dp_h + ab_d / 2 + 7.0, 0, 0)))
+              .union(ab_cap.translate((fl_off + dp_h + ab_d / 2 + 7.0 + ab_d + 2 * fl_off + 2.0, 0, 0))))
+caps_asm = dp_cap.translate((dp_cx, band_cy, -dp_proud))
+for k in ("A", "B"):
+    caps_asm = caps_asm.union(ab_cap.translate((buttons[k][0], buttons[k][1], -ab_proud)))
+
+# ============================================================
+# SWITCH DECK (snaps onto the two pins over the caps and traps the flanges; carries the six switch cups)
+# printed ceiling face down
+# ============================================================
+tri_big = (cq.Workplane("XY").workplane(offset=z_deck - 1)
+           .polyline([(cxm, cym), (cxm + fill + 1.0, cym), (cxm, cym + fill + 1.0)]).close().extrude(z_bf - z_deck + 2))
+deck = blk(0, band_cy, z_deck, z_bf, inner_w - 2 * deck_fit, band_h - 2 * deck_fit, 2.0)
+for (u, v) in fe_holes:
+    x, y = fe_xy(u, v)
+    deck = deck.cut(cyl(x, y, z_deck - 1, z_bf + 1, post_d + 0.6))
+for sy in (-1, 1):
+    deck = deck.cut(cyl(0.0, band_cy + sy * deck_peg_y, z_deck - 1, z_bf + 1, peg_d + 0.2))
+deck = deck.cut(tri_big)
 for name, (bx, by) in buttons.items():
-    c = cap.translate((bx, by, -cap_protrude))
-    caps_asm = c if caps_asm is None else caps_asm.union(c)
+    deck = deck.union(blk(bx, by, z_bf - 0.1, cup_top, cup_o, cup_o))
+    deck = deck.cut(cyl(bx, by, z_deck - 1, z_bf + 0.1, plunger_hole_d))
+    deck = deck.cut(blk(bx, by, z_bf, cup_top + 1, sw_pocket, sw_pocket))
+    for sgn in (-1, 1):                       # retention wedges, flat underside just behind the body
+        xw = bx + sgn * sw_pocket / 2
+        za = z_bb + 0.1
+        pts = [(xw + sgn * 0.1, za), (xw - sgn * lip_p, za), (xw + sgn * 0.1, za + lip_len)]
+        w = cq.Workplane("XZ").polyline(pts).close().extrude(lip_w).translate((0, by + lip_w / 2, 0))
+        deck = deck.union(w)
+
+# ============================================================
+# FRONT INLAY (2 layers = 0.4 mm, flush with the front face, same frame as the shell)
+# ============================================================
+inlay_t = 0.4
+INLAY_FONT = "Helvetica"
+
+def front_text(txt, size, x, y, rot=0.0):
+    """bold text readable from the FRONT, centred at case (x, y); rot = counter-clockwise as seen from the front"""
+    t = cq.Workplane("XY").text(txt, size, inlay_t, font=INLAY_FONT, kind="bold", halign="center", valign="center")
+    t = t.rotate((0, 0, 0), (0, 0, 1), rot).translate((-x, y, 0))
+    return t.mirror("YZ")
+
+frame_gap, frame_line = 1.7, 1.0
+fw_i, fh_i = win_w + 2 * frame_gap, win_h + 2 * frame_gap
+fr_r = win_r + frame_gap
+inlay = (blk(0, disp_cy, 0, inlay_t, fw_i + 2 * frame_line, fh_i + 2 * frame_line, fr_r + frame_line)
+         .cut(blk(0, disp_cy, -1, inlay_t + 1, fw_i, fh_i, fr_r)))
+lab = 5.0                                           # font size -> cap height ~ 3.6 mm
+ax, ay = buttons["A"]
+bx_, by_ = buttons["B"]
+inlay = inlay.union(front_text("A", lab, ax, ay + ab_d / 2 + 4.2))
+inlay = inlay.union(front_text("B", lab, bx_ - ab_d / 2 - 3.6, by_))
+x_wm = -(fw_i / 2 + frame_line + (outer_w / 2 - front_chamfer)) / 2     # centred in the right-hand bezel (front view)
+inlay = inlay.union(front_text("XC DISPLAY", 4.6, x_wm, disp_cy, 90))
+shell_plain = shell
+shell = shell.cut(inlay.translate((0, 0, 0.0)).union(inlay.translate((0, 0, -0.5))))
+
+# ============================================================
+# FEEL-TEST PLATE: the control band of the front plate with openings, pins, rails, Feather posts (deck + caps go with it)
+# ============================================================
+tp_w, tp_h = outer_w, band_h + 10.0
+testplate = (blk(0, band_cy, 0, plate_t, tp_w, tp_h, 4.0).faces("<Z").edges().chamfer(0.8))
+testplate = plate_controls(testplate)
+for (u, v) in fe_holes:
+    x, y = fe_xy(u, v)
+    testplate = testplate.union(cyl(x, y, plate_t - 0.1, fe_floor_z, post_d))
 
 # ============================================================
 # EXPORT
 # ============================================================
+def stl(shape, name, dz=0.0):
+    cq.exporters.export(shape.translate((0, 0, dz)) if dz else shape, name, tolerance=0.01, angularTolerance=0.1)
+
 if __name__ == "__main__":
-    cq.exporters.export(shell, "case_shell.stl", tolerance=0.01, angularTolerance=0.1)
-    cq.exporters.export(lid, "case_lid.stl", tolerance=0.01, angularTolerance=0.1)
-    cq.exporters.export(caps_print, "case_buttons.stl", tolerance=0.01, angularTolerance=0.1)
-    cq.exporters.export(shell.union(lid_asm).union(caps_asm), "case_assembly.stl", tolerance=0.01, angularTolerance=0.1)
-    cq.exporters.export(shell, "case_shell.step"); cq.exporters.export(lid, "case_lid.step")
-    cq.exporters.export(caps_print, "case_buttons.step")
+    stl(shell, "case_shell.stl"); stl(inlay, "case_shell_inlay.stl")
+    stl(lid, "case_lid.stl"); stl(caps_print, "case_buttons.stl")
+    stl(deck, "case_deck.stl", -z_deck); stl(testplate, "case_testplate.stl")
+    stl(shell.union(deck).union(lid_asm).union(caps_asm).union(inlay), "case_assembly.stl")
+    for shp, nm in ((shell, "case_shell"), (lid, "case_lid"), (caps_print, "case_buttons"), (deck.translate((0, 0, -z_deck)), "case_deck")):
+        cq.exporters.export(shp, nm + ".step")
     print(f"Outer {outer_w:.1f} x {outer_h:.1f} x {total_depth:.1f} mm (shell {shell_depth:.1f}); band_h {band_h:.1f}")
     print(f"PCB back z={front_z:.1f}; switch body z={z_bf:.1f}-{z_bb:.1f}; Feather PCB z={fe_floor_z:.1f}-{fe_top_z:.1f}; "
-          f"USB y={usb_y:.2f} z={usb_z:.2f}; cap head_gap {head_gap:.2f}")
+          f"USB y={usb_y:.2f} z={usb_z:.2f}; deck z={z_deck:.1f}-{z_bf:.1f}")
     for k, v in buttons.items(): print(f"  {k:5s} ({v[0]:7.2f}, {v[1]:7.2f})")
