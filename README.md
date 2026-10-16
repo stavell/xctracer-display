@@ -223,6 +223,31 @@ Replay a flight to the real box over BLE (from `host/`, without `-I`, these scri
 While a replay feeds the box it ignores the live tracer. After the replay stops, live data returns after
 3 s.
 
+## Games
+
+The box doubles as a console (see PLAN.md, "Multi-use box"). Games live in `firmware/src/apps/games/`, are
+pure C++ like the vario core and draw with the same 1-bit renderer, so they run unchanged on the PC and, later,
+in the console firmware image (they are not linked into the vario image). Play Tetris on the PC (needs SDL2,
+`brew install sdl2`):
+
+    firmware/emu/build.sh play tetris            # options: --scale 3  --plain (pure black/white)  --seed N
+
+![Tetris](docs/screens/tetris.png)
+
+| Key | Function (device button) |
+|---|---|
+| arrows left / right | move, auto-repeat (D-pad) |
+| arrow down / up | soft drop / hard drop (D-pad) |
+| X / Z | rotate clockwise / counter-clockwise (A / B) |
+| Enter or Esc | MAIN: start, pause, resume; hold it for 0.4 s to swap the hold piece |
+| C | hold piece (the same long press of MAIN) |
+| Space | hard drop (alternative) |
+| R / Q | back to a new game / quit |
+
+The window shows the same native 1-bit frame buffer the panel uses, with a Sharp-LCD tint, at most 30 frames
+per second and only when the game reports a new frame. `play tetris --frames 300 --screenshot out.png --keys
+"main 10 left a up shot:x.png"` runs headless with scripted keys and saves PNGs (see `firmware/emu/play.cpp`).
+
 ## Host tools (`host/`)
 
 | Tool | Use |

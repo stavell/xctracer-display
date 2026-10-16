@@ -40,6 +40,7 @@
 #include "platform/gfx/gray.h"
 #include "platform/hw/fast_sharp.h"
 #include "count.h"
+#include "tetris_shots.h"
 
 static void watchdog(int) {
   fputs("WATCHDOG: the emulator is stuck (infinite loop?)\n", stderr);
@@ -123,6 +124,7 @@ static void renderGray(const std::string& out, int rot) {
 static bool gCountMode = false;
 
 static int cmdShots(const std::string& out, int rot) {
+  if (!gCountMode) ts::shots(out.c_str());
   struct Sc { const char* name; };
   const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag", "calibrate",
                          "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};

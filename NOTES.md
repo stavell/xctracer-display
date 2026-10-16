@@ -365,3 +365,18 @@ feed the result to the view (`ViewModel::mapLive/mapCx/mapCy/mapHdg/mapScale`). 
   test tick (a tick every 40 ms). Data frozen: 2.9 draws/s.
 - The robust-test storm detector (draws closer than 100 ms) now skips the thermal page.
 - Static emulator renders (no ViewModel::mapLive) are byte-identical to before.
+
+## Tetris and the PC player (2026-10-16, emulator only)
+
+- Timers in the rules are absolute deadlines (gravity, lock, DAS, soft drop); `tick(now)` runs the ones that
+  passed in time order, so ticking every 1 ms or once at the end gives the same game (test). Pause shifts
+  all deadlines by the pause length.
+- Hold needs a key and the switch is the only one on the current hardware: MAIN pauses on a short press (acted
+  on at release) and holds on a long press (400 ms). A pause therefore lags the key by the press length.
+- `Bitmap1::rectIncl` FILLS the rectangle; outlines need four spans (first title screen came out black).
+- 9 pt FreeSansBold "HOLD" / "LEVEL" are 48-50 px wide: too wide for the 48 px side column, the labels use the
+  regular 9 pt. Six-digit scores in 12 pt bold are 84 px, so score and best sit in a strip under the well.
+- Piece looks: I solid with highlight, O hollow, T / J / L grey 8 / 12 / 4 of 16, S diagonal stripes, Z
+  horizontal stripes; the 2 px dark bottom-right edge is the bevel. Distinct hashes are a test.
+- SDL: define `SDL_MAIN_HANDLED` (no SDL2main on the link line from `sdl2-config --libs`). The player converts
+  the native buffer to RGB through `Bitmap1::getPixel`, so the rotation mapping is the device's.

@@ -1580,6 +1580,7 @@ static void test_app_anim_cadence() {
   CHECK(thAfter >= 2 && thAfter <= 4);
 }
 
+#include "tetris_tests.h"
 #include "robust_tests.h"
 #include "map_tests.h"
 #include "sharp_frame_tests.h"
@@ -1721,6 +1722,7 @@ int main() {
   mt::run();
   mt::runApp();
   test_ambient();
+  tt::test_tetris();
   test_standalone_cadence();
   test_fuzz_parser();
   test_fuzz_app();

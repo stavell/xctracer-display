@@ -129,6 +129,11 @@ The watchdog is deferred (it stays disabled in `main_vario.cpp`, see NOTES.md; d
 ports.h, app_host.h) and `src/apps/vario/` (core, view, app, hw); `main_vario.cpp` registers one app
 (`VarioApp`, an `IApp` adapter around `App`) with `AppHost`. Screens, test output and a 10-minute replay
 are byte-identical to before; flash/RAM within 400 bytes.
+**Done: Tetris on the PC.** `apps/games/tetris/` (rules, view, `TetrisApp : IApp`), the SDL player
+`firmware/emu/play.cpp` (`build.sh play tetris`), 13 test groups, screen renders `emu/out/tetris_*.png`.
+`IApp` gained optional `onKey(key, down, ms)`, `wantsFrame`, `nextWakeMs`, `draw` (defaults do nothing, the vario
+is untouched) and `KEY_B`. Still open for the device: the host calls `draw` and presents; D-pad / A / B wiring;
+a settings port for the high score (`IScoreStore` is the seam); the `console` image and launcher.
 **Next:** (1) move the present/redraw cadence out of `App` into the platform (apps ask for a redraw; the
 host owns clear/present/anim pacing) and let `AppHost` poll the switch and call `onInput`; (2) a launcher
 and settings UI; (3) the `console` env (`main_console.cpp`, `apps/games`, `apps/tools`; a commented

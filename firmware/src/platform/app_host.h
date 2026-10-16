@@ -7,9 +7,9 @@
 #include <stdint.h>
 #include "platform/ports.h"
 
-// Physical inputs. Today only KEY_MAIN exists (the Feather user switch); the others are reserved for the
-// six-button console and are not wired to anything yet.
-enum Key : uint8_t { KEY_MAIN, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_ACTION, KEY_COUNT };
+// Physical inputs. Today only KEY_MAIN exists on the device (the Feather user switch); the others are the
+// console's D-pad and its A / B buttons (KEY_ACTION is A) and are not wired to anything yet.
+enum Key : uint8_t { KEY_MAIN, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_ACTION, KEY_B, KEY_COUNT };
 
 class IApp {
  public:
@@ -20,6 +20,19 @@ class IApp {
   virtual void tick(uint32_t nowMs) = 0;    // called every loop iteration (about every 10 ms)
   // A button event, forwarded by the host. Apps that poll their own IInput port (the vario) may ignore it.
   virtual void onInput(Key key, ButtonEvent ev) { (void)key; (void)ev; }
+
+  // --- Optional, for apps that draw into a frame buffer the host owns (games). All default to "nothing",
+  // so the vario is unaffected. ---
+  // Raw key edge: down = true on press, false on release, with the time of the edge. Apps that need
+  // held keys (auto-repeat, soft drop) use this instead of onInput.
+  virtual void onKey(Key key, bool down, uint32_t nowMs) { (void)key; (void)down; (void)nowMs; }
+  // True when the picture changed since the last draw() and a new frame should be drawn and presented.
+  virtual bool wantsFrame(uint32_t nowMs) { (void)nowMs; return false; }
+  // Absolute time (ms) at which the app next needs tick() or a frame; UINT32_MAX when it only waits for
+  // input. Lets the device sleep between frames.
+  virtual uint32_t nextWakeMs(uint32_t nowMs) { (void)nowMs; return 0xFFFFFFFFu; }
+  // Draw the whole frame onto a white bitmap (the host clears it first); clears the "wants frame" state.
+  virtual void draw(Bitmap1& bm, uint32_t nowMs) { (void)bm; (void)nowMs; }
 };
 
 // Holds the registered apps and the active one. No launcher yet: start() picks one by index.
@@ -45,6 +58,9 @@ class AppHost {
   }
   void input(Key key, ButtonEvent ev) {
     if (active_) active_->onInput(key, ev);
+  }
+  void key(Key k, bool down, uint32_t nowMs) {
+    if (active_) active_->onKey(k, down, nowMs);
   }
 
  private:
