@@ -64,7 +64,7 @@ bool Ahrs::seed(const Vec3& a, const Vec3& m, uint32_t nowMs) {
   }
   q_[0] = w; q_[1] = x; q_[2] = y; q_[3] = z;
   seeded_ = true;
-  seedMs_ = accMs_ = magMs_ = nowMs;
+  seedMs_ = boostMs_ = accMs_ = magMs_ = nowMs;
   magRejectMs_ = 0;
   magRef_ = mm;
   dipRef_ = (u.x * m.x + u.y * m.y + u.z * m.z) / mm;     // vertical share of the field
@@ -77,7 +77,7 @@ bool Ahrs::seed(const Vec3& a, const Vec3& m, uint32_t nowMs) {
 // Called once per still-detection window (0.5 s). A window is still when the gyro is quiet, gravity is
 // usable, and gravity and field point where they did in the previous window. Two such windows in a row
 // (1 s) and the gyro mean IS the bias: take most of it.
-void Ahrs::windowEnd() {
+void Ahrs::windowEnd(uint32_t nowMs) {
   const int n = winN_;
   winN_ = 0;
   if (n < 10) { havePrev_ = false; stillWin_ = 0; return; }
@@ -102,6 +102,9 @@ void Ahrs::windowEnd() {
   if (still) {
     // fast at first (0.6, 0.3, 0.2), then a slow average (0.15) so the estimate is not noisier than the gyro
     const float rate = fmaxf(0.15f, 0.6f / (1.0f + (float)biasWins_));
+    // The heading drifted by the old bias error until now: pull it back quickly (restart the boost) for
+    // the first few estimates.
+    if (biasWins_ < 3) boostMs_ = nowMs;
     if (biasWins_ < 100) biasWins_++;
     float* b = &bias_.x;
     for (int i = 0; i < 3; i++) {
@@ -166,9 +169,14 @@ void Ahrs::update(const Vec3& gyro, const Vec3& a, const Vec3& m, uint32_t nowMs
   const float mw2 = r[2][0] * m.x + r[2][1] * m.y + r[2][2] * m.z;
   const float hxy = sqrtf(mw0 * mw0 + mw1 * mw1);
   bool magOk = false;
+  float trust = 0;                                     // weight of the field correction, 1 = clean, 0 = rejected
   if (mm > 0 && hxy > MIN_HORIZ_UT) {
     const float dip = mw2 / mm;
-    magOk = fabsf(mm - magRef_) < FIELD_TOL * magRef_ && fabsf(dip - dipRef_) < FIELD_TOL;
+    // Graceful: full weight while magnitude and dip are within TRUST_FULL of the running reference, falling
+    // linearly to zero at FIELD_TOL (where the old hard gate was).
+    const float dev = fmaxf(fabsf(mm - magRef_) / magRef_, fabsf(dip - dipRef_));
+    trust = fminf(1.0f, fmaxf(0.0f, (FIELD_TOL - dev) / (FIELD_TOL - TRUST_FULL)));
+    magOk = dev < FIELD_TOL;
     if (magOk) {
       magRejectMs_ = 0;
       const float k = dt / 5.0f;                       // slow reference, 5 s
@@ -182,13 +190,16 @@ void Ahrs::update(const Vec3& gyro, const Vec3& a, const Vec3& m, uint32_t nowMs
   }
   if (magOk) {
     const float phi = atan2f(mw0, mw1);                // >0: the field leans east, the estimate is turned too far west; rotate it by +phi about up
-    for (int i = 0; i < 3; i++) em[i] = phi * up[i];
+    for (int i = 0; i < 3; i++) em[i] = trust * phi * up[i];
     magMs_ = nowMs;
   }
 
   // Gains: high just after a (re)start, then the steady values.
   const float age = (float)(uint32_t)(nowMs - seedMs_);
-  const float boost = age < BOOST_MS ? 1.0f + (BOOST_GAIN - 1.0f) * (1.0f - age / BOOST_MS) : 1.0f;
+  const float boostAge = (float)(uint32_t)(nowMs - boostMs_);
+  const float fade = boostAge < BOOST_MS ? 1.0f - boostAge / BOOST_MS : 0.0f;
+  const float boost = 1.0f + (BOOST_GAIN - 1.0f) * fade;
+  const float boostMag = 1.0f + (BOOST_GAIN_MAG - 1.0f) * fade;
   float w[3] = {gyro.x, gyro.y, gyro.z};
   float* b = &bias_.x;
   for (int i = 0; i < 3; i++) {
@@ -197,7 +208,7 @@ void Ahrs::update(const Vec3& gyro, const Vec3& a, const Vec3& m, uint32_t nowMs
       if (b[i] > BIAS_MAX) b[i] = BIAS_MAX;
       if (b[i] < -BIAS_MAX) b[i] = -BIAS_MAX;
     }
-    w[i] = w[i] - b[i] + boost * (KP_ACC * ea[i] + KP_MAG * em[i]);
+    w[i] = w[i] - b[i] + boost * KP_ACC * ea[i] + boostMag * KP_MAG * em[i];
   }
 
   // q <- q * exp(w dt / 2): the rotation vector is in the device (body) frame
@@ -227,7 +238,7 @@ void Ahrs::update(const Vec3& gyro, const Vec3& a, const Vec3& m, uint32_t nowMs
   if (accOk) { sumA_[0] += ua.x; sumA_[1] += ua.y; sumA_[2] += ua.z; } else winBad_ = true;
   if (mm > 0) { sumM_[0] += m.x / mm; sumM_[1] += m.y / mm; sumM_[2] += m.z / mm; } else winBad_ = true;
   if (!magOk) winBad_ = true;
-  if (nowMs - winStart_ >= WINDOW_MS) windowEnd();
+  if (nowMs - winStart_ >= WINDOW_MS) windowEnd(nowMs);
 
   float rr[3][3];
   rotationMatrix(rr);

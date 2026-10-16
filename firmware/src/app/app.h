@@ -19,6 +19,10 @@ struct AppConfig {
   float fusedGlideTauMs = 30.0f;     // dial glide for the gyro-fused heading (already smooth: nearly pass-through)
   float magDeadbandDeg = 0.4f;       // compass target only moves beyond this, or after magDeadbandHoldMs of drift
   uint32_t magDeadbandHoldMs = 300;
+  // The fused compass redraws at the animation cadence while the heading differs from the one last drawn by
+  // more than half a pixel at the dial ring (view/screens.cpp draws it with R = 104); below that, the slow cadence.
+  static constexpr float DIAL_RING_RADIUS_PX = 104.0f;
+  static constexpr float DIAL_HALF_PIXEL_DEG = 0.5f / DIAL_RING_RADIUS_PX * 57.29577951f;   // about 0.28 deg
   uint32_t animEveryMs = 50;         // redraw cadence while the dial is still gliding (compass, home)
   uint32_t animThermalEveryMs = 50;  // same on the thermal page (its map costs about the same to draw)
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
@@ -89,6 +93,7 @@ class App {
   bool fused_ = false;               // this tick's compass heading is the fused one
   uint32_t gyroMs_ = 0;
   bool haveGyro_ = false;
+  float drawnHeading_ = NAN;         // the dial heading of the last live draw
   bool smoothFused_ = false;         // smoother is currently tuned for the fused heading
   bool compassOn_ = false;
   HeadingSelector heading_;          // GPS track or magnetic compass, whichever applies

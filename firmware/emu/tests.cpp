@@ -1483,6 +1483,50 @@ static void test_compass_chain() {
     g.update(190.3f, 300); CHECK(!g.settled() || g.value() == 190.3f); }
 }
 
+// Fused source: no deadband, no steps; the smoother glides continuously and the app redraws on change only.
+static void test_fused_smooth_cadence() {
+  puts("fused heading: continuous glide, redraw on change");
+  // smoother as the app tunes it for the fused source: slow turn at 2 deg/s sampled at 80 Hz, read every 33 ms
+  { HeadingSmoother sm(30); sm.setDeadband(0, 300); sm.setSettle(0.01f);
+    float prev = NAN, maxStep = 0; uint32_t next = 0;
+    for (uint32_t t = 0; t < 20000; t += 12) {
+      float v = sm.update(100.0f + 2.0f * t / 1000.0f, t);
+      if (t >= next) { if (isfinite(prev)) maxStep = fmaxf(maxStep, fabsf(v - prev)); prev = v; next += 33; }
+    }
+    printf("  2 deg/s turn: largest step between 33 ms frames %.3f deg\n", maxStep);
+    CHECK(maxStep < 0.2f && maxStep > 0.03f); }
+  // the same glide with sub-degree wander on the target: it follows, it does not hold and jump
+  { HeadingSmoother sm(30); sm.setDeadband(0, 300); sm.setSettle(0.01f); sm.update(100, 0);
+    float v = 0; for (uint32_t t = 12; t < 1000; t += 12) v = sm.update(100.3f, t);
+    NEAR(v, 100.3, 0.01); }
+  // app, gyro present, box still: slow cadence over 10 s
+  { Rig r; r.compass.psi = 123; r.compass.pitch = 10; r.compass.roll = -5; r.compass.gyro = true;
+    App app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    app.begin(0);
+    uint32_t now = 0;
+    auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) app.tick(now); };
+    run(8000);
+    CHECK(app.fused());
+    int b = r.panel.presents; run(10000);
+    int still = r.panel.presents - b;
+    printf("  fused, still: %d presents in 10 s (slow cadence 333 ms)\n", still);
+    CHECK(still >= 25 && still <= 36);
+    // slow turn, 2 deg/s (the mock gyro reports no rate, so the fusion follows through the field alone): the
+    // dial moves continuously and the app redraws throughout
+    float prev = app.buildViewModel(now).heading, maxStep = 0;
+    b = r.panel.presents;
+    double psi = 123; uint32_t lastF = now;
+    for (uint32_t e = now + 40000; now < e; now += 10) {     // 40 s: the mock gyro reports no rate, so the field pulls the fusion (tau 10 s) up to speed
+      if (now == e - 10000) { b = r.panel.presents; maxStep = 0; }      // measure the last 10 s
+      psi += 2.0 * 0.010; r.compass.psi = psi;
+      app.tick(now);
+      if (now - lastF >= 33) { lastF = now; float h = app.buildViewModel(now).heading; maxStep = fmaxf(maxStep, fabsf(angDiff(h, prev))); prev = h; }
+    }
+    int turn = r.panel.presents - b;
+    printf("  fused, slow turn (last 10 s of 40): %d presents in 10 s, largest step %.3f deg per 33 ms\n", turn, maxStep);
+    CHECK(maxStep < 0.2f);
+    CHECK(turn > 1.5f * still); } }
+
 static void test_app_anim_cadence() {
   puts("app heading animation cadence");
   Rig r;
@@ -1635,6 +1679,7 @@ int main() {
   test_compass();
   test_heading_selector();
   test_heading_smoother();
+  test_fused_smooth_cadence();
   test_compass_chain();
   test_ahrs();
   test_mount();

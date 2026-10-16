@@ -12,6 +12,9 @@ class HeadingSmoother {
 
   explicit HeadingSmoother(float tauMs = 250.0f) : tau_(tauMs) {}
   void setTau(float tauMs) { tau_ = tauMs; }
+  // Distance at which the glide snaps to the target. A smooth source (the gyro fusion) sets it far below
+  // a pixel so a slow turn is a continuous glide, not 0.5 degree steps.
+  void setSettle(float deg) { settle_ = deg; }
   // Deadband for a noisy source (the magnetometer): the target only moves when the new value is more than
   // `deg` from it, or when it has stayed on one side by more than DRIFT_DEG for `holdMs`. 0 = off.
   // Without it sensor noise keeps the glide (and the fast redraw) running when the unit lies still.
@@ -26,6 +29,7 @@ class HeadingSmoother {
 
  private:
   float tau_;
+  float settle_ = SETTLE_DEG;
   float out_ = NAN;
   float target_ = NAN;
   uint32_t lastMs_ = 0;

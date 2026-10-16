@@ -30,7 +30,7 @@ float HeadingSmoother::update(float targetDeg, uint32_t nowMs) {
   }
   t = target_;
   float d = shortestDiff(t, out_);
-  float settle = fmaxf(SETTLE_DEG, 2.0f * dead_);    // with a deadband, a sub-degree retarget is not worth a glide
+  float settle = fmaxf(settle_, 2.0f * dead_);    // with a deadband, a sub-degree retarget is not worth a glide
   if (fabsf(d) < settle) { out_ = t; return out_; }
   float alpha = tau_ > 0 ? 1.0f - expf(-(float)dt / tau_) : 1.0f;
   out_ = wrap360(out_ + d * alpha);

@@ -12,16 +12,19 @@
 // gyro bias for free from the integral term, and (c) set the gains as time constants. Pure float maths.
 //
 // The gyro does the fast part. Gravity (accel) pulls roll and pitch back with a time constant of about
-// 1 s, the horizontal magnetic field pulls the heading back with about 2 s. A still box also learns
+// 1 s, the horizontal magnetic field pulls the heading back with about 10 s (the gyro bias is learned, so
+// the field only has to remove slow drift; faster would pass its noise on to the dial). A still box also learns
 // the gyro bias directly. See docs/MATH.md section 8.
 class Ahrs {
  public:
   static constexpr float KP_ACC = 1.0f;           // 1/s: gravity -> roll/pitch (tau 1 s)
   static constexpr float KI_ACC = 0.05f;          // 1/s^2: gyro bias from the gravity error
-  static constexpr float KP_MAG = 0.5f;           // 1/s: field -> heading (tau 2 s)
-  static constexpr float KI_MAG = 0.0625f;        // 1/s^2: KP^2/4, critically damped bias learning
-  static constexpr float BOOST_MS = 2000.0f;      // high gains after a (re)start, fading out over this time
-  static constexpr float BOOST_GAIN = 8.0f;       // KP multiplier at the start
+  static constexpr float KP_MAG = 0.1f;           // 1/s: field -> heading (tau 10 s); the gyro carries the short term
+  static constexpr float KI_MAG = 0.0025f;        // 1/s^2: KP^2/4, critically damped bias learning
+  static constexpr float TRUST_FULL = 0.05f;      // field magnitude / dip deviation (relative) up to which the field has full weight
+  static constexpr float BOOST_MS = 2000.0f;      // high gains after a (re)start, and after each of the first bias estimates, fading out over this time
+  static constexpr float BOOST_GAIN = 8.0f;       // gravity KP multiplier at the start
+  static constexpr float BOOST_GAIN_MAG = 40.0f;  // heading KP multiplier at the start (4 /s): washes out the seed's noise within the boost time
   static constexpr float G = 9.81f;
   static constexpr float G_TOL = 0.12f;           // accel magnitude within +-12% of g counts for gravity
   static constexpr float FIELD_TOL = 0.20f;       // field magnitude / dip within +-20% of the running reference
@@ -53,13 +56,13 @@ class Ahrs {
  private:
   bool seed(const Vec3& a, const Vec3& m, uint32_t nowMs);
   void rotationMatrix(float r[3][3]) const;
-  void windowEnd();
+  void windowEnd(uint32_t nowMs);
 
   bool seeded_ = false, valid_ = false, stuck_ = false;
   float q_[4] = {1, 0, 0, 0};                     // w, x, y, z: device -> world (east, north, up)
   Vec3 bias_;
   float heading_ = 0;
-  uint32_t lastMs_ = 0, seedMs_ = 0, accMs_ = 0, magMs_ = 0, magRejectMs_ = 0;
+  uint32_t lastMs_ = 0, seedMs_ = 0, boostMs_ = 0, accMs_ = 0, magMs_ = 0, magRejectMs_ = 0;
   float magRef_ = 0, dipRef_ = 0;                 // running field magnitude and vertical share
   Vec3 lastGyro_;
   int sameGyro_ = 0;

@@ -311,3 +311,18 @@ project is and how to run it; this file says what we found and why things are th
   about (5.3, -7.8, -3.9) dps at rest (zero-rate level, datasheet allows +-10 dps per axis); the learned
   bias matched it (|b| 10.1 dps) within seconds. The bias bound is 12 dps, close to that: raise it if
   another board reads more. compass= 52 us, ahrs= 55 us per tick.
+- Fused dial smoothness (2026-10-16, emulator only, not yet on the device). Symptom on the desk: "drifts, UI lags,
+  brief moments smooth then lagging". Cause: the HeadingSmoother deadband (0.4 deg, 300 ms hold, snap within 0.8
+  deg) turned slow motion and sub-degree wander into rest-and-jump steps, and the settled() redraw cadence dropped
+  between jumps. Also KP_MAG 0.5 /s passed magnetometer noise through as +-0.8 deg wander. Changes: fused source has
+  no deadband and snaps at 0.01 deg (was 0.5), tau 30 ms; redraw rule for the fused source is "shown heading differs
+  from the last drawn one by more than half a pixel at the dial ring (0.28 deg)" instead of settled(); GPS and
+  compass-alone paths unchanged. AHRS: KP_MAG 0.1 /s (tau 10 s), KI_MAG 0.0025 (kp^2/4); field boost 40x (was 8x,
+  shared with gravity) and restarted for each of the first three bias estimates; the field correction is weighted
+  by a graceful trust (1 up to 5% magnitude/dip deviation, 0 at 20%). Emulator, still box with +-1 uT mag noise and
+  a 2.7 dps gyro bias: fused heading peak-to-peak 0.12 deg over 40 s after 30 s of convergence; leftover error
+  after start is a few tenths of a degree that decays with tau 10 s (bias learner accuracy / KP). Start: error
+  0.69 deg max in 1..2.1 s. Slow turn at 2 deg/s: largest step 0.07 deg per 33 ms frame; still: 29 presents in
+  10 s; turn: 67 in 10 s. Recovery from a 25 deg field twist now takes tens of seconds (tau 10 s). Trade-off:
+  with an unlearned gyro bias in motion (never still since power-up) the heading sits bias/kp off until the
+  integral catches up (about 20 s).

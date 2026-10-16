@@ -103,10 +103,19 @@ static void test_ahrs() {
   { ImuSim s(123, 20, -10);
     s.bias[0] = 1.0 * D; s.bias[1] = -1.5 * D; s.bias[2] = 2.0 * D;
     Ahrs f; double t = 0; float err = 0, tilt = 0;
-    runImu(s, f, t, 15, noRate);                       // converge (the start-up transient has a few seconds' tail)
+    runImu(s, f, t, 30, noRate);                       // converge (bias learned in the first seconds; the leftover heading error decays with tau 10 s)
     CHECK(f.valid());
     float h0 = f.heading();
-    runImu(s, f, t, 60, noRate, &err, &tilt, false, 15);
+    float lo = 1e9f, hi = -1e9f;                       // peak-to-peak of the fused heading (what the dial would show)
+    { const double dt = 1.0 / 80.0; double end = t + 40;
+      ImuSim s2 = s; Ahrs f2 = f; double t2 = t;
+      while (t2 < end) { double w[3] = {0, 0, 0}; s2.step(w, dt); t2 += dt; Vec3 g, a, m; s2.sample(w, g, a, m);
+        f2.update(g, a, m, (uint32_t)llround(t2 * 1000));
+        float sg = fmodf(f2.heading() - h0 + 540.0f, 360.0f) - 180.0f;
+        lo = fminf(lo, sg); hi = fmaxf(hi, sg); } }
+    printf("  still, +-1 uT mag noise: fused heading peak-to-peak %.3f deg over 40 s\n", hi - lo);
+    CHECK(hi - lo < 0.4f);
+    runImu(s, f, t, 60, noRate, &err, &tilt, false, 30);
     printf("  still, noisy: max heading error %.3f deg, max tilt error %.3f deg, bias %.2f dps (true %.2f)\n", err, tilt, f.biasDps(),
            sqrt(1.0 + 2.25 + 4.0));
     CHECK(err < 0.3f);
@@ -182,8 +191,44 @@ static void test_ahrs() {
     CHECK(tilt < 0.3f);
     // and it recovers once the field is right again
     float after = 0;
-    runImu(s, f, t, 12, noRate, &after, nullptr, false, t + 8);
+    runImu(s, f, t, 50, noRate, &after, nullptr, false, t + 45);   // tau 10 s: back within 0.5 deg after about 45 s
     CHECK(after < 0.5f); }
+
+  // the field's trust falls gradually: a 12% stronger field (between full trust and the gate) twists the
+  // heading less than a clean one would, and never tilts the attitude
+  { ImuSim s(140, 15, 5);
+    Ahrs f; double t = 0; float tilt = 0;
+    runImu(s, f, t, 8, noRate);
+    s.field = 48.0 * 1.12;                             // dev 12%: trust (0.2-0.12)/0.15 = 0.53
+    s.magNoise = 0;
+    // a 20 deg twist with this field strength: compare the pull against the same twist at full trust
+    Ahrs g2 = f; ImuSim sg = s; double tg = t;
+    auto twisted = [&](ImuSim& sim, Ahrs& fl, double& tt, double seconds, double fieldScale) {
+      sim.field = 48.0 * fieldScale;
+      double end = tt + seconds;
+      while (tt < end) {
+        double w[3] = {0, 0, 0}; sim.step(w, 1 / 80.0); tt += 1 / 80.0;
+        Vec3 g, a, m; sim.sample(w, g, a, m, false);
+        double c = cos(20 * D), sn = sin(20 * D);
+        double mw0 = sim.R[0][0] * m.x + sim.R[0][1] * m.y + sim.R[0][2] * m.z, mw1 = sim.R[1][0] * m.x + sim.R[1][1] * m.y + sim.R[1][2] * m.z,
+               mw2 = sim.R[2][0] * m.x + sim.R[2][1] * m.y + sim.R[2][2] * m.z;
+        double e0 = c * mw0 - sn * mw1, e1 = sn * mw0 + c * mw1;
+        m.x = (float)(sim.R[0][0] * e0 + sim.R[1][0] * e1 + sim.R[2][0] * mw2);
+        m.y = (float)(sim.R[0][1] * e0 + sim.R[1][1] * e1 + sim.R[2][1] * mw2);
+        m.z = (float)(sim.R[0][2] * e0 + sim.R[1][2] * e1 + sim.R[2][2] * mw2);
+        fl.update(g, a, m, (uint32_t)llround(tt * 1000));
+        tilt = fmaxf(tilt, upErrDeg(sim, fl));
+      } };
+    twisted(s, f, t, 2.0, 1.0);                        // clean magnitude
+    twisted(sg, g2, tg, 2.0, 1.0);
+    // second filter sees the 12% stronger field instead
+    Ahrs f3; ImuSim s3(140, 15, 5); s3.magNoise = 0; double t3 = 0; runImu(s3, f3, t3, 8, noRate);
+    twisted(s3, f3, t3, 2.0, 1.12);
+    float pullClean = angErr(g2.heading(), (float)sg.truthHeading());
+    float pullWeak = angErr(f3.heading(), (float)s3.truthHeading());
+    printf("  20 deg twist for 2 s: heading error %.2f deg at full trust, %.2f deg with a 12%% off field\n", pullClean, pullWeak);
+    CHECK(pullWeak < pullClean);
+    CHECK(tilt < 0.3f); }
 
   // hand shaking: accelerations of +-0.5 g ignore gravity for those samples; heading and tilt hold
   { ImuSim s(200, 10, 10);

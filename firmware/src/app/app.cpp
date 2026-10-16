@@ -6,6 +6,12 @@
 #include "core/xctrc.h"
 #include "view/prof.h"
 #include "view/screens.h"
+#include <math.h>
+
+static float angDiffDeg(float a, float b) {      // absolute shortest angle between two headings
+  float d = fabsf(fmodf(a - b, 360.0f));
+  return d > 180.0f ? 360.0f - d : d;
+}
 
 App::App(IPanel& panel, IInput& input, IBattery& battery, ITracer& tracer, ILaptop& laptop,
          ISettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg)
@@ -151,7 +157,11 @@ void App::updateHeading(uint32_t now) {
     smoothFused_ = fused_;
     bool gps = h.src == HDG_GPS;
     smooth_.setTau(gps ? cfg_.gpsGlideTauMs : (fused_ ? cfg_.fusedGlideTauMs : cfg_.magGlideTauMs));
-    smooth_.setDeadband(gps ? 0.0f : cfg_.magDeadbandDeg, cfg_.magDeadbandHoldMs);
+    // The fused heading is smooth and steady: no deadband, and no snapping to the target, or slow turns
+    // would show as steps (and still ones as jumps).
+    const bool plain = gps || fused_;
+    smooth_.setDeadband(plain ? 0.0f : cfg_.magDeadbandDeg, cfg_.magDeadbandHoldMs);
+    smooth_.setSettle(fused_ && !gps ? 0.01f : HeadingSmoother::SETTLE_DEG);
   }
   smooth_.update(h.deg, now);   // once per tick: buildViewModel only reads it
 }
@@ -232,7 +242,9 @@ void App::drawLiveScreen(uint32_t now, uint32_t held) {
   panel_.clear();
   PROF_END(P_CLEAR);
   Bitmap1 bm = panel_.bitmap();
-  drawLive(panel_.gfx(), buildViewModel(now), held, &bm);
+  const ViewModel& vm = buildViewModel(now);
+  drawnHeading_ = vm.heading;
+  drawLive(panel_.gfx(), vm, held, &bm);
   PROF_BEGIN(P_PRESENT);
   panel_.present();
   PROF_END(P_PRESENT);
@@ -334,7 +346,15 @@ void App::tick(uint32_t now) {
                   : page_ == ViewModel::PAGE_COMPASS ? cfg_.animCompassEveryMs
                   : page_ == ViewModel::PAGE_HOME ? cfg_.animEveryMs : every;
     if (!hasData(now)) anim = cfg_.animCompassEveryMs;      // the standalone compass glides on every page
-    if (!smooth_.settled() && anim < every) every = anim;
+    // Fused compass: animate while the shown heading is more than half a pixel from the drawn one. Others: until settled.
+    bool moving;
+    if (smoothSrc_ == HDG_MAG && smoothFused_) {
+      const float v = smooth_.value();
+      moving = isfinite(v) && (!isfinite(drawnHeading_) || angDiffDeg(v, drawnHeading_) > AppConfig::DIAL_HALF_PIXEL_DEG);
+    } else {
+      moving = !smooth_.settled();
+    }
+    if (moving && anim < every) every = anim;
     if (!listOpen_ && (redraw_ || now - lastDraw_ >= every)) {
       lastDraw_ = now;
       redraw_ = false;

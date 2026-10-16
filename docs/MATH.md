@@ -350,12 +350,15 @@ comes from the integral term, and the gains are time constants.
 $\hat{\mathbf a}=\mathbf a/|\mathbf a|$:
 
 $$\mathbf e_a=\hat{\mathbf a}\times\mathbf u\quad(\text{only if }\bigl||\mathbf a|-g\bigr|<0.12\,g),\qquad
-\mathbf m_w=R\,\mathbf m,\quad\varphi=\operatorname{atan2}(m_{w,e},\,m_{w,n}),\quad \mathbf e_m=\varphi\,\mathbf u$$
+\mathbf m_w=R\,\mathbf m,\quad\varphi=\operatorname{atan2}(m_{w,e},\,m_{w,n}),\quad \mathbf e_m=w\,\varphi\,\mathbf u$$
 
 $\mathbf e_m$ uses only the **horizontal** direction of the field, as seen with the current tilt, and rotates
 about the vertical: a disturbed field twists the heading but cannot tilt the attitude. It is used only if the
 horizontal field is above 8 uT, $|\mathbf m|$ is within 20% of a slow (5 s) reference and the dip
-$m_{w,u}/|\mathbf m|$ within 0.2 of its reference (after 5 s of rejection the new field is adopted).
+$m_{w,u}/|\mathbf m|$ within 0.2 of its reference (after 5 s of rejection the new field is adopted). The weight $w$ is the **trust** in
+the field: with $d=\max(\bigl||\mathbf m|-m_{ref}\bigr|/m_{ref},\ |dip-dip_{ref}|)$, $w=1$ for $d\le0.05$ and falls
+linearly to 0 at $d=0.20$ (where the old hard gate was), so a field that starts to disagree is followed less
+instead of being dropped at a threshold.
 
 **Update** each sample, $\Delta t$ from the timestamps (clamped to 0.1 s; a gap over 0.5 s re-seeds):
 
@@ -366,8 +369,14 @@ q\leftarrow q\otimes\exp(\boldsymbol\omega'\Delta t),\qquad
 | Gain | Value |
 |---|---|
 | $k_{p,a}$ (gravity, tau 1 s) / $k_{i,a}$ | 1.0 /s / 0.05 /s$^2$ |
-| $k_{p,m}$ (field, tau 2 s) / $k_{i,m}$ ($=k_p^2/4$) | 0.5 /s / 0.0625 /s$^2$ |
-| $\beta$ (start boost) | 8 at the (re)start, linearly to 1 over 2 s; the integral is off during it |
+| $k_{p,m}$ (field, tau 10 s) / $k_{i,m}$ ($=k_p^2/4$) | 0.1 /s / 0.0025 /s$^2$ |
+| $\beta$ (start boost) | gravity 8, field 40 (4 /s) at the (re)start, linearly to 1 over 2 s; the integral is off during it |
+
+The field gain is low on purpose: the learned gyro bias carries the heading, so the field only removes slow
+drift, and its noise (a few degrees per sample at 24 uT horizontal field) is averaged over about 10 s instead
+of showing as a wander of several tenths of a degree. The boost is repeated for each of the first three
+bias estimates (the heading drifted by the old bias error until then) so a box that starts on a desk settles in
+seconds. With a bias error $\Delta b$ left over the heading sits $\Delta b/k_{p,m}$ off (0.05 deg/s gives 0.5 deg).
 
 The bias is bounded to 12 deg/s per axis. The integral is paused while the still detector (next) owns the bias.
 
@@ -420,7 +429,8 @@ used if valid, otherwise there is no heading and the dial shows `--`. The screen
 
 **Smoother** (`firmware/src/core/heading_smoother.cpp`). Source `MAG` has two tunings: with the gyro fusion
 $\tau=30$ ms (the fused heading is already smooth, so this is nearly pass-through), without it $\tau=90$ ms;
-both with the 0.4 degree deadband that lets a still box settle. The dial shows a glided value, advanced once per
+the 0.4 degree deadband (below) applies to the compass alone only. The fused source has **no deadband** and does not snap
+at 0.5 deg (it snaps at 0.01 deg): a slow turn is a continuous glide. The dial shows a glided value, advanced once per
 UI tick using the UI clock (this is display animation, not flight data). With target $\psi_t$, shown value
 $\psi$, shortest signed difference $\delta\in(-180,180]$ and elapsed time $\Delta t$:
 
@@ -429,8 +439,14 @@ $$\psi\leftarrow\psi+\delta\,\bigl(1-e^{-\Delta t/\tau}\bigr),\qquad \tau=30\ \t
 The exponential form makes the result independent of the frame rate, and the shortest arc means 350 to 10
 degrees turns through 0, not the long way. It **snaps** to the target (no animation) when: the shown value is
 not yet known (first value or after NaN), more than 2000 ms have passed since the last update, or the
-remaining difference is under 0.5 deg. A non-finite target resets it. While it has not settled the app
-redraws every 33 ms on the compass page and the standalone compass (50 ms on the home and thermal pages).
+remaining difference is under 0.5 deg (0.01 deg for the fused source). A non-finite target resets it. For the
+GPS track and the compass alone, while it has not settled the app redraws every 33 ms on the compass page and
+the standalone compass (50 ms on the home and thermal pages). For the **fused** source "settled" is
+meaningless (it always glides a little), so the rule is: the app remembers the heading of its last live draw and
+uses the animation cadence whenever the shown heading is more than half a pixel of arc away from it,
+$\tfrac{0.5}{104}\,\tfrac{180}{\pi}\approx0.28^\circ$ (104 px is the dial ring radius), otherwise the slow cadence (333 ms).
+Sub-pixel wander therefore never redraws, and a turn of $\omega$ deg/s redraws about $\omega/0.28$ times per
+second (7/s at 2 deg/s, capped by the 33 ms cadence), each step half a pixel.
 
 The app picks $\tau$ by source: the GPS track updates about 3 times per second and needs the long glide;
 the magnetic heading arrives at 80 Hz already filtered (section 8), so 90 ms is enough. For the magnetic
@@ -438,6 +454,8 @@ source a **deadband** keeps sensor noise from running the animation forever: the
 new heading is more than 0.4 deg from it, or when it has stayed more than 0.15 deg to one side for over
 300 ms (a slow real drift). A retarget that lands within 0.8 deg of the shown value snaps instead of gliding.
 With the box still the dial settles and the slow redraw cadence resumes. The GPS source has no deadband.
+(The deadband was dropped for the fused source because it turned slow motion into rest-and-jump steps, and the
+redraw rate dropped between the jumps.)
 
 ## 10. Rendering
 
