@@ -100,6 +100,13 @@ void SimHud::draw(const Bitmap1& bm, const HudData& d, uint32_t fr) {
   const int cw = textWidth(c, mid_);
   frame(bm, 238 - cw - 10, 372, cw + 10, 26);
   text(bm, mid_, 238 - cw - 5, 392, c, DRAW_CLEAR);
+  if (d.timeScale > 1) {
+    char x[8];
+    snprintf(x, sizeof x, "x%d", d.timeScale);
+    const int w = textWidth(x, mid_) + 10;
+    frame(bm, 4, 30, w, 26);
+    text(bm, mid_, 9, 50, x, DRAW_CLEAR);
+  }
   if (d.assist) text(bm, small_, 60, 392, "assist", DRAW_CLEAR);
   if (d.stalled && ((fr / 12) & 1) == 0) {                      // blinks at about 2 Hz at 50 fps
     bm.fillRect(40, 60, 150, 36, DRAW_CLEAR);

@@ -595,3 +595,22 @@ second and only on the page. The page draws about 60 line segments, 96 ring dots
 **Unchanged:** all 48 emulator screens byte-identical, the replay digests identical for pages 0-3 and for one press to the thermal page on both
 flights; the page cycle has one more page (compass, thermal, centring, [map], profile, home), so the smoke script presses once more and the existing
 tests that count presses were updated.
+
+## Flight simulator: time acceleration (x1 / x3 / x5, default x3)
+
+- **Why**: nobody waits in real time for a 20-minute glide. The player (F key) and the pause menu's Speed row cycle x1 / x3 / x5. Not
+  persisted (nothing of the sim is yet); it lives in `SimApp`, so it survives New flight within a session.
+- **How**: every 20 ms frame `SimApp::step` runs `scale` world substeps of dt = 20 ms each (x5 = 5 substeps), never one big dt. A
+  substep is exactly what x1 computes, so x3 for T real seconds equals x1 for 3T (test `time_scale`). Rendering stays 50 fps: one
+  top-down update and one draw per frame.
+- **Scales (sim time)**: glider physics including the wing's lags (roll 0.4 s, speed 1.2 s, bar/brake 0.35 s, stall), air (thermal
+  life cycles, wind drift, time of day), the flight clock `World::time()`, the vario lag, the trail (one point per sim second, so
+  the 4 minute trail covers 4 sim minutes), landing/crash detection per substep (same checks as x1).
+- **Does not scale (real time)**: the pilot's hands: button ramps (bank 0.33 s to full) and the tilt mapping, the STALL blink, the
+  frame rate, the host's fixed step and catch-up (kMaxCatchUp 4 frames; each runs `scale` substeps, so at most 20 substeps per host
+  iteration at x5).
+- **Feel**: the command reaches the wing as before, so bank, turn rate (physical, omega = g tan(bank) / V) and sink are the real ones
+  in sim time; in real time the turn is `scale` x faster (a circle in about 3 s at x5 and 35 degrees) and the roll lag is `scale` x
+  shorter. Slowing the ramps by the scale would make a button tap unusable; scaling the wing lag would make the glider lazier
+  than physics. So the physics is the physics and the hands stay real.
+- **Cost**: 5 physics substeps per frame, about 0.005 ms on the PC; negligible next to the render.

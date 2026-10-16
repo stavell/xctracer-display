@@ -18,6 +18,7 @@ struct HudData {
   float bankDeg = 0;
   bool stalled = false;
   bool assist = false;
+  int timeScale = 1;           // shown as a box "x3" under the top strip when > 1
 };
 
 class SimHud {

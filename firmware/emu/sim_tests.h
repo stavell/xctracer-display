@@ -551,6 +551,75 @@ struct StaticTilt : ITilt {
   bool read(float* ro, float* pi) override { if (!on) return false; *ro = r; *pi = p; return true; }
 };
 
+// Time acceleration: x3 = three 20 ms substeps per frame, equal to x1 for three times as long; stable at x5.
+static void time_scale() {
+  Hills hills;
+  static SimApp a, b, c;
+  SimApp* all[3] = {&a, &b, &c};
+  for (SimApp* s : all) { s->setSource(&hills); s->begin(0); }
+  CHECK(a.timeScale() == 3);                                // default
+  a.cycleTimeScale(); CHECK(a.timeScale() == 5);
+  a.cycleTimeScale(); CHECK(a.timeScale() == 1);
+  a.cycleTimeScale(); CHECK(a.timeScale() == 3);
+  a.setTimeScale(2); CHECK(a.timeScale() == 1);
+  // Same seed, same start, no keys (no ramps): x3 for 20 s vs x1 for 60 s is the same flight.
+  for (SimApp* s : all) s->startAt(0, 0, 400, 90, 270, 5, 11, 300);
+  a.setTimeScale(3); b.setTimeScale(1);
+  uint32_t sm = 0, sm2 = 0;
+  simshots::run(a, 1000, sm);
+  simshots::run(b, 3000, sm2);
+  NEAR(a.world().time() - 300.0f, 60.0f, 0.5);             // 20 real seconds = 60 sim seconds
+  NEAR(a.world().time(), b.world().time(), 1e-3);
+  NEAR(a.world().glider().x, b.world().glider().x, 0.01);
+  NEAR(a.world().glider().y, b.world().glider().y, 0.01);
+  NEAR(a.world().glider().z, b.world().glider().z, 0.01);
+  NEAR(a.world().distanceFlown(), b.world().distanceFlown(), 0.05);
+  CHECK(a.world().trailCount() == b.world().trailCount() && a.world().trailCount() >= 58);
+  // A held key: the ramp is real time, the wing physics sim time; the flights stay close.
+  a.startAt(0, 0, 900, 0, 270, 0, 11, 300);
+  b.startAt(0, 0, 900, 0, 270, 0, 11, 300);
+  a.onKey(KEY_RIGHT, true, 0); b.onKey(KEY_RIGHT, true, 0);
+  sm = sm2 = 0;
+  simshots::run(a, 500, sm);
+  simshots::run(b, 1500, sm2);
+  NEAR(a.world().glider().bank, b.world().glider().bank, 0.02);
+  NEAR(a.world().time(), b.world().time(), 1e-3);
+  CHECK(fabsf(wrapPi(a.world().glider().heading - b.world().glider().heading)) < 0.5f);
+  CHECK(a.mode() == SimApp::Mode::FLYING);
+  // x5, tight turn at full bank with the bar: finite and bounded over 5 sim minutes.
+  c.startAt(0, 0, 1500, 0, 270, 8, 3, 300);
+  c.setTimeScale(5);
+  c.onKey(KEY_RIGHT, true, 0); c.onKey(KEY_UP, true, 0);
+  uint32_t sm3 = 0;
+  for (int i = 0; i < 6; i++) {
+    simshots::run(c, 250, sm3);
+    const Glider& g = c.world().glider();
+    CHECK(isfinite(g.x) && isfinite(g.y) && isfinite(g.z) && isfinite(g.heading));
+    CHECK(fabsf(g.bank) <= Glider::kMaxBank + 1e-4f && g.sinkRate < 8.0f && g.load < 1.3f);
+    CHECK(g.groundSpeed() < 30.0f);
+  }
+  NEAR(c.world().time() - 300.0f, 6 * 250 * 0.02f * 5, 0.5);
+  // Landing at x5 is still detected once and the sim time stops.
+  Slope rise;
+  c.setSource(&rise);
+  c.onKey(KEY_RIGHT, false, 0); c.onKey(KEY_UP, false, 0);
+  c.startAt(0, -400, 30, 0, 270, 0, 3, 300);
+  uint32_t sm4 = 0;
+  simshots::run(c, 1500, sm4);
+  CHECK(c.mode() == SimApp::Mode::ENDED && c.world().status() == Status::LANDED);
+  const float tEnd = c.world().time();
+  simshots::run(c, 50, sm4);
+  CHECK(c.world().time() == tEnd);
+  // Pause menu row: Speed cycles.
+  c.setTimeScale(3);
+  c.startAt(0, 0, 900, 0, 270, 0, 3, 300);
+  c.onKey(KEY_B, true, 0);
+  for (int i = 0; i < 6; i++) c.onKey(KEY_DOWN, true, 0);
+  c.onKey(KEY_ACTION, true, 0);
+  CHECK(c.timeScale() == 5);
+  c.onKey(KEY_B, true, 0);
+}
+
 static void app_logic() {
   Slope rise;                                              // a mountain side to fly in front of
   SimApp* app = new SimApp;
@@ -685,6 +754,7 @@ static void run() {
   voxel();
   topdown();
   game_mode();
+  time_scale();
   app_logic();
   in_the_box();
 }

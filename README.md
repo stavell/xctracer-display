@@ -303,7 +303,8 @@ the map with the thermal assist on (dithered rings, the pilot circling in one); 
 | left / right | bank (ramps to full in 0.33 s, back to level when released) |
 | up / down | speed bar (37 -> 52 km/h) / brake (down to 28 km/h; the wing stalls in a turn at that speed) |
 | X (A) | toggle map / first-person 3D |
-| Z or Esc (B / MAIN) | pause menu: Resume, View, Assist (thermals on the map), Site (5 takeoffs), Controls Buttons / Tilt, Zero tilt, New flight, Home |
+| F | simulation speed x1 / x3 / x5 (default x3; also the pause menu Speed row); a box under the top strip shows it |
+| Z or Esc (B / MAIN) | pause menu: Resume, View, Assist (thermals on the map), Site (5 takeoffs), Controls Buttons / Tilt, Zero tilt, Speed x1/x3/x5, New flight, Home |
 | T | tilt steering with the mouse: x = roll, y = pitch (top of the window = top of the box away = speed bar); T again = buttons |
 | after landing | X = new flight, Z = home |
 
