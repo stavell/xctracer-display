@@ -67,6 +67,8 @@ void SharpPanel::begin() {
 // Measured when the transfer finishes, so a read while the next one is in flight stays valid.
 uint32_t SharpPanel::sendUs() const { return gSendUs; }
 
+bool SharpPanel::ready() { return gDone; }
+
 void SharpPanel::waitIdle() {
   waitUs_ = 0;
   if (gDone) return;

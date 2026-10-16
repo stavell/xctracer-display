@@ -125,5 +125,5 @@ void loop() {
   uint32_t dt = micros() - t0;
   if (dt > worstTickUs) worstTickUs = dt;
   diagnosticsTick(now, worstTickUs);
-  delay(10);
+  delay(host.loopDelayMs());                  // 10 ms; 1 ms while a game runs its fixed frame clock
 }

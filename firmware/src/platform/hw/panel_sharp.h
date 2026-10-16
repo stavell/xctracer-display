@@ -17,6 +17,7 @@ class SharpPanel : public IPanel {
   void invalidate() override { dirty_ = true; }
   void refresh() override;
   void showRaw(const uint8_t* frame) override;
+  bool ready() override;                  // the previous transfer is done: present() will not wait
   void stopVcom();
   // Blocks until the in-flight transfer has finished (aborts it after 50 ms). Call before anything
   // that stops or powers down the panel.

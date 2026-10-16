@@ -32,6 +32,9 @@ class IPanel {
   virtual void refresh() = 0;       // unconditional refresh
   // Copy a full native-layout frame (400x240, 1 bpp, LSB = leftmost pixel, 1 = white) and refresh.
   virtual void showRaw(const uint8_t* frame) = 0;
+  // True when present() can start right away (the previous DMA transfer is done). Game mode waits for it so a
+  // frame is never held up inside present(); panels that do not know say true.
+  virtual bool ready() { return true; }
 };
 
 class IInput {                      // the user switch (and, later, the front buttons)

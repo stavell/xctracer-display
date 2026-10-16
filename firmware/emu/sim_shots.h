@@ -1,0 +1,91 @@
+#pragma once
+// Flight sim scenarios shared by the screen renders (sim_demo, emu_main) and the tests: a SimApp over a map pack
+// positioned on a ridge at Sopot with the wind blowing onto it, and inside a thermal. Needs a Terrain with a pack
+// that covers Sopot (the Bulgaria pack of the study, or emu/fixtures/sopot.pack).
+#include <stdio.h>
+#include <string.h>
+#include <string>
+#include "apps/games/sim/sim_app.h"
+#include "platform/gfx/bitmap1.h"
+
+namespace simshots {
+using namespace sim;
+
+static uint8_t gFb[50 * 240];
+struct NullGfx : Adafruit_GFX {
+  NullGfx() : Adafruit_GFX(240, 400) {}
+  void drawPixel(int16_t, int16_t, uint16_t) override {}
+};
+
+static void dump(SimApp& app, const char* dir, const char* name, uint32_t frame = 0) {
+  memset(gFb, 0xFF, sizeof gFb);
+  Bitmap1 bm{gFb, 400, 240, 50, 1};
+  static NullGfx gfx;
+  app.draw(bm, gfx, frame);
+  std::string path = std::string(dir) + "/" + name + ".pgm";
+  FILE* f = fopen(path.c_str(), "wb");
+  if (!f) return;
+  fprintf(f, "P5\n240 400\n255\n");
+  for (int y = 0; y < 400; y++)
+    for (int x = 0; x < 240; x++) fputc(bm.getPixel(x, y) ? 255 : 0, f);
+  fclose(f);
+}
+
+static void run(SimApp& app, int steps, uint32_t& simMs) {
+  for (int i = 0; i < steps; i++) { simMs += 20; app.step(simMs, 20); }
+}
+
+// A ridge flight: glider in front of the Sopot slope (south of the takeoff), wind from the south at 8 m/s.
+static void ridge(SimApp& app, terrain::Terrain& t) {
+  app.setTerrain(&t);
+  app.setSite(0);
+  app.setSeed(7);
+  app.begin(0);
+  // Sopot origin is the takeoff; stand 1 km south of the takeoff on the steep part of the slope, 90 m above the ground, flying along it.
+  app.startAt(0.0f, -1000.0f, 90.0f, 20.0f, 190.0f, 8.0f, 7, 600.0f);
+}
+
+// Put the glider in the strongest thermal within range and circle in it for a while.
+static bool thermal(SimApp& app, terrain::Terrain& t, uint32_t& simMs) {
+  app.setTerrain(&t);
+  app.setSite(0);
+  app.begin(0);
+  World& w = app.world();
+  ThermalInfo th[Air::kMaxInfo];
+  float bestX = 0, bestY = 0, bestS = 0;
+  const float z = 1900.0f;
+  const int n = w.air().nearby(0, 0, z, 600.0f, 6000.0f, th, Air::kMaxInfo);
+  for (int i = 0; i < n; i++)
+    if (th[i].strength > bestS) { bestS = th[i].strength; bestX = th[i].x; bestY = th[i].y; }
+  if (n == 0) return false;
+  float g = 0;
+  w.cache().height(bestX, bestY, &g);
+  app.startAt(bestX, bestY, 1900.0f - g, 0.0f, 190.0f, 8.0f, 7, 600.0f);
+  return true;
+}
+
+static void shots(const char* dir, terrain::Terrain& t) {
+  SimApp app;
+  uint32_t sm = 0;
+  ridge(app, t);
+  app.setView(SimApp::View::TOP);
+  run(app, 200, sm);
+  dump(app, dir, "sim_top_ridge", 3);
+  app.setView(SimApp::View::FPV);
+  dump(app, dir, "sim_fpv_ridge", 3);
+
+  SimApp app2;
+  sm = 0;
+  if (thermal(app2, t, sm)) {
+    app2.setAssist(true);
+    app2.setView(SimApp::View::TOP);
+    // circle right: bank held
+    app2.onKey(KEY_RIGHT, true, 0);
+    run(app2, 750, sm);
+    dump(app2, dir, "sim_top_thermal", 3);
+    app2.setView(SimApp::View::FPV);
+    dump(app2, dir, "sim_fpv_thermal", 3);
+  }
+}
+
+}  // namespace simshots

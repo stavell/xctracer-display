@@ -9,6 +9,14 @@
 //   2. active->tick(now)
 //   3. apply a pending app switch (an app asked for the launcher, or the hold / combo gesture did)
 //   4. if the app does not own the panel and wantsFrame(now): clear, draw(bitmap, gfx, now), present
+//
+// Game mode: an app whose frameIntervalMs() is > 0 (games use 20 ms: a steady 50 fps) gets a fixed-timestep loop
+// instead of step 4. The host keeps a frame clock: each time it is due (and the panel can take a frame) the app's
+// step(simMs, dtMs) runs once per elapsed interval (normally once; at most kMaxCatchUp when frames were late, so
+// the simulation stays in real time), then ONE frame is cleared, drawn and presented. The simulation therefore advances
+// in equal steps whatever the draw costs, and the picture is always the newest state. frameIntervalMs() == 0 (the
+// default: the vario, Tetris) leaves everything above exactly as it was. The host counts frames per second and the
+// longest gap between two presented frames (FrameStats), for a title bar or a status line.
 #include <Adafruit_GFX.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -57,6 +65,13 @@ class IApp {
   // neither clears nor presents.
   virtual bool ownsPanel(uint32_t nowMs) { (void)nowMs; return false; }
 
+  // --- Game mode (fixed frame rate), see the top of this file ---
+  // Frame interval in ms; 0 = change-driven (wantsFrame / nextWakeMs decide), > 0 = a frame every interval.
+  virtual uint32_t frameIntervalMs() const { return 0; }
+  // One fixed simulation step of dtMs (= frameIntervalMs()); simMs is the app's own simulation clock (starts
+  // at the nowMs of the first step, advances by exactly dtMs). Physics belongs here, input handling in onKey().
+  virtual void step(uint32_t simMs, uint32_t dtMs) { (void)simMs; (void)dtMs; }
+
   // --- Gestures ---
   // True when the app wants the 3 s hold of the user switch itself (the vario: power off). Otherwise the
   // host takes it and returns to the launcher.
@@ -73,6 +88,15 @@ class IApp {
   IAppNav* nav_ = nullptr;
 };
 
+// Frame statistics of the game mode, refreshed once a second.
+struct FrameStats {
+  int fps = 0;                  // frames presented in the last full second
+  uint32_t worstGapMs = 0;      // longest time between two presented frames in that second
+  uint32_t steps = 0;           // simulation steps since the app started
+  uint32_t frames = 0;          // frames presented since the app started
+  uint32_t dropped = 0;         // intervals skipped because the host fell behind by more than kMaxCatchUp
+};
+
 // Brackets the clear and the present of a frame (the draw-time profiler hooks in here); optional.
 class IFrameProbe {
  public:
@@ -84,6 +108,7 @@ class IFrameProbe {
 class AppHost : public IAppNav {
  public:
   static const int MAX_APPS = 8;
+  static const int kMaxCatchUp = 4;                        // simulation steps per frame at most
   AppHost(IPanel& panel, IInput& input) : panel_(panel), input_(input) {}
 
   bool add(IApp& app) {
@@ -110,6 +135,8 @@ class AppHost : public IAppNav {
     combo_.reset();
     panel_.setRotation(rotation_);
     panel_.invalidate();                                    // the first frame of every app is sent in full
+    gameClock_ = false;
+    stats_ = FrameStats();
     active_->begin(nowMs);
     return true;
   }
@@ -135,6 +162,11 @@ class AppHost : public IAppNav {
       start(p, nowMs);
       return;                                              // its first frame comes on the next iteration
     }
+    const uint32_t fi = active_->frameIntervalMs();
+    if (fi > 0) {
+      if (!active_->ownsPanel(nowMs)) gameFrame(nowMs, fi);
+      return;
+    }
     if (active_->ownsPanel(nowMs) || !active_->wantsFrame(nowMs)) return;
     if (probe_) probe_->clear(true);
     panel_.clear();
@@ -146,8 +178,16 @@ class AppHost : public IAppNav {
     if (probe_) probe_->present(false);
   }
 
-  // Earliest time the active app needs the host again.
-  uint32_t nextWakeMs(uint32_t nowMs) { return active_ ? active_->nextWakeMs(nowMs) : 0xFFFFFFFFu; }
+  // Earliest time the active app needs the host again. A game needs it at its next frame.
+  uint32_t nextWakeMs(uint32_t nowMs) {
+    if (!active_) return 0xFFFFFFFFu;
+    return active_->frameIntervalMs() > 0 ? (gameClock_ ? nextFrame_ : nowMs) : active_->nextWakeMs(nowMs);
+  }
+  // How long the main loop may sleep between host iterations: 10 ms normally, 1 ms in game mode so the frame
+  // clock is hit within a millisecond instead of within a loop period.
+  uint32_t loopDelayMs() const { return active_ && active_->frameIntervalMs() > 0 ? 1 : 10; }
+  bool gameMode() const { return active_ && active_->frameIntervalMs() > 0; }
+  const FrameStats& stats() const { return stats_; }
 
   // Forward input without polling (tests, scripted players).
   void input(Key key, ButtonEvent ev) {
@@ -169,6 +209,56 @@ class AppHost : public IAppNav {
   const char* appName(int index) const override { return index >= 0 && index < n_ ? apps_[index]->name() : ""; }
 
  private:
+  // One iteration of the game-mode loop: if a frame is due and the panel can take it, step the simulation for the
+  // elapsed intervals and draw one frame.
+  void gameFrame(uint32_t nowMs, uint32_t fi) {
+    if (!gameClock_) {
+      gameClock_ = true;
+      nextFrame_ = nowMs;
+      simMs_ = nowMs;
+      statAt_ = nowMs;
+      lastPresent_ = 0;
+      winFrames_ = 0;
+      winWorst_ = 0;
+    }
+    if ((int32_t)(nowMs - nextFrame_) < 0 || !panel_.ready()) return;
+    int n = 0;
+    while ((int32_t)(nowMs - nextFrame_) >= 0 && n < kMaxCatchUp) {
+      simMs_ += fi;
+      active_->step(simMs_, fi);
+      nextFrame_ += fi;
+      n++;
+    }
+    stats_.steps += (uint32_t)n;
+    if ((int32_t)(nowMs - nextFrame_) >= 0) {              // still behind: skip what cannot be caught up
+      const uint32_t late = nowMs - nextFrame_;
+      stats_.dropped += late / fi + 1;
+      nextFrame_ = nowMs + fi;                             // the next frame one interval from now
+    }
+    if (probe_) probe_->clear(true);
+    panel_.clear();
+    if (probe_) probe_->clear(false);
+    Bitmap1 bm = panel_.bitmap();
+    active_->draw(bm, panel_.gfx(), nowMs);
+    if (probe_) probe_->present(true);
+    panel_.present();
+    if (probe_) probe_->present(false);
+    stats_.frames++;
+    winFrames_++;
+    if (lastPresent_ != 0) {
+      const uint32_t gap = nowMs - lastPresent_;
+      if (gap > winWorst_) winWorst_ = gap;
+    }
+    lastPresent_ = nowMs ? nowMs : 1;
+    if ((uint32_t)(nowMs - statAt_) >= 1000) {
+      stats_.fps = winFrames_;
+      stats_.worstGapMs = winWorst_;
+      winFrames_ = 0;
+      winWorst_ = 0;
+      statAt_ += 1000 * ((nowMs - statAt_) / 1000);
+    }
+  }
+
   bool canLeave() const { return hasLauncher() && activeIdx_ != launcher_; }
 
   IPanel& panel_;
@@ -183,4 +273,10 @@ class AppHost : public IAppNav {
   uint8_t rotation_ = 1;
   bool aDown_ = false, bDown_ = false;
   ComboHold combo_;
+  // game mode
+  bool gameClock_ = false;
+  uint32_t nextFrame_ = 0, simMs_ = 0, statAt_ = 0, lastPresent_ = 0;
+  int winFrames_ = 0;
+  uint32_t winWorst_ = 0;
+  FrameStats stats_;
 };

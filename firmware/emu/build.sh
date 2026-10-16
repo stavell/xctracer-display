@@ -24,6 +24,8 @@ L=../src/apps/launcher
 S=../src/apps/settings
 TERRAIN="$P/terrain/crc32.cpp $P/terrain/tile_codec.cpp $P/terrain/terrain.cpp $P/terrain/relief.cpp $P/terrain/map_vectors.cpp"
 TETRIS="$T/tetris.cpp $T/tetris_view.cpp $T/tetris_app.cpp"
+M=../src/apps/games/sim
+SIM="$M/glider.cpp $M/height_cache.cpp $M/air.cpp $M/world.cpp $M/voxel.cpp $M/topdown.cpp $M/sim_hud.cpp $M/sim_app.cpp"
 LAUNCHER="$L/launcher_app.cpp $L/launcher_view.cpp"
 SETTINGS="$S/settings_app.cpp $S/settings_view.cpp $P/settings/box_settings.cpp $P/settings/compass_cal.cpp $P/settings/cal_view.cpp"
 GFX="$P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $P/gfx/ui.cpp $P/gfx/icons.cpp"
@@ -31,16 +33,18 @@ VARIO="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cp
 if [ "$1" = "play" ] || [ "$1" = "smoke" ]; then
   # The player: no sanitizers (speed), SDL2 from Homebrew, the whole box over mock ports.
   c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" $(sdl2-config --cflags) \
-    $TETRIS $LAUNCHER $SETTINGS $GFX $VARIO $TERRAIN out/Adafruit_GFX_host.cpp play.cpp $(sdl2-config --libs) -o out/play
+    $TETRIS $SIM $LAUNCHER $SETTINGS $GFX $VARIO $TERRAIN out/Adafruit_GFX_host.cpp play.cpp $(sdl2-config --libs) -o out/play
   if [ "$1" = "smoke" ]; then exec ./smoke.sh; fi
   shift
   exec out/play "$@"
 fi
-SRC="$VARIO $GFX $TETRIS $LAUNCHER $SETTINGS $TERRAIN out/Adafruit_GFX_host.cpp"
+SRC="$VARIO $GFX $TETRIS $SIM $LAUNCHER $SETTINGS $TERRAIN out/Adafruit_GFX_host.cpp"
 FLAGS="-std=c++17 -g -O1 -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I.
        -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all"
 c++ $FLAGS -I"$G" $SRC emu_main.cpp -o out/emu
 c++ $FLAGS -I"$G" $SRC tests.cpp -o out/tests
+# Flight sim scenario renderer and timing tool (no sanitizers: the timings are meant to be read)
+c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" $SIM $GFX $TERRAIN out/Adafruit_GFX_host.cpp sim_demo.cpp -o out/sim_demo
 # Map page preview tool: hillshade + contours + roads + towns from a map pack (no sanitizers, it is a render tool)
 c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -Istubs -I../src -I. -I"$G" $GFX $TERRAIN terrain_demo.cpp -o out/terrain_demo
 if [ "$1" = "replay" ]; then shift; exec out/emu replay "$@"; fi

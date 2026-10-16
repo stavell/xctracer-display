@@ -1,0 +1,103 @@
+#pragma once
+// The air: wind, thermals, ridge lift, lee sink, general sink. Pure float maths, deterministic from a seed.
+//
+// Frame: x east, y north (m), z altitude above sea level (m), t seconds of the sim day.
+//
+// Wind: a direction (where it blows FROM, degrees) and a speed at the start altitude that grows with height
+// (+40 % per 1000 m, kept within 0.6 .. 2.2 of the base).
+//
+// Thermals: the world is cut into square cells of kTile m. Each cell may host a trigger point, chosen by the
+// terrain: of 9 jittered candidates the one on the best sun-facing slope or ridge top wins (the sun is in the
+// south). Over the day the cell starts thermals one after another; which cells do, when, how strong (1-5 m/s),
+// how wide (50-150 m core radius) and how long (10-20 min) comes from hash(seed, cell, number), so a seed is a
+// day and the same seed is the same day on every run. A thermal is a tilted column: the air rises at about 0.8 of
+// its strength, so the column leans with the wind (the centre at height z sits wind * dz / w downwind of the
+// trigger) and the whole column slides downwind slowly as it lives. Life cycle: build up over a quarter of the
+// life, mature, decay over the last third. Weak near the ground, fading out under the cloud base (a seeded
+// 2000-2600 m). Gaussian core with a ring of weaker sink around it.
+//
+// Ridge lift: the horizontal wind runs into the slope; the air has to climb it. Vertical speed = wind component
+// into the slope (wind . gradient, i.e. wind speed * slope) at the terrain upwind of the glider, times a decay
+// with height above the ground (lift only reaches a few hundred metres). Behind a ridge (the glider over a slope
+// that falls away in the wind direction) the same product turns negative: lee sink, with a longer reach.
+//
+// General sink: 0.5 - 1.0 m/s (seeded) between thermals, reduced inside a thermal's core.
+#include <stdint.h>
+#include "apps/games/sim/height_cache.h"
+#include "apps/games/sim/sim_math.h"
+
+namespace sim {
+
+struct AirSample {
+  float wx = 0, wy = 0;          // wind, m/s (east, north)
+  float wz = 0;                  // total vertical air speed, m/s up
+  float thermal = 0;             // thermal part of wz
+  float ridge = 0;               // ridge lift (+) / lee sink (-) part
+  float base = 0;                // general sink part (negative)
+};
+
+struct ThermalInfo {             // for the assist overlay and the tests
+  float x, y;                    // centre at the given height
+  float radius;                  // core radius at that height
+  float strength;                // m/s now (life cycle applied, not height)
+  uint32_t id;
+};
+
+class Air {
+ public:
+  static constexpr float kTile = 1800.0f;
+  static constexpr int kSlots = 64;               // cache of the cells' trigger points (probe window of 4)
+  static constexpr int kMaxInfo = 16;
+  static constexpr int kMaxActive = 24;
+
+  explicit Air(uint32_t seed = 1) { setSeed(seed); }
+  void setSeed(uint32_t seed);
+  uint32_t seed() const { return seed_; }
+  void setField(const HeightCache* f) { field_ = f; clearTiles(); }
+  // Wind from fromDeg (meteorological), speed m/s at refAlt (m).
+  void setWind(float fromDeg, float speed, float refAlt);
+  float cloudBase() const { return cloudBase_; }
+  float baseSink() const { return baseSink_; }
+
+  void sample(float x, float y, float z, float t, AirSample* out) const;
+  void wind(float z, float* wx, float* wy) const;
+
+  // Thermals active at time t whose columns come within `range` m of (x, y) at altitude z.
+  int nearby(float x, float y, float z, float t, float range, ThermalInfo* out, int cap) const;
+
+  // Quality of a trigger point 0..1 for the given spot (sun-facing slope + ridge top); -1 where the terrain is not loaded.
+  float triggerScore(float x, float y) const;
+
+ private:
+  struct Tile {
+    int tx = 0x7fffffff, ty = 0;
+    bool valid = false;
+    float x = 0, y = 0, z = 0, score = 0;       // best trigger candidate in the cell
+  };
+  struct Th {
+    float x0, y0, z0, t0, life, S, R;
+    uint32_t id;
+  };
+  struct Active {
+    Th th;
+    float cx, cy;                // column centre at the query height
+    float env;                   // life cycle 0..1
+    float R;                     // core radius at the query height
+  };
+  void clearTiles() { for (int i = 0; i < kSlots; i++) tiles_[i].valid = false; }
+  const Tile* tile(int tx, int ty) const;
+  int collect(float x, float y, float z, float t, float range, Active* out, int cap) const;
+  bool thermalOf(const Tile& tl, int tx, int ty, int number, Th* out) const;
+  float envelope(const Th& th, float t) const;
+  void columnCentre(const Th& th, float z, float t, float* cx, float* cy) const;
+  float ridgeLift(float x, float y, float z) const;
+
+  uint32_t seed_ = 1;
+  const HeightCache* field_ = nullptr;
+  float windToX_ = 0, windToY_ = 1, windSpeed_ = 0, windRefAlt_ = 0;
+  float cloudBase_ = 2400, baseSink_ = 0.7f;
+  mutable Tile tiles_[kSlots];
+  mutable Active scratch_[kMaxActive];
+};
+
+}  // namespace sim
