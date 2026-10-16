@@ -1276,6 +1276,7 @@ static void test_app_anim_cadence() {
 }
 
 #include "robust_tests.h"
+#include "sharp_frame_tests.h"
 
 static uint32_t fakeUs = 0;
 static uint32_t fakeClock() { return fakeUs += 7; }   // every call advances 7 us
@@ -1352,6 +1353,7 @@ int main() {
   { int ops = 0; gt::run(ops); printf("gfx: %d random canvas ops compared\n", ops); }
   test_spsc_ring();
   test_linediff();
+  test_sharp_pack();
   test_devmatch();
   test_command_decode();
   test_show_raw();

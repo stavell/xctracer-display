@@ -18,17 +18,29 @@ class SharpPanel : public IPanel {
   void refresh() override;
   void showRaw(const uint8_t* frame) override;
   void stopVcom();
-  uint32_t refreshUs() const { return refreshUs_; }     // duration of the last SPI refresh, for diagnostics
+  // Blocks until the in-flight transfer has finished (aborts it after 50 ms). Call before anything
+  // that stops or powers down the panel.
+  void waitIdle();
+
+  // Diagnostics. refreshUs: CPU time in the last present()/refresh() (wait + pack + start).
+  uint32_t refreshUs() const { return refreshUs_; }
+  uint32_t sendUs() const;                              // start to done of the last transfer (DWT)
+  uint32_t waitUs() const { return waitUs_; }           // time the last send spent waiting for the previous one
+  uint32_t timeouts() const { return timeouts_; }       // transfers aborted after 50 ms
 
   int lastLines() const { return lastLines_; }          // lines sent by the last refresh
 
  private:
-  void sendLines(const uint8_t* idx, int n);
+  void send(const uint8_t* idx, int n);   // pack, update the snapshot, start the DMA
+  void sendAll();
   int lastLines_ = 0;
   uint8_t vcomBit_ = SHARPMEM_BIT_VCOM;   // mirror of the library's private _sharpmem_vcom
   FastSharp display_;
   SoftwareTimer vcom_;
   uint8_t* snap_ = nullptr;
   bool dirty_ = true;
+  bool ready_ = false;                    // SPIM2 initialised
   uint32_t refreshUs_ = 0;
+  uint32_t waitUs_ = 0;
+  uint32_t timeouts_ = 0;
 };

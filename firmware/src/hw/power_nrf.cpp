@@ -27,7 +27,8 @@ void PowerNrf::shutdown() {
   panel_.clear();                   // never leave a picture on a panel whose VCOM is stopped
   panel_.invalidate();
   panel_.present();
-  panel_.stopVcom();
+  panel_.stopVcom();                // waits for the last transfer before VCOM stops
+  panel_.waitIdle();                // and never power down mid-transfer
   sleepNow(pin_);
 }
 

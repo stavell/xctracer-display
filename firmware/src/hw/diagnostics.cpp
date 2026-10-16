@@ -5,6 +5,7 @@
 #endif
 #include "app/app.h"
 #include "hw/compass_lis.h"
+#include "hw/cyccnt.h"
 #include "hw/panel_sharp.h"
 #include "core/compass.h"
 #include "core/flight.h"
@@ -40,12 +41,12 @@ static void runBench() {
     }
     init = true;
   }
-  uint32_t t0 = micros();
+  uint32_t t0 = fastMicros();
   Sample s;
   bool ok = xctrcParse("$XCTRC,2026,8,16,10,38,24,0,43.252650,26.927967,1387.00,34.13,12.5,-1.30,,,,967.62,85*7c", s);
-  uint32_t t1 = micros();
+  uint32_t t1 = fastMicros();
   WindFit f = fitWind(pts, 30);
-  uint32_t t2 = micros();
+  uint32_t t2 = fastMicros();
   (void)ok; (void)f;
   benchParseUs = t1 - t0;
   benchWindUs = t2 - t1;
@@ -69,9 +70,9 @@ static void runFlightBench() {
     s.fix = true; s.lat = 43 + y / 111320.0; s.lon = 26 + x / (111320.0 * cos(43 * D2R));
     s.speedKmh = (float)(hypot(gx, gy) * 3.6); s.course = (float)fmod(atan2(gx, gy) / D2R + 360, 360);
     s.vario = 2.5f; s.alt = 1400.0f + i; s.hh = 12; s.mm = i / 60; s.ss = i % 60;
-    uint32_t t0 = micros();
+    uint32_t t0 = fastMicros();
     benchFm.feed(s);
-    uint32_t dt = micros() - t0;
+    uint32_t dt = fastMicros() - t0;
     sum += dt;
     if (dt > mx) mx = dt;
   }
@@ -80,62 +81,61 @@ static void runFlightBench() {
   Compass c;
   Vec3 a, mg;
   a.x = 0.5f; a.y = 0.3f; a.z = 9.7f; mg.x = 20; mg.y = -10; mg.z = -35;
-  uint32_t t0 = micros();
+  uint32_t t0 = fastMicros();
   for (int i = 0; i < 10; i++) c.update(a, mg);
-  benchCompassUs = (micros() - t0) / 10;
+  benchCompassUs = (fastMicros() - t0) / 10;
 }
 
 // Cost of the primitives the views are built from, timed on the real canvas. Result line: bench ...
 static char benchLine[200];
 static char fontsLine[64];
 static bool benchPending = false;
-static uint32_t usNow() { return micros(); }
 
 void diagnosticsBench() {
-  profSetClock(usNow);                     // draw-time sections, printed by diagnosticsTick
+  profSetClock(fastMicros);                     // draw-time sections, printed by diagnosticsTick
   SharpPanel& p = *gPanel;
   p.setRotation(1);
   p.clear();
   Adafruit_GFX& g = p.gfx();
-  uint32_t t0 = micros();
+  uint32_t t0 = fastMicros();
   for (int i = 0; i < 10000; i++) g.drawPixel(i % 200 + 10, (i / 200) % 100 + 10, i & 1 ? 0 : 1);
-  uint32_t pixelUs = micros() - t0;
-  t0 = micros();
+  uint32_t pixelUs = fastMicros() - t0;
+  t0 = fastMicros();
   for (int i = 0; i < 100; i++) g.drawLine(10, 100 + (i & 3), 209, 100 + (i & 3), 0);      // horizontal
-  uint32_t hUs = (micros() - t0) / 100;
-  t0 = micros();
+  uint32_t hUs = (fastMicros() - t0) / 100;
+  t0 = fastMicros();
   for (int i = 0; i < 100; i++) g.drawLine(100 + (i & 3), 150, 100 + (i & 3), 349, 0);     // vertical
-  uint32_t vUs = (micros() - t0) / 100;
-  t0 = micros();
+  uint32_t vUs = (fastMicros() - t0) / 100;
+  t0 = fastMicros();
   for (int i = 0; i < 100; i++) g.drawLine(10, 100 + (i & 3), 209, 299 + (i & 3), 0);      // diagonal
-  uint32_t dUs = (micros() - t0) / 100;
-  t0 = micros();
+  uint32_t dUs = (fastMicros() - t0) / 100;
+  t0 = fastMicros();
   for (int i = 0; i < 50; i++) g.fillRect(0, 0, 100, 20, i & 1 ? 0 : 1);
-  uint32_t fillUs = (micros() - t0) / 50;
+  uint32_t fillUs = (fastMicros() - t0) / 50;
   g.setFont(&FreeSansBold24pt7b);
   g.setTextSize(1);
   g.setTextColor(0);
-  t0 = micros();
+  t0 = fastMicros();
   for (int i = 0; i < 100; i++) { g.setCursor(10, 60); g.print("1234"); }
-  uint32_t textUs = (micros() - t0) / 100;
+  uint32_t textUs = (fastMicros() - t0) / 100;
   g.setFont(nullptr);
   // The same string through the pre-rotated glyph sheets. The build is timed once, with the RAM it holds.
-  t0 = micros();
+  t0 = fastMicros();
   const Font1* big = nullptr;
   for (int i = 0; i < 5; i++) {
     if (i == 1) continue;                                  // Sans Bold 9 is not drawn anywhere
     const Font1* f = viewFont(viewGfxFont(i), 1);
     if (i == 4) big = f;
   }
-  uint32_t buildUs = micros() - t0;
+  uint32_t buildUs = fastMicros() - t0;
   snprintf(fontsLine, sizeof fontsLine, "fonts build_us=%lu ram_bytes=%lu\n", (unsigned long)buildUs, (unsigned long)viewFontRam());
   Serial.print(fontsLine);
   uint32_t ftextUs = 0;
   if (big) {
     Bitmap1 bm = p.bitmap();
-    t0 = micros();
+    t0 = fastMicros();
     for (int i = 0; i < 100; i++) drawText(bm, 10, 60, "1234", *big, DRAW_CLEAR);
-    ftextUs = (micros() - t0) / 100;
+    ftextUs = (fastMicros() - t0) / 100;
   }
   p.clear();
   p.invalidate();
@@ -162,17 +162,18 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   if (!Serial || Serial.availableForWrite() < 120) return;
   runBench();
   runFlightBench();
-  uint32_t v0 = micros();
+  uint32_t v0 = fastMicros();
   const ViewModel& vm = app.buildViewModel(now);
 #ifdef DIAGNOSTICS
-  benchVmUs = micros() - v0;
+  benchVmUs = fastMicros() - v0;
 #else
   (void)v0;
 #endif
-  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus refresh=%luus parse=%luus windfit=%luus viewmodel=%luus feed_avg=%luus feed_max=%luus compass=%luus",
+  Serial.printf("st ok=%lu bad=%lu fresh=%d fix=%d alt=%.0f spd=%.0f vs=%+.1f wind=%d/%.0f sim=%d link=%d pg=%d marks=%d trail=%d tick=%luus refresh=%luus send=%luus wait=%luus spito=%lu parse=%luus windfit=%luus viewmodel=%luus feed_avg=%luus feed_max=%luus compass=%luus",
                 (unsigned long)app.linesOk(), (unsigned long)app.linesBad(), vm.fresh, vm.s.fix,
                 vm.s.alt, vm.s.speedKmh, vm.s.vario, vm.wind.valid, vm.wind.speedKmh, vm.sim, (int)vm.link,
                 (int)vm.page, vm.markCount, vm.trailCount, (unsigned long)worstTickUs, (unsigned long)panel.refreshUs(),
+                (unsigned long)panel.sendUs(), (unsigned long)panel.waitUs(), (unsigned long)panel.timeouts(),
                 (unsigned long)benchParseUs, (unsigned long)benchWindUs, (unsigned long)benchVmUs,
                 (unsigned long)benchFeedAvgUs, (unsigned long)benchFeedMaxUs, (unsigned long)benchCompassUs);
 #ifdef DIAGNOSTICS
