@@ -85,6 +85,7 @@ void Ahrs::windowEnd(uint32_t nowMs) {
   for (int i = 0; i < 3; i++) { mg[i] = sumG_[i] / n; ma[i] = sumA_[i]; mm[i] = sumM_[i]; }
   double var = sumG2_ / n - (mg[0] * mg[0] + mg[1] * mg[1] + mg[2] * mg[2]);
   float gstd = var > 0 ? (float)sqrt(var) : 0;
+  dbg_.gstdDps = gstd * R2D; dbg_.winBad = winBad_;
   float la = len3(ma), lm = len3(mm);
   bool ok = !winBad_ && la > 0 && lm > 0;
   Vec3 ua, um;
@@ -99,6 +100,7 @@ void Ahrs::windowEnd(uint32_t nowMs) {
   }
   if (ok) { prevA_ = ua; prevM_ = um; havePrev_ = true; } else havePrev_ = false;
   stillWin_ = still ? stillWin_ + 1 : 0;
+  dbg_.stillWin = stillWin_; dbg_.biasWins = biasWins_;
   if (still) {
     // fast at first (0.6, 0.3, 0.2), then a slow average (0.15) so the estimate is not noisier than the gyro
     const float rate = fmaxf(0.15f, 0.6f / (1.0f + (float)biasWins_));
@@ -188,6 +190,8 @@ void Ahrs::update(const Vec3& gyro, const Vec3& a, const Vec3& m, uint32_t nowMs
       magRef_ = mm; dipRef_ = dip; magRejectMs_ = 0;
     }
   }
+  dbg_.trust = trust; dbg_.hxy = hxy; dbg_.magRef = magRef_; dbg_.dipRef = dipRef_; dbg_.magOk = magOk;
+  dbg_.dip = mm > 0 ? mw2 / mm : 0;
   if (magOk) {
     const float phi = atan2f(mw0, mw1);                // >0: the field leans east, the estimate is turned too far west; rotate it by +phi about up
     for (int i = 0; i < 3; i++) em[i] = trust * phi * up[i];
@@ -237,7 +241,7 @@ void Ahrs::update(const Vec3& gyro, const Vec3& a, const Vec3& m, uint32_t nowMs
   sumG2_ += (double)gyro.x * gyro.x + (double)gyro.y * gyro.y + (double)gyro.z * gyro.z;
   if (accOk) { sumA_[0] += ua.x; sumA_[1] += ua.y; sumA_[2] += ua.z; } else winBad_ = true;
   if (mm > 0) { sumM_[0] += m.x / mm; sumM_[1] += m.y / mm; sumM_[2] += m.z / mm; } else winBad_ = true;
-  if (!magOk) winBad_ = true;
+  // A rejected field must not block bias learning: the gyro and gravity alone show the box is still.
   if (nowMs - winStart_ >= WINDOW_MS) windowEnd(nowMs);
 
   float rr[3][3];

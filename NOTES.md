@@ -326,3 +326,12 @@ project is and how to run it; this file says what we found and why things are th
   10 s; turn: 67 in 10 s. Recovery from a 25 deg field twist now takes tens of seconds (tau 10 s). Trade-off:
   with an unlearned gyro bias in motion (never still since power-up) the heading sits bias/kp off until the
   integral catches up (about 20 s).
+- Fused compass on the device, 2026-10-16. Lying still after the KP_MAG 0.1 change, the heading spun at
+  about 5 deg/s. The new `ahrs` status line showed why: the calibrated field, seen through the attitude,
+  was almost vertical (dip -0.999, horizontal 2-5 uT, below MIN_HORIZ_UT 8). So the magnetometer was
+  rejected (trust 0), and every rejected sample also marked the still-detection window bad, so the gyro
+  bias was never learned. Fix: field rejection no longer blocks still detection. Bias is now learned in
+  about 3 s (10.1 dps) and the heading holds flat on the gyro alone. Open: why the horizontal field is
+  near zero. The raw readings give a plausible dip (about 60 deg), so the stored hard-iron calibration is
+  the first suspect; recalibrate away from the laptop. If the field is still vertical after that, the
+  mag and accel chip axes disagree (run orient_log.py / orient_analyze.py).

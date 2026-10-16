@@ -52,6 +52,8 @@ class Ahrs {
   float biasDps() const;                          // magnitude, deg/s (diagnostics)
   Vec3 up() const;                                // predicted gravity direction (unit, device frame)
   bool still() const { return stillWin_ >= 1; }   // box has been still for about a second
+  struct Debug { float trust, hxy, magRef, dipRef, dip, gstdDps; int magOk, stillWin, biasWins, winBad; };
+  Debug debug() const { return dbg_; }            // last values, for the diagnostics status line
 
  private:
   bool seed(const Vec3& a, const Vec3& m, uint32_t nowMs);
@@ -74,4 +76,5 @@ class Ahrs {
   Vec3 prevA_, prevM_;
   bool havePrev_ = false;
   int stillWin_ = 0, biasWins_ = 0;
+  Debug dbg_ = {};
 };
