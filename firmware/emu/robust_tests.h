@@ -289,7 +289,7 @@ struct WrapTrace {
 };
 
 static WrapTrace runWrapScript(uint32_t base) {
-  CountPanel panel; MockInput input; MockBattery battery; MockTracer tracer; StampLaptop laptop; MockSettings settings;
+  CountPanel panel; MockInput input; MockBattery battery; MockTracer tracer; StampLaptop laptop; MockKeyStore keys; BoxSettings settings{keys};
   MockCompass compass; MockThermo thermo; MockPower power;
   Driven app(panel, input, battery, tracer, laptop, settings, compass, thermo, power);
   app.begin(base);

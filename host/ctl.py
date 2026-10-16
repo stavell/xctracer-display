@@ -3,8 +3,9 @@
   python ctl.py tz 180           local time offset from UTC, minutes
   python ctl.py sim on|off       built-in flight simulator (bench testing)
   python ctl.py page compass|thermal|profile|home|map   switch the page
-  python ctl.py cal start|save|cancel  magnetometer calibration
-  python ctl.py orient 0..23     how the board sits in the case (host/orient_analyze.py finds the index)
+  python ctl.py cal start|save|cancel  magnetometer calibration (served by the vario; stored in the box settings, the same
+                                 ones the box image's Settings app edits. No on-device row in the vario-only image)
+  python ctl.py orient 0..23     how the board sits in the case (host/orient_analyze.py finds the index); also a Settings row
   python ctl.py diag hang|off    diagnostics build only: hang the loop (watchdog test) / power off
 """
 import asyncio

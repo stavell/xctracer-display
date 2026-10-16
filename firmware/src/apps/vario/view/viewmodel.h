@@ -91,7 +91,7 @@ struct ListModel {
   char filter[24] = "*";
   int count = 0;
   ListItem items[8];
-  int selected = 0;              // 0 = "< back", 1 = "Calibrate compass", [2 = "Apps..."], then items
-  bool appsRow = false;          // box image: a row that leaves for the launcher, after "Calibrate compass"
+  int selected = 0;              // 0 = "< back", [1 = "Home"], then the tracers found
+  bool homeRow = false;          // box image: a row that leaves for the home screen, after "< back"
   bool tools = false;            // the compass tool's menu: no tracer, so no filter line and no scanning text
 };

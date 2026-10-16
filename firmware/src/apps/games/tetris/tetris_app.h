@@ -7,7 +7,8 @@
 // (acted on at release) pauses and resumes, and starts or restarts on the title and game-over screens
 // (acted on at press); a long press (400 ms) while playing swaps the hold piece, so every function
 // works with one key and nothing is lost on the six-button console either.
-// In the box image the host takes the switch's 3 s hold (and A + B held 1.5 s) to go back to the launcher.
+// Paused: a short press (or A) resumes, a long press (or B) goes Home to the launcher. In the box image the host also
+// takes the switch's 3 s hold (and A + B held 1.5 s) to go back to the launcher, in every state.
 //
 // Frames: wantsFrame(now) is true when the picture differs from the last draw(); nextWakeMs(now) is the
 // next time anything will change by itself (gravity step, lock, key repeat, clear-animation blink,
@@ -57,6 +58,7 @@ class TetrisApp : public IApp {
   uint32_t drawnVersion_ = 0;
   int drawnPhase_ = -1;
   bool everDrawn_ = false;
+  bool pauseDown_ = false;                       // the press in progress started on the pause screen
   bool mainDown_ = false, longPending_ = false, longFired_ = false, ignoreRelease_ = false;
   uint32_t mainDownAt_ = 0;
   bool saved_ = false;

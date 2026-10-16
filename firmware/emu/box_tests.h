@@ -195,10 +195,10 @@ static void box_flow() {
   const int vf = b.r.panel.presents;
   CHECK(vf > 10);
 
-  // Leave through the device list: long press, short, short (to "Apps..."), long.
+  // Leave through the vario's menu: long press, short (to "Home"), long.
   u.longp();
   CHECK(b.varioCore.listOpen() && b.r.tracer.opened);
-  u.shortp(); u.shortp();
+  u.shortp();
   u.longp();
   CHECK(b.host.active() == &b.launcher);
   CHECK(b.r.tracer.paused && b.r.tracer.pauses == 1 && !b.r.tracer.opened);   // link and scan stopped
@@ -311,35 +311,40 @@ static void box_gestures() {
     b.r.input.setKey(KEY_ACTION, false, u.now);
     b.r.input.setKey(KEY_B, false, u.now);
     u.run(100);
-    // D-pad in the launcher: DOWN moves, A starts, UP moves back.
-    b.r.input.setKey(KEY_DOWN, true, u.now); u.run(50); b.r.input.setKey(KEY_DOWN, false, u.now); u.run(50);
-    b.r.input.setKey(KEY_DOWN, true, u.now); u.run(50); b.r.input.setKey(KEY_DOWN, false, u.now); u.run(50);
-    CHECK(b.launcher.selected() == 2);
-    b.r.input.setKey(KEY_UP, true, u.now); u.run(50); b.r.input.setKey(KEY_UP, false, u.now); u.run(50);
-    CHECK(b.launcher.selected() == 1);
-    b.r.input.setKey(KEY_ACTION, true, u.now); u.run(50); b.r.input.setKey(KEY_ACTION, false, u.now); u.run(50);
+    // D-pad on the home grid (2 columns): DOWN / UP change the row, LEFT / RIGHT the column, A opens.
+    auto tap = [&](Key k) { b.r.input.setKey(k, true, u.now); u.run(50); b.r.input.setKey(k, false, u.now); u.run(50); };
+    CHECK(b.launcher.selected() == 0);
+    tap(KEY_DOWN);  CHECK(b.launcher.selected() == 2);
+    tap(KEY_DOWN);  CHECK(b.launcher.selected() == 2);          // no third row with four apps
+    tap(KEY_RIGHT); CHECK(b.launcher.selected() == 3);
+    tap(KEY_LEFT);  CHECK(b.launcher.selected() == 2);
+    tap(KEY_UP);    CHECK(b.launcher.selected() == 0);
+    tap(KEY_RIGHT); CHECK(b.launcher.selected() == 1);
+    tap(KEY_ACTION);
     CHECK(b.host.active() == &b.tetris);
   }
   {
-    Box b;                                          // the start-up app is stored and chosen in the launcher
+    Box b;                                          // the start-up app is stored and chosen in Settings
     BoxRun u(b);
-    CHECK(b.launcher.startupApp() == Box::APP_VARIO);
+    CHECK(b.registry.startupApp(b.keys) == Box::APP_VARIO);
     b.keys.v[SLOT_BOOT_APP] = 99;                   // garbage: the vario
-    CHECK(b.launcher.startupApp() == Box::APP_VARIO);
-    b.keys.v[SLOT_BOOT_APP] = Box::APP_LAUNCHER;    // the launcher itself is not a start-up app
-    CHECK(b.launcher.startupApp() == Box::APP_VARIO);
+    CHECK(b.registry.startupApp(b.keys) == Box::APP_VARIO);
+    b.keys.v[SLOT_BOOT_APP] = Box::APP_LAUNCHER;    // the home screen itself is not a start-up app
+    CHECK(b.registry.startupApp(b.keys) == Box::APP_VARIO);
+    b.keys.v[SLOT_BOOT_APP] = Box::APP_SETTINGS;    // nor is Settings: a box never boots into a tool
+    CHECK(b.registry.startupApp(b.keys) == Box::APP_VARIO);
     b.keys.v[SLOT_BOOT_APP] = 0;
     b.boot(0);
-    b.host.start(Box::APP_LAUNCHER, 0);
+    b.host.start(Box::APP_SETTINGS, 0);
     u.run(100);
-    u.shortp(); u.shortp(); u.shortp();             // to the "Start-up" row
-    CHECK(b.launcher.selected() == 3);
+    u.shortp(); u.shortp();                         // to the "Start-up app" row
+    CHECK(b.settings.selected() == SettingsApp::ROW_STARTUP);
     u.longp();
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_TETRIS && b.keys.writes == 1);
-    CHECK(b.host.active() == &b.launcher);
+    CHECK(b.host.active() == &b.settings);
     u.longp();
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_COMPASS);
-    u.longp(); u.longp();
+    u.longp(); u.longp();                           // Settings is skipped: vario, then Tetris
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_TETRIS);
     // A new power-on starts that app, and the vario's radios stay quiet until it is opened.
     Box c;
@@ -364,7 +369,7 @@ static void box_gestures() {
     CHECK(b.toolCore.buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);   // a short press does not change pages
     u.longp();
     CHECK(b.toolCore.listOpen());
-    u.shortp(); u.shortp();                          // back, calibrate, Apps...
+    u.shortp();                                      // back, Home (no calibration here: that is Settings')
     u.longp();
     CHECK(b.host.active() == &b.launcher && !b.r.compass.enabled);
     b.host.start(Box::APP_COMPASS, u.now);
@@ -388,12 +393,257 @@ static void box_gestures() {
   }
 }
 
+static void settings_store() {
+  puts("box settings: storage, mounting move, migration, batching");
+  MockKeyStore k;
+  BoxSettings s(k);
+  MagCal m;
+  CHECK(s.tzMinutes() == 0 && s.mountIndex() == 0 && !s.loadMagCal(m));
+  s.setTzMinutes(-210);
+  CHECK(s.tzMinutes() == -210);
+  s.setTzMinutes(5000);
+  CHECK(s.tzMinutes() == 1440);                                      // kept within a day
+  MagCal c;
+  c.valid = true; c.off[0] = 10; c.off[1] = -20; c.off[2] = 30; c.radius = 45;
+  const int w0 = k.writes;
+  s.saveMagCal(c);
+  CHECK(k.writes == w0 + 1);                                         // five slots, one flash write
+  CHECK(s.loadMagCal(m) && m.valid && m.off[0] == 10 && m.off[1] == -20 && m.off[2] == 30 && m.radius == 45);
+  const int w1 = k.writes;
+  CHECK(s.setMountIndex(7) && s.mountIndex() == 7);
+  CHECK(k.writes == w1 + 1);                                         // offsets and index together
+  Vec3 o; o.x = 10; o.y = -20; o.z = 30;
+  o = mountRemap(0, 7, o);                                           // the offsets live in the device frame: they move along
+  CHECK(s.loadMagCal(m));
+  NEAR(m.off[0], o.x, 1e-4); NEAR(m.off[1], o.y, 1e-4); NEAR(m.off[2], o.z, 1e-4);
+  CHECK(!s.setMountIndex(24) && !s.setMountIndex(-1) && s.mountIndex() == 7);
+  CHECK(s.setMountIndex(7) && k.writes == w1 + 1);                   // no change, no write
+  k.v[SLOT_MAG_X] = 0x7fc00000u;                                     // a damaged slot (NaN): as if there were no calibration
+  CHECK(!s.loadMagCal(m));
+  k.v[SLOT_MOUNT] = 99;
+  CHECK(s.mountIndex() == 0);                                        // garbage mounting: the identity
+
+  // One-time import of what older firmware kept in the vario's files.
+  MockKeyStore k2;
+  BoxSettings s2(k2);
+  BoxSettings::Legacy l;
+  l.haveCal = true; l.cal = c; l.haveMount = true; l.mount = 13; l.haveTz = true; l.tz = 180;
+  CHECK(!s2.migrated());
+  s2.importLegacy(l);
+  CHECK(s2.migrated() && k2.writes == 1);
+  CHECK(s2.tzMinutes() == 180 && s2.mountIndex() == 13 && s2.loadMagCal(m) && m.off[1] == -20 && m.radius == 45);
+  s2.setTzMinutes(-60);
+  BoxSettings::Legacy stale;
+  stale.haveTz = true; stale.tz = 999; stale.haveMount = true; stale.mount = 2;
+  s2.importLegacy(stale);                                            // never again: a changed value is not overwritten
+  CHECK(s2.tzMinutes() == -60 && s2.mountIndex() == 13);
+  MockKeyStore k3;
+  BoxSettings s3(k3);
+  BoxSettings::Legacy bad;
+  bad.haveMount = true; bad.mount = 77;
+  s3.importLegacy(bad);
+  CHECK(s3.migrated() && s3.mountIndex() == 0 && !s3.loadMagCal(m));
+
+  // The wall clock: the tracer's GPS time of day plus the time since, never invented.
+  WallClock wc;
+  CHECK(wc.localMinutes(0, 1000) == -1);
+  wc.set(10 * 3600 + 38 * 60 + 30, 5000);
+  CHECK(wc.localMinutes(0, 5000) == 10 * 60 + 38);
+  CHECK(wc.localMinutes(0, 5000 + 31000) == 10 * 60 + 39);           // 31 s later, past the minute
+  CHECK(wc.localMinutes(180, 5000) == 13 * 60 + 38);
+  CHECK(wc.localMinutes(-11 * 60, 5000) == 23 * 60 + 38);            // wraps over midnight
+  CHECK(wc.localMinutes(0, 5000 + 13u * 3600u * 1000u) == -1);       // stale after 12 h
+  wc.set(86400, 0);                                                  // out of range: ignored
+  CHECK(wc.localMinutes(0, 5000) == 10 * 60 + 38);
+}
+
+static void settings_app() {
+  puts("box: Settings app (calibration, mounting, start-up, time zone, About, Home)");
+  Box b;
+  BoxRun u(b);
+  b.boot(0);
+  b.host.start(Box::APP_SETTINGS, 0);
+  u.run(300);
+  CHECK(!b.r.compass.enabled);                                       // the sensors run only on the calibration screen
+  CHECK(blackPixels(b.r.panel) > 2500);
+  // Compass calibration: long press opens it, turn the unit, long press keeps it.
+  b.r.compass.hardIron[0] = 12; b.r.compass.hardIron[1] = -18; b.r.compass.hardIron[2] = 7;
+  u.longp();
+  CHECK(b.settings.screen() == SettingsApp::S_CAL && b.settings.calibrating());
+  u.run(100);
+  CHECK(b.r.compass.enabled);
+  for (int psi = 0; psi < 360; psi += 20)
+    for (int pitch = -90; pitch <= 90; pitch += 30)
+      for (int roll = -90; roll <= 90; roll += 45) {
+        b.r.compass.psi = psi; b.r.compass.pitch = pitch; b.r.compass.roll = roll;
+        u.run(20);
+      }
+  const int w0 = b.keys.writes;
+  u.longp();
+  MagCal m;
+  CHECK(!b.settings.calibrating() && b.settings.screen() == SettingsApp::S_LIST && !b.r.compass.enabled);
+  CHECK(b.r.settings.loadMagCal(m) && b.keys.writes == w0 + 1);
+  NEAR(m.off[0], 12, 3); NEAR(m.off[1], -18, 3); NEAR(m.off[2], 7, 3);
+  // A cancelled calibration changes nothing; so does leaving mid-way (the 3 s hold goes home, sensors off).
+  const float keep = m.off[0];
+  u.longp();
+  u.run(300);
+  u.shortp();
+  CHECK(b.settings.screen() == SettingsApp::S_LIST && !b.r.compass.enabled);
+  CHECK(b.r.settings.loadMagCal(m) && m.off[0] == keep && b.keys.writes == w0 + 1);
+  u.longp();
+  CHECK(b.r.compass.enabled);
+  u.off();
+  CHECK(b.host.active() == &b.launcher && !b.r.compass.enabled && !b.settings.calibrating());
+  CHECK(b.r.settings.loadMagCal(m) && m.off[0] == keep);
+
+  // Board mounting: +1 per long press, wraps at 24; the stored offsets move along.
+  b.host.start(Box::APP_SETTINGS, u.now);
+  u.run(100);
+  u.shortp();
+  CHECK(b.settings.selected() == SettingsApp::ROW_MOUNT);
+  u.longp();
+  CHECK(b.r.settings.mountIndex() == 1);
+  Vec3 o; o.x = keep; o.y = 0; (void)o;
+  MagCal m1;
+  CHECK(b.r.settings.loadMagCal(m1));
+  for (int i = 0; i < 23; i++) u.longp();
+  CHECK(b.r.settings.mountIndex() == 0);                             // 24 steps: back to the start
+  MagCal m2;
+  CHECK(b.r.settings.loadMagCal(m2));
+  NEAR(m2.off[0], keep, 1e-3);                                       // a full turn through the table returns the offsets
+  b.r.settings.setMountIndex(5);
+
+  // Time zone: +1 h per long press and wraps from +14:00 to -12:00; the arrows move by 30 minutes.
+  u.shortp(); u.shortp();
+  CHECK(b.settings.selected() == SettingsApp::ROW_TZ);
+  u.longp();
+  CHECK(b.r.settings.tzMinutes() == 60);
+  b.r.settings.setTzMinutes(14 * 60);
+  u.longp();
+  CHECK(b.r.settings.tzMinutes() == -12 * 60);
+  b.r.input.setKey(KEY_RIGHT, true, u.now); u.run(50); b.r.input.setKey(KEY_RIGHT, false, u.now); u.run(50);
+  CHECK(b.r.settings.tzMinutes() == -12 * 60 + 30);
+  b.r.input.setKey(KEY_LEFT, true, u.now); u.run(50); b.r.input.setKey(KEY_LEFT, false, u.now); u.run(50);
+  CHECK(b.r.settings.tzMinutes() == -12 * 60);
+
+  // About: long press opens, any press goes back. Then Home.
+  u.shortp();
+  CHECK(b.settings.selected() == SettingsApp::ROW_ABOUT);
+  u.longp();
+  CHECK(b.settings.screen() == SettingsApp::S_ABOUT);
+  u.run(100);
+  CHECK(blackPixels(b.r.panel) > 800);
+  u.shortp();
+  CHECK(b.settings.screen() == SettingsApp::S_LIST);
+  u.shortp();
+  CHECK(b.settings.selected() == SettingsApp::ROW_HOME);
+  u.longp();
+  CHECK(b.host.active() == &b.launcher);
+
+  // Six buttons: arrows move, A opens, B goes back (a sub-screen first, then home).
+  b.host.start(Box::APP_SETTINGS, u.now);
+  u.run(100);
+  auto tap = [&](Key k) { b.r.input.setKey(k, true, u.now); u.run(50); b.r.input.setKey(k, false, u.now); u.run(50); };
+  tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN);
+  CHECK(b.settings.selected() == SettingsApp::ROW_ABOUT);
+  tap(KEY_ACTION);
+  CHECK(b.settings.screen() == SettingsApp::S_ABOUT);
+  tap(KEY_B);
+  CHECK(b.settings.screen() == SettingsApp::S_LIST && b.host.active() == &b.settings);
+  tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP);
+  tap(KEY_ACTION);                                                   // the Compass row
+  CHECK(b.settings.calibrating());
+  tap(KEY_B);                                                        // cancels
+  CHECK(!b.settings.calibrating() && b.host.active() == &b.settings);
+  tap(KEY_B);
+  CHECK(b.host.active() == &b.launcher);
+
+  // The vario picks up what Settings stored: mounting and calibration when it starts.
+  b.r.settings.setMountIndex(9);
+  b.host.start(Box::APP_VARIO, u.now);
+  u.run(300);
+  CHECK(b.varioCore.mountIndex() == 9);
+  CHECK(b.varioCore.compass().calibration().valid);
+}
+
+// ctl.py cal / orient / tz reach the same storage while the vario runs in the box.
+static void box_laptop_commands() {
+  puts("box: laptop commands (cal, orient, tz) use the box's settings");
+  Box b;
+  BoxRun u(b);
+  b.boot(0);
+  u.run(500);
+  b.r.compass.hardIron[0] = 5; b.r.compass.hardIron[1] = 9; b.r.compass.hardIron[2] = -14;
+  Command c; c.type = Command::CAL; c.value = 1;
+  b.r.laptop.cmds.push_back(c);
+  u.run(200);
+  CHECK(b.varioCore.calibrating());
+  for (int psi = 0; psi < 360; psi += 20)
+    for (int pitch = -90; pitch <= 90; pitch += 30)
+      for (int roll = -90; roll <= 90; roll += 45) {
+        b.r.compass.psi = psi; b.r.compass.pitch = pitch; b.r.compass.roll = roll;
+        u.run(20);
+      }
+  c.value = 2;
+  b.r.laptop.cmds.push_back(c);
+  u.run(200);
+  MagCal m;
+  CHECK(!b.varioCore.calibrating() && b.r.settings.loadMagCal(m));
+  NEAR(m.off[2], -14, 3);
+  Command o; o.type = Command::ORIENT; o.value = 11;
+  b.r.laptop.cmds.push_back(o);
+  Command tz; tz.type = Command::TZ; tz.value = -300;
+  b.r.laptop.cmds.push_back(tz);
+  u.run(200);
+  CHECK(b.r.settings.mountIndex() == 11 && b.r.settings.tzMinutes() == -300 && b.varioCore.mountIndex() == 11);
+  // The vario hands the tracer's time of day to the home screen.
+  for (int i = 0; i < 3; i++) { b.r.tracer.lines.push_back(xline(i, 1000 + i)); u.run(1000); }
+  CHECK(b.clock.localMinutes(0, u.now) == 10 * 60 + 0);
+  CHECK(b.clock.localMinutes(-300, u.now) == 5 * 60);
+}
+
+// Tetris: the pause screen's Home option.
+static void box_tetris_home() {
+  puts("box: Tetris pause screen, Home with a long press or B, A resumes");
+  Box b;
+  BoxRun u(b);
+  b.boot(0);
+  b.host.start(Box::APP_TETRIS, 0);
+  u.run(300);
+  u.shortp();                                                        // start
+  u.run(500);
+  u.shortp();                                                        // pause
+  CHECK(b.tetris.game().state() == tetris::ST_PAUSED);
+  u.longp();
+  CHECK(b.host.active() == &b.launcher);
+  b.host.start(Box::APP_TETRIS, u.now);
+  u.run(300);
+  u.shortp(); u.run(500); u.shortp();
+  CHECK(b.tetris.game().state() == tetris::ST_PAUSED);
+  b.r.input.setKey(KEY_ACTION, true, u.now); u.run(50); b.r.input.setKey(KEY_ACTION, false, u.now); u.run(50);
+  CHECK(b.tetris.game().state() == tetris::ST_PLAYING && b.host.active() == &b.tetris);   // A resumes
+  u.shortp();
+  CHECK(b.tetris.game().state() == tetris::ST_PAUSED);
+  b.r.input.setKey(KEY_B, true, u.now); u.run(50); b.r.input.setKey(KEY_B, false, u.now); u.run(50);
+  CHECK(b.host.active() == &b.launcher);                             // B goes home
+  b.host.start(Box::APP_TETRIS, u.now);
+  u.run(300);
+  u.shortp(); u.run(500);
+  u.longp();                                                         // playing: a long press still swaps the hold piece
+  CHECK(b.host.active() == &b.tetris && b.tetris.game().state() == tetris::ST_PLAYING);
+}
+
 static void test_box() {
   combo_and_debounce();
   host_frame_loop();
   box_flow();
   box_vario_matches_alone();
   box_gestures();
+  settings_store();
+  settings_app();
+  box_laptop_commands();
+  box_tetris_home();
 }
 
 }  // namespace bx

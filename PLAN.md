@@ -164,12 +164,18 @@ redraw only on position/heading change; (4) box player integration (pack file in
 (5) QSPI driver (`IBlockReader` on the nRF52840 QSPI, XIP option) and loading the pack over USB or BLE with
 `Terrain::verifyAll()` after the transfer.
 
-## Launcher refactor (requested 2026-10-16, after the map page merges)
+## Launcher refactor (requested 2026-10-16; done in the emulator and device builds, not flashed)
 
-- Launcher = the box's home screen: icon menu (Vario, Tetris, Compass & weather, Settings), status line (time, battery,
-  map pack). Boot still goes straight to the start-up app (default vario).
-- Vario menu (long press) holds only flying things: XC Tracer selection (scan list, save) and "Home" (to the launcher).
-  The "Apps..." row goes away.
-- Settings is a platform app: compass calibration (generic, used by every app), board mounting index, start-up app,
-  time zone, About (version, map pack info, OSM / Copernicus attribution). ctl.py cal/orient talk to the platform.
-- Leaving any app: its menu's "Home" item, or A+B held on the six-button hardware.
+- Launcher = the box's home screen: status bar (local time from the tracer's GPS time, map pack, battery), a 2-column grid
+  of icon tiles (Vario, Tetris, Compass & weather, Settings), footer with the chosen app's line and the key hint. Apps
+  register in `platform/app_registry.h`. Boot still goes straight to the start-up app (default vario).
+- Vario menu (long press) holds only flying things: XC Tracer selection and "Home" (box image only). "Apps..." and
+  "Calibrate compass" are gone from it. The compass tool's menu is "< back" and "Home".
+- Settings (`apps/settings` on `platform/settings/`): Compass calibration, board mounting index, start-up app, time zone,
+  About (version, map pack, Copernicus / OSM credits), Home. Mag calibration, mounting and time zone moved from the vario's
+  ConfigStore to the platform key store (`BoxSettings`), with a one-time import of the old files. `ctl.py cal / orient / tz`
+  are served by the vario (the only app that reads the laptop queue), through the same platform code and store.
+- Leaving an app: its menu's "Home" row (vario, tool, Settings), the Tetris pause screen (long press or B), the 3 s hold,
+  A+B held 1.5 s on the six-button hardware.
+- Open: laptop commands are only read while the vario is active (as before); a platform-level command reader would let
+  `ctl.py cal` work from the home screen. The home grid shows six tiles at most (two columns, three rows).

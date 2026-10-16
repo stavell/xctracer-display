@@ -11,7 +11,6 @@
 // (drawn first, never under text) and all text is drawn from pre-rotated glyph sheets.
 void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm = nullptr);
 void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm = nullptr);
-void drawCalibrate(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm = nullptr);
 void drawMessage(Adafruit_GFX& g, const char* line1, const char* line2 = nullptr, const Bitmap1* bm = nullptr);
 
 // Text goes through the pre-rotated glyph sheets (platform/gfx/font.h) whenever a draw call got a Bitmap1; off

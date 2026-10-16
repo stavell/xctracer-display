@@ -157,7 +157,7 @@ static void testScreensFastText() {
   static FastSharp fast(nullptr, 0, 400, 240, 0);
   static std::vector<uint8_t> a(sizeof(RefCanvas::buf));
   const char* names[] = {"compass", "thermal", "standalone", "list", "list_empty", "profile", "profile_short", "profile_empty",
-                         "home", "home_unreachable", "calibrate", "message", "message2", "status", "banner"};
+                         "home", "home_unreachable", "message", "message2", "status", "banner"};
   int frames = 0, bad = 0;
   for (int rot = 0; rot < 4; rot++) {
     fast.setRotation((uint8_t)rot);
@@ -202,7 +202,6 @@ static void testScreensFastText() {
         vm.homeArrival = 350; vm.homeReachable = true;
         if (s == "home_unreachable") { vm.homeDist = 12800; vm.homeGlideReq = 18.4f; vm.homeArrival = NAN; vm.homeReachable = false; }
       }
-      if (s == "calibrate") { vm.calibrating = true; vm.calSpan[0] = 61; vm.calSpan[1] = 33; vm.calSpan[2] = 12; vm.fieldUt = 47; }
       lm = ListModel();
       if (s == "list") {
         lm.count = 4; lm.selected = 3;
@@ -215,7 +214,6 @@ static void testScreensFastText() {
         viewFastText(pass == 1);
         fast.clearDisplay();
         if (s == "list" || s == "list_empty") drawList(fast, lm, vm, held, &bm);
-        else if (s == "calibrate") drawCalibrate(fast, vm, held, &bm);
         else if (s == "message") drawMessage(fast, "Powering off", nullptr, &bm);
         else if (s == "message2") drawMessage(fast, "Searching", "XC-Tracer 0123", &bm);
         else drawLive(fast, vm, held, &bm);

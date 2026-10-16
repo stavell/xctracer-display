@@ -1,112 +1,66 @@
 #include "apps/launcher/launcher_view.h"
-#include <math.h>
 #include <stdio.h>
-#include <Fonts/FreeSans9pt7b.h>
-#include <Fonts/FreeSansBold9pt7b.h>
-#include <Fonts/FreeSansBold12pt7b.h>
+#include "platform/gfx/icons.h"
 #include "platform/gfx/shapes.h"
 
-namespace {
-const int W = 240;
-const int HDR_H = 32;
-const int VISIBLE = 4;
-const int FOOT_Y = 330;
+using namespace ui;
 
-DrawMode other(DrawMode m) { return m == DRAW_SET ? DRAW_CLEAR : DRAW_SET; }
+namespace {
+const int GRID_TOP = 42, GRID_BOTTOM = 330, GAP = 8, TILE_W = 108, MARGIN = 8;
+const int FOOT_Y = 336;
 }  // namespace
 
-void LauncherView::ensureFonts(int rot) {
-  if (!small_.isBuilt(&FreeSans9pt7b, rot)) small_.build(&FreeSans9pt7b, rot);
-  if (!bold_.isBuilt(&FreeSansBold9pt7b, rot)) bold_.build(&FreeSansBold9pt7b, rot);
-  if (!mid_.isBuilt(&FreeSansBold12pt7b, rot)) mid_.build(&FreeSansBold12pt7b, rot);
-}
+void LauncherView::draw(const Bitmap1& bm, const HomeModel& m) {
+  f_.ensure(bm.rotation);
 
-// Icons live in a 48x48 box at (x, y), drawn in `ink` on a `paper` background.
-void LauncherView::icon(const Bitmap1& bm, LauncherIcon ic, int x, int y, DrawMode ink) const {
-  const DrawMode paper = other(ink);
-  const int cx = x + 24, cy = y + 24;
-  switch (ic) {
-    case ICON_VARIO: {                                    // a dial with ticks and a needle
-      circle(bm, cx, cy, 23, ink);
-      circle(bm, cx, cy, 22, ink);
-      for (int a = -60; a <= 60; a += 30) {
-        float r = a * 0.017453292f;
-        line(bm, cx + (int)lroundf(sinf(r) * 16), cy - (int)lroundf(cosf(r) * 16),
-             cx + (int)lroundf(sinf(r) * 20), cy - (int)lroundf(cosf(r) * 20), ink);
-      }
-      line(bm, cx, cy, cx + 11, cy - 13, ink);
-      line(bm, cx + 1, cy, cx + 12, cy - 13, ink);
-      fillDisc(bm, cx, cy, 3, ink);
-      break;
-    }
-    case ICON_TETRIS: {                                   // a few blocks
-      static const uint8_t cells[][2] = {{0, 0}, {1, 0}, {2, 0}, {1, 1}, {0, 2}, {1, 2}};
-      for (const auto& c : cells) {
-        int px = x + 1 + c[0] * 16, py = y + 1 + c[1] * 16;
-        bm.fillRect(px, py, 15, 15, ink);
-        bm.fillRect(px + 4, py + 4, 7, 7, paper);
-        bm.fillRect(px + 6, py + 6, 3, 3, ink);
-      }
-      break;
-    }
-    case ICON_COMPASS: {                                  // ring and a two-tone needle
-      circle(bm, cx, cy, 23, ink);
-      circle(bm, cx, cy, 22, ink);
-      for (int r = 0; r <= 17; r++) {                     // north half solid
-        int hw = 6 * r / 17;
-        bm.hspan(cx - hw, cy - 17 + r, 2 * hw + 1, ink);
-      }
-      line(bm, cx - 6, cy, cx, cy + 17, ink);             // south half outlined
-      line(bm, cx + 6, cy, cx, cy + 17, ink);
-      line(bm, cx - 6, cy, cx + 6, cy, ink);
-      bm.hspan(cx - 1, cy - 1, 3, paper);
-      break;
-    }
-    case ICON_GEAR: {
-      circle(bm, cx, cy, 13, ink);
-      circle(bm, cx, cy, 12, ink);
-      circle(bm, cx, cy, 5, ink);
-      bm.fillRect(cx - 3, cy - 20, 7, 8, ink);
-      bm.fillRect(cx - 3, cy + 13, 7, 8, ink);
-      bm.fillRect(cx - 20, cy - 3, 8, 7, ink);
-      bm.fillRect(cx + 13, cy - 3, 8, 7, ink);
-      break;
-    }
+  // Status bar: time, map pack, battery.
+  bm.fillRect(0, 0, W, BAR_H, DRAW_CLEAR);
+  char t[12];
+  if (m.localMinutes >= 0) snprintf(t, sizeof t, "%02d:%02d", m.localMinutes / 60, m.localMinutes % 60);
+  else snprintf(t, sizeof t, "--:--");
+  drawText(bm, 10, 23, t, f_.mid, DRAW_SET);
+  const int tw = textWidth(t, f_.mid);
+  // Map chip: "MAP" in a white frame when a pack is installed, "no map" when not.
+  const int cx = 10 + tw + 14, cw = 44;
+  if (m.mapOk) {
+    roundFrame(bm, cx, 7, cw, 18, 3, 2, DRAW_SET);
+    drawText(bm, cx + (cw - textWidth("MAP", f_.bold)) / 2, 21, "MAP", f_.bold, DRAW_SET);
+  } else {
+    drawText(bm, cx, 21, "no map", f_.small, DRAW_SET);
   }
-}
-
-void LauncherView::draw(const Bitmap1& bm, const LauncherModel& m) {
-  ensureFonts(bm.rotation);
-  // Header: title left, battery right, white on black.
-  bm.fillRect(0, 0, W, HDR_H, DRAW_CLEAR);
-  drawText(bm, 10, 23, "APPS", mid_, DRAW_SET);
   if (m.battPct >= 0) {
     char b[8];
     snprintf(b, sizeof b, "%d%%", m.battPct);
-    drawText(bm, W - 10 - textWidth(b, bold_), 22, b, bold_, DRAW_SET);
+    const int bw = textWidth(b, f_.bold);
+    drawText(bm, W - 10 - bw, 22, b, f_.bold, DRAW_SET);
+    battery(bm, W - 10 - bw - 36, 9, m.battPct, DRAW_SET);
   }
 
-  int first = m.selected >= VISIBLE ? m.selected - VISIBLE + 1 : 0;
-  for (int k = 0; k < VISIBLE && first + k < m.count; k++) {
-    const int i = first + k, y = ROW_Y + k * ROW_H;
+  // Grid of tiles.
+  const int n = m.count < HomeModel::MAX_TILES ? m.count : HomeModel::MAX_TILES;
+  const int rows = (n + COLS - 1) / COLS;
+  int tileH = rows > 0 ? (GRID_BOTTOM - GRID_TOP - (rows - 1) * GAP) / rows : 0;
+  if (tileH > 136) tileH = 136;
+  const bool roomy = tileH >= 120;
+  for (int i = 0; i < n; i++) {
+    const int x = MARGIN + (i % COLS) * (TILE_W + GAP), y = GRID_TOP + (i / COLS) * (tileH + GAP);
     const bool on = i == m.selected;
     const DrawMode ink = on ? DRAW_SET : DRAW_CLEAR;
-    if (on) bm.fillRect(4, y, W - 8, ROW_H - 6, DRAW_CLEAR);
-    else bm.hspan(14, y + ROW_H - 4, W - 28, DRAW_CLEAR);
-    icon(bm, m.rows[i].icon, 14, y + 6, ink);
-    drawText(bm, 74, y + 30, m.rows[i].title, mid_, ink);
-    drawText(bm, 74, y + 50, m.rows[i].sub, small_, ink);
+    if (on) roundFill(bm, x, y, TILE_W, tileH, 8, DRAW_CLEAR);
+    else roundFrame(bm, x, y, TILE_W, tileH, 8, 2, DRAW_CLEAR);
+    const int iy = y + (roomy ? 16 : 8);
+    drawIcon(bm, m.tiles[i].icon, x + (TILE_W - ICON_SIZE) / 2, iy, ink);
+    centered(bm, f_.mid, x + TILE_W / 2, iy + ICON_SIZE + (roomy ? 30 : 24), m.tiles[i].title, ink);
+    if (roomy) centered(bm, f_.small, x + TILE_W / 2, iy + ICON_SIZE + 52, m.tiles[i].sub, ink);
   }
-  if (first > 0) drawText(bm, W - 24, ROW_Y + 12, "^", bold_, DRAW_CLEAR);
-  if (first + VISIBLE < m.count) drawText(bm, W - 24, FOOT_Y - 6, "v", bold_, DRAW_CLEAR);
 
-  // Footer
+  // Footer: what the chosen tile is, and how to use the box.
   bm.hspan(0, FOOT_Y, W, DRAW_CLEAR);
   bm.hspan(0, FOOT_Y + 1, W, DRAW_CLEAR);
-  char v[40];
-  snprintf(v, sizeof v, "firmware %s", m.version);
-  drawText(bm, 10, FOOT_Y + 26, v, small_, DRAW_CLEAR);
-  const char* hint = m.dpad ? "up / down, A: start" : "press: next    hold: start";
-  if (m.heldMs >= 1500) hint = "keep holding: power off";
-  drawText(bm, 10, FOOT_Y + 52, hint, m.heldMs >= 1500 ? bold_ : small_, DRAW_CLEAR);
+  if (m.heldMs >= 1500) {
+    centered(bm, f_.bold, W / 2, FOOT_Y + 40, "keep holding: power off", DRAW_CLEAR);
+    return;
+  }
+  if (m.selected >= 0 && m.selected < n) centered(bm, f_.bold, W / 2, FOOT_Y + 28, m.tiles[m.selected].about, DRAW_CLEAR);
+  centered(bm, f_.small, W / 2, FOOT_Y + 52, m.dpad ? "arrows: move    A: open" : "press: next    hold: open", DRAW_CLEAR);
 }

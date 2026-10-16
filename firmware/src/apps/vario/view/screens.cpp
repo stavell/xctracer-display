@@ -1004,8 +1004,8 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
   if (!lm.tools) text(6, HDR + 20, b, F9);
   const int n = lm.count, sel = lm.selected;
   const int rowH = 42, y0 = HDR + 30;
-  const int extra = lm.appsRow ? 1 : 0;
-  int rows = n + 2 + extra;
+  const int extra = lm.homeRow ? 1 : 0;
+  int rows = n + 1 + extra;
   int vis = (H - y0 - 30) / rowH;
   int first = sel >= vis ? sel - vis + 1 : 0;   // scroll so the selection stays visible
   for (int k = 0; k < vis && first + k < rows; k++) {
@@ -1015,12 +1015,10 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
     uint16_t col = on ? WHT : BLK;
     if (i == 0) {
       text(10, y + 27, "< back", F12B, AL, col);
-    } else if (i == 1) {
-      text(10, y + 27, "Calibrate compass", F12B, AL, col);
-    } else if (lm.appsRow && i == 2) {
-      text(10, y + 27, "Apps...", F12B, AL, col);
+    } else if (lm.homeRow && i == 1) {
+      text(10, y + 27, "Home", F12B, AL, col);
     } else {
-      const ListItem& it = lm.items[i - 2 - extra];
+      const ListItem& it = lm.items[i - 1 - extra];
       char nm[20];
       snprintf(nm, sizeof nm, "%.17s", it.name);
       text(10, y + 18, nm, F12B, AL, col);
@@ -1028,28 +1026,8 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
       text(10, y + 36, b, F9, AL, col);
     }
   }
-  if (n == 0 && !lm.tools) text(W / 2, y0 + (3 + extra) * rowH, "scanning...", F12B, AC);
+  if (n == 0 && !lm.tools) text(W / 2, y0 + (2 + extra) * rowH, "scanning...", F12B, AC);
   text(W / 2, H - 12, "press: next   hold: select", F9, AC);
-  powerBanner(heldMs);
-}
-
-void drawCalibrate(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm) {
-  begin(g, bm);
-  header(vm, "CALIBRATE");
-  text(W / 2, 74, "Turn the unit slowly", F9, AC);
-  text(W / 2, 96, "in every direction:", F9, AC);
-  text(W / 2, 118, "flat, on edge, inverted", F9, AC);
-  const char* ax[3] = {"X", "Y", "Z"};
-  for (int i = 0; i < 3; i++) {
-    int y = 150 + i * 34;
-    text(14, y + 16, ax[i], F12B);
-    hbar(40, y, W - 60, 22, vm.calSpan[i] / 70.0f);          // about 70 uT of swing per axis is plenty
-  }
-  char b[24];
-  snprintf(b, sizeof b, "field %.0f uT", vm.fieldUt);
-  text(W / 2, 276, b, F9, AC);
-  text(W / 2, H - 44, "hold: save", F12B, AC);
-  text(W / 2, H - 16, "press: cancel", F12B, AC);
   powerBanner(heldMs);
 }
 

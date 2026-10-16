@@ -6,10 +6,12 @@
 //   static TerrainKit kit;                        // a global, never a local
 //   if (kit.open(&reader)) app.setTerrain(&kit);  // no pack, or a damaged one: the app shows no terrain at all
 #include "apps/vario/view/terrain_map.h"
+#include <stdio.h>
 #include "platform/terrain/map_vectors.h"
+#include "platform/terrain/pack_status.h"
 #include "platform/terrain/terrain.h"
 
-struct TerrainKit {
+struct TerrainKit : terrain::IPackStatus {
   terrain::Terrain terrain;
   terrain::MapVectors vec;
   TerrainMap map;
@@ -24,4 +26,14 @@ struct TerrainKit {
     ok = true;
     return true;
   }
+
+  // IPackStatus: what the home screen and Settings > About show.
+  bool packOk() const override { return ok; }
+  uint32_t packBytes() const override { return ok ? terrain.info().fileSize : 0; }
+  void packArea(char* dst, size_t cap) const override {
+    if (!ok) { if (cap) dst[0] = 0; return; }
+    const terrain::PackInfo& i = terrain.info();
+    snprintf(dst, cap, "%.1f-%.1f N, %.1f-%.1f E", i.latS_e7 / 1e7, i.latN_e7 / 1e7, i.lonW_e7 / 1e7, i.lonE_e7 / 1e7);
+  }
+  bool packAttribution(int i, char* dst, size_t cap) const override { return ok && vec.attribution(i, dst, cap); }
 };

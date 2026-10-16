@@ -1,17 +1,15 @@
 #pragma once
 #include <bluefruit.h>
-#include "apps/vario/app/ports.h"
+#include "platform/settings/box_settings.h"
 
-// Settings kept in the nRF's internal flash: time zone, tracer name filter, remembered tracer.
-class ConfigStore : public ISettings {
+// The vario's own settings kept in the nRF's internal flash: tracer name filter and remembered tracer. (The time
+// zone, the mounting and the compass calibration are the box's: platform/settings/box_settings.h.)
+class ConfigStore {
  public:
   void begin();                                   // mounts the filesystem and loads
-  int tzMinutes() const override { return sv_.tz; }
-  void setTzMinutes(int m) override { sv_.tz = (int16_t)m; save(); }
-  bool loadMagCal(MagCal& out) override;
-  void saveMagCal(const MagCal& cal) override;
-  int mountIndex() const override { return mount_; }
-  void setMountIndex(int index) override;
+  // One-time hand-over of what older firmware kept here (time zone, /magcal3.bin, /mount.bin) to the box's store.
+  // The old files stay where they are, unread afterwards.
+  void migrateTo(BoxSettings& dst);
 
   const char* filter() const { return sv_.filter; }
   void setFilter(const char* glob);
@@ -29,9 +27,8 @@ class ConfigStore : public ISettings {
     bool has;
     char name[24];
     ble_gap_addr_t addr;
-    int16_t tz;
+    int16_t tz;                                 // legacy: now BoxSettings; kept so the file keeps its size
   };
   void save();
   Saved sv_;
-  int mount_ = 0;                                 // own file (/mount.bin): changing it never resets the tracer
 };

@@ -9,6 +9,8 @@
 #include "apps/vario/hw/config_store.h"
 #include "apps/vario/hw/diagnostics.h"
 #include "platform/hw/input_button.h"
+#include "platform/hw/key_store.h"
+#include "platform/settings/box_settings.h"
 #include "apps/vario/hw/laptop_ble.h"
 #include "platform/hw/panel_sharp.h"
 #include "platform/hw/power_nrf.h"
@@ -20,6 +22,8 @@
 #include "apps/vario/hw/protocol.h"
 
 static ConfigStore config;
+static FlashKeyStore keys;                    // time zone, mounting, compass calibration (shared with the box image)
+static BoxSettings boxSettings(keys);
 static SharpPanel panel;
 static ButtonGpio button(PIN_BUTTON1);
 static BatteryAdc battery;
@@ -35,7 +39,7 @@ static AppConfig appConfig() {
   c.rotation = DISPLAY_ROTATION;
   return c;
 }
-static App app(panel, battery, tracer, laptop, config, compassHw, thermo, power, appConfig());
+static App app(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig());
 static VarioApp varioApp(app);
 static VarioProbe probe;
 static AppHost host(panel, button);
@@ -47,7 +51,9 @@ void setup() {
   // watchdog::start(8000);
   Serial.begin(115200);
   button.begin();
-  config.begin();
+  config.begin();                             // mounts the filesystem
+  keys.begin();
+  config.migrateTo(boxSettings);              // first start after the update: calibration, mounting, time zone move over
   panel.begin();
   compassHw.begin();                          // starts Wire
   thermo.begin();                             // SHT30 on the same bus

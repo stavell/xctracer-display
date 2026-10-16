@@ -44,14 +44,27 @@ class IInput {                      // the user switch (and, later, the front bu
   virtual bool popEdge(KeyEdge& out) { (void)out; return false; }
 };
 
-// A few persistent numbers for the box itself (boot app, game high scores), kept in the nRF's flash.
-// Slots are small integers; an unset slot reads as 0.
-enum StoreSlot : uint8_t { SLOT_BOOT_APP, SLOT_TETRIS_BEST, SLOT_COUNT };
+// A few persistent numbers for the box itself, kept in the nRF's flash: the start-up app, game high scores and
+// the settings every app shares (time zone, board mounting, magnetometer calibration; see
+// platform/settings/box_settings.h, which gives them their meaning). Slots are small integers; an unset slot
+// reads as 0.
+enum StoreSlot : uint8_t {
+  SLOT_BOOT_APP, SLOT_TETRIS_BEST,
+  SLOT_MOUNT,                                  // board -> case rotation 0..23
+  SLOT_TZ,                                     // minutes east of UTC, as int32
+  SLOT_MAG_VALID, SLOT_MAG_X, SLOT_MAG_Y, SLOT_MAG_Z, SLOT_MAG_R,   // hard-iron offsets and radius (float bits)
+  SLOT_MIGRATED,                               // 1 once the values older firmware kept elsewhere were imported
+  SLOT_COUNT
+};
 class IKeyStore {
  public:
   virtual ~IKeyStore() {}
   virtual uint32_t get(StoreSlot slot) const = 0;
   virtual void set(StoreSlot slot, uint32_t value) = 0;   // persists at once; a no-op when unchanged
+  // Several sets that belong together become one write: set() between these only remembers, the outermost
+  // endBatch() persists. Batches nest.
+  virtual void beginBatch() {}
+  virtual void endBatch() {}
 };
 
 class IBattery {
