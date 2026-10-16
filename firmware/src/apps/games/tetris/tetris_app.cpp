@@ -39,6 +39,10 @@ void TetrisApp::tick(uint32_t nowMs) {
 
 void TetrisApp::onKey(Key key, bool down, uint32_t nowMs) {
   tick(nowMs);                                     // bring the game up to the time of the edge first
+  if (game_.state() == ST_PAUSED && down) {          // the pause screen: A resumes, B goes home
+    if (key == KEY_ACTION) { game_.resume(nowMs); afterStep(); return; }
+    if (key == KEY_B) { if (nav()) nav()->openLauncher(); return; }
+  }
   Act a = ACT_COUNT;
   switch (key) {
     case KEY_LEFT: a = ACT_LEFT; break;
@@ -68,6 +72,8 @@ void TetrisApp::onKey(Key key, bool down, uint32_t nowMs) {
       longPending_ = true;
       mainDownAt_ = nowMs;
     }
+    pauseDown_ = st == ST_PAUSED;
+    if (pauseDown_) mainDownAt_ = nowMs;
   } else {
     mainDown_ = false;
     longPending_ = false;
@@ -78,7 +84,10 @@ void TetrisApp::onKey(Key key, bool down, uint32_t nowMs) {
     } else if (st == ST_PLAYING || st == ST_CLEARING) {
       game_.pause(nowMs);
     } else if (st == ST_PAUSED) {
-      game_.resume(nowMs);
+      // Acted on at the release, so the host's own long-press event for this press ends in this app, not in the
+      // launcher it opens: a long press is Home, a short one resumes.
+      if (pauseDown_ && nowMs - mainDownAt_ >= LONG_PRESS_MS) { if (nav()) nav()->openLauncher(); }
+      else game_.resume(nowMs);
     }
   }
   afterStep();

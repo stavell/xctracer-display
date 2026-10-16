@@ -8,6 +8,10 @@
 #include "apps/vario/core/map_motion.h"
 #include "apps/vario/core/sim.h"
 #include "apps/vario/view/viewmodel.h"
+#include "platform/clock.h"
+#include "platform/settings/box_settings.h"
+#include "platform/settings/cal_view.h"
+#include "platform/settings/compass_cal.h"
 
 struct TerrainKit;
 
@@ -43,7 +47,7 @@ struct AppConfig {
   float gpsHeadingOffKmh = 2.5f;     // ... and stops counting below this one (hysteresis)
 };
 
-// Asked to leave for the launcher ("Apps..." row of the device list). Set only in the box image.
+// Asked to leave for the home screen ("Home" row of the device list). Set only in the box image.
 class ILauncherHook {
  public:
   virtual ~ILauncherHook() {}
@@ -57,7 +61,7 @@ class ILauncherHook {
 class App {
  public:
   App(IPanel& panel, IBattery& battery, ITracer& tracer, ILaptop& laptop,
-      ISettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg = AppConfig());
+      BoxSettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg = AppConfig());
 
   void begin(uint32_t nowMs);
   void end();                                        // leaving for another app: radios and sensors off
@@ -68,10 +72,11 @@ class App {
   void draw(Bitmap1& bm, Adafruit_GFX& g, uint32_t nowMs);
   bool hostDrawing() const { return !local_; }       // the laptop owns the screen
   void setLauncher(ILauncherHook* h) { launcher_ = h; }
+  void setClock(WallClock* c) { clock_ = c; }       // the box's time of day, set from the tracer's GPS time
   // Attach a map pack (platform/terrain). With none (the default) nothing terrain-related is computed, drawn
   // or in the page cycle. The kit must outlive the App; pass nullptr to detach.
   void setTerrain(TerrainKit* kit);
-  bool hasTerrain() const;   // adds the "Apps..." row to the device list
+  bool hasTerrain() const;
 
   const FlightModel& flight() const { return flight_; }
   uint32_t linesOk() const { return linesOk_; }
@@ -112,7 +117,7 @@ class App {
   IBattery& battery_;
   ITracer& tracer_;
   ILaptop& laptop_;
-  ISettings& settings_;
+  BoxSettings& settings_;
   ICompass& compassHw_;
   IThermo& thermo_;
   IPower& power_;
@@ -148,6 +153,9 @@ class App {
   bool mapMoving_ = false;           // the interpolated view differs from the last drawn frame
   float drawnCx_ = NAN, drawnCy_ = NAN, drawnMapHdg_ = NAN, drawnMapScale_ = NAN;
   bool calibrating_ = false;
+  CompassCal cal_;                   // the platform's calibration flow; the screen is platform/settings/cal_view.h
+  UiFonts calFonts_;                 // built on the first calibration screen
+  WallClock* clock_ = nullptr;
   ViewModel vm_;
   ViewModel::Page page_ = ViewModel::PAGE_COMPASS;
   ViewModel::Page lastPage_ = ViewModel::PAGE_COMPASS;

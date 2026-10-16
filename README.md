@@ -30,8 +30,8 @@ Rendered by the PC emulator from the same drawing code that runs on the device (
 |---|---|---|---|
 | ![Compass](docs/screens/live.png) | ![Thermal](docs/screens/thermal_memory.png) | ![Profile](docs/screens/profile_inversion.png) | ![Home](docs/screens/home.png) |
 | **Compass**: speed, glide, altitude, climb, heading-up dial (GPS track or magnetic), wind | **Thermal**: heading-up map of the recent track in the air-mass frame, remembered thermals with their climb | **Profile**: wind and temperature by altitude, inversion band shaded | **Home**: direction and distance home, required glide ratio, arrival height |
-| ![Standalone](docs/screens/standalone.png) | ![Device list](docs/screens/list.png) | ![Calibration](docs/screens/calibrate.png) | ![Status](docs/screens/status.png) |
-| **Standalone**: no tracer connected, the box is a compass with temperature and humidity | **Device list**: pick the tracer, sorted by signal | **Compass calibration**: turn the box until the bars fill | **Status**: connecting / waiting for data |
+| ![Standalone](docs/screens/standalone.png) | ![Vario menu](docs/screens/list.png) | ![Calibration](docs/screens/calibrate.png) | ![Status](docs/screens/status.png) |
+| **Standalone**: no tracer connected, the box is a compass with temperature and humidity | **Vario menu**: pick the tracer, sorted by signal (and Home, in the box image) | **Compass calibration**: turn the box until the bars fill (Settings app) | **Status**: connecting / waiting for data |
 
 | ![Vario with AGL](docs/screens/live_agl.png) | ![Map](docs/screens/map.png) | ![Map, mountains](docs/screens/map_mountains.png) | |
 |---|---|---|---|
@@ -157,29 +157,32 @@ Wind comes from a circle fit over about the last 30 s of ground velocity while t
 - `--` means a value that is not a finite number or not available (glide ratio when not sinking, no
   heading, no time).
 
-### Device list
+### Vario menu
 
 Hold the switch for 0.7 to 1.5 s on the flight screen. Press moves the selection down (it wraps), hold
-selects.
+selects. The menu holds only flying things.
 
 | Row | Hold does |
 |---|---|
-| `< back` | closes the list |
-| `Calibrate compass` | starts compass calibration |
+| `< back` | closes the menu |
+| `Home` | box image only: leaves the vario for the home screen (see "Box" below) |
 | tracer name, `-NN dBm   XX:XX` | connects to it and saves it |
 
 Devices are sorted by signal strength. The two letters-and-digits are the last two bytes of the address,
-which tells apart tracers with the same name. The list shows the active name filter and `scanning...`
+which tells apart tracers with the same name. The menu shows the active name filter and `scanning...`
 while empty. The saved tracer survives power off; at boot the box reconnects to it by address (by name
 only if the saved address is a private, changing one).
 
 ### Compass calibration
 
-Start it from the device list or with `ctl.py cal start`. Turn the box slowly through every direction
-(flat, on edge, inverted) until the X, Y and Z bars fill (about 70 uT of swing each). Hold the switch
-(0.7 to 1.5 s) to save, short press to cancel; `ctl.py cal save` and `cal cancel` do the same. The
-calibration (hard-iron sphere fit) is stored in flash separately from the saved tracer. The magnetic
-heading is magnetic north; there is no declination correction.
+Calibration belongs to the box, not to the vario: in the box image it is the first row of the **Settings** app
+(home screen, Settings, Compass). The vario-only image has no on-device row for it (it is a flight instrument, the
+calibration is done once at the desk); there `ctl.py cal start` starts it, and the same works in the box image while the
+vario runs. Turn the box slowly through every direction (flat, on edge, inverted) until the X, Y and Z bars fill (about
+70 uT of swing each). Hold the switch (0.7 to 1.5 s) or press A to save, short press or B to cancel; `ctl.py cal save` and
+`cal cancel` do the same. The calibration (hard-iron sphere fit) is stored in the box's flash store
+(`platform/settings/box_settings.h`), next to the time zone and the board mounting index; the vario and the compass
+tool read it when they start. The magnetic heading is magnetic north; there is no declination correction.
 
 ## Build, flash, check
 
@@ -204,7 +207,7 @@ and from the repository root:
     scripts/flash.sh                   # flash over USB: checks no program holds the serial port,
                                        # retries, and only succeeds on "Device programmed."
     scripts/flash.sh feather_sense_diag   # diagnostics build: profiler (`prof`) and benchmark (`bench`) lines
-    scripts/flash.sh feather_sense_box    # the box: launcher + vario + Tetris + compass tool
+    scripts/flash.sh feather_sense_box    # the box: home screen + vario + Tetris + compass tool + Settings
 
 Do not leave a serial monitor running while flashing: the bootloader uses the same USB port.
 
@@ -274,31 +277,46 @@ The window shows the same native 1-bit frame buffer the panel uses, with a Sharp
 per second and only when the game reports a new frame. `play tetris --frames 300 --screenshot out.png --keys
 "main 10 left a up shot:x.png"` runs headless with scripted keys and saves PNGs (see `firmware/emu/play.cpp`).
 
-## Box: launcher, vario, Tetris and a compass tool in one image
+## Box: home screen, vario, Tetris, compass tool and Settings in one image
 
-`feather_sense_box` (`main_box.cpp`) holds the launcher, the vario, Tetris and the standalone compass and weather tool
-(the vario's own compass screen, in a second `App` without tracer or laptop). `feather_sense` stays the vario alone,
-with no game code. The box boots straight into the **start-up app** (default: the vario; the launcher's last row,
-"Start-up", picks another, stored in flash). The launcher never opens by itself.
+`feather_sense_box` (`main_box.cpp`) holds the home screen (the launcher), the vario, Tetris, the standalone compass and
+weather tool (the vario's own compass screen, in a second `App` without tracer or laptop) and the Settings app.
+`feather_sense` stays the vario alone, with no game code and no home screen. The box boots straight into the
+**start-up app** (default: the vario; Settings picks another, stored in flash). The home screen never opens by itself.
 
-![Launcher, launcher on the Start-up row, the vario's device list with its Apps row, the compass tool](docs/screens/box.png)
+![Home screen, Settings, compass calibration, About, the vario menu with its Home row](docs/screens/box.png)
 
-**Getting to the launcher** (a deliberate gesture from inside an app, nothing that a flight can trigger by accident):
+**Home screen.** A status bar (local time from the tracer's GPS time once the vario has seen a fix, `--:--` before; map pack
+status; box battery), a grid of large tiles (icon and name; the chosen tile is inverted) and a footer with a line about the
+chosen app and the key hint. Apps register with a name, a few words, a line of text and an icon (`platform/app_registry.h`,
+`platform/gfx/icons.h`), so a new app is one `registry.add(...)` in `main_box.cpp`. Single switch: short press = next
+tile, long press (0.7-1.5 s) = open, 3 s hold = power off. Six buttons: arrows move over the grid, A opens.
+
+**Settings** (`apps/settings`, on the platform pieces in `platform/settings/`): Compass (calibration), Board mounting
+(index 0..23, long press = +1, or the arrows), Start-up app (long press cycles the apps that may start the box; Settings
+and the home screen are not offered), Time zone (long press = +1 h, arrows = 30 min; `ctl.py tz` sets any value),
+About (firmware version, map pack and its area, the pack's Copernicus and OpenStreetMap credits), Home.
+
+**Getting to the home screen** (a deliberate gesture from inside an app, nothing that a flight can trigger by accident):
 
 | Where | Gesture |
 |---|---|
-| Vario | long press (0.7-1.5 s) for the device list, short presses down to the **Apps...** row, long press. The vario's other gestures are unchanged: short = page, 3 s hold = power off. |
-| Tetris, compass tool | hold the switch 3 s (these apps do not use the power-off hold). |
+| Vario | long press (0.7-1.5 s) for the vario menu, one short press to the **Home** row, long press. The vario's other gestures are unchanged: short = page, 3 s hold = power off. |
+| Tetris | pause (short press), then long press (or B) = Home; short press (or A) resumes. Or the 3 s hold. |
+| Compass tool | long press for its menu, short press to **Home**, long press. Or the 3 s hold. |
+| Settings | the **Home** row, B, or the 3 s hold. |
 | Any app, six-button case | hold **A + B** together for 1.5 s (the vario too; `IApp::comboExit()` is the switch, a one-line override turns it off for an app). The front buttons are not wired yet: define `PIN_KEY_UP/DOWN/LEFT/RIGHT/A/B` in `platform/hw/pins.h` (`platform/hw/keymap.h` is the table). |
-| Launcher | short press = next row, long press = start; UP / DOWN and A on the six buttons; 3 s hold = power off. |
+| Home screen | short press = next tile, long press = open; arrows and A on the six buttons; 3 s hold = power off. |
 
-The 3 s hold was chosen for games because the switch's other gestures are taken (short: page or pause, 0.7-1.5 s: list
+The 3 s hold was chosen for games because the switch's other gestures are taken (short: page or pause, 0.7-1.5 s: menu
 or start, release between 1.5 and 3 s: cancelled) and the hold is the only one that cannot be mistaken for them.
 
 **What leaving the vario does.** The tracer link and scan stop and the compass sensors are switched off (`App::end`,
 `ITracer::pause`); coming back restarts the scan (a few seconds until data flows) and the sensors. The flight model
-stays, its data simply goes stale. A game does not run, and its code is never touched, until it is chosen. The BLE
-laptop link stays up in every app (host drawing only takes the screen while the vario is active).
+stays, its data simply goes stale. A game does not run, and its code is never touched, until it is chosen. The compass
+sensors also run only while the Settings calibration screen is open. The BLE laptop link stays up in every app (host
+drawing only takes the screen while the vario is active; laptop commands such as `ctl.py cal` are served by the vario, so
+they work while it runs).
 
 ### Box on the PC
 
@@ -313,7 +331,7 @@ plays an IGC file (converted by `host/make_lines.py`) or a line file (`--lines f
 | Key | Function |
 |---|---|
 | Enter or Esc | the user switch. Hold it: 0.7-1.5 s is the long press, 3 s the hold; the title shows `MAIN 1.2 s` |
-| arrows, X, Z | D-pad, A, B (A + B held 1.5 s = launcher) |
+| arrows, X, Z | D-pad, A, B (A + B held 1.5 s = home screen) |
 | `,` `.` or mouse wheel | turn the compass heading |
 | C, R, Q | Tetris hold piece, restart (reboot the box), quit |
 
@@ -371,4 +389,6 @@ frame in the wind fit (three `double[64]` locals): the worst chain was 3.5 KB of
     0 none 1 GPS 2 MAG, calibration valid, `orient` mounting index, `fused` 1 when the heading comes from
     the gyro fusion, `bias` the learned gyro bias in deg/s). Accelerometer, magnetometer and gyro are in the
     board frame (before the mounting index is applied).
-- Saved settings (tracer, time zone, calibration) live in the nRF's flash filesystem.
+- Saved settings live in the nRF's flash filesystem: the tracer and its name filter in `/vario.cfg` (vario only), the start-up
+  app, high score, time zone, mounting and compass calibration in `/box.cfg` (the box's key store, both images). The first
+  start of this firmware copies the calibration, mounting and time zone out of the old files, so a calibration survives the update.

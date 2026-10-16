@@ -463,3 +463,29 @@ feed the result to the view (`ViewModel::mapLive/mapCx/mapCy/mapHdg/mapScale`). 
   -O2: relief 240 x 400 = 2.6 ms. Device estimate (64 MHz M4F, no cache): 0.2-0.4 s per render, to be measured when the QSPI reader exists.
 - Tests: `emu/map_page_tests.h` (AGL by hand on the fixture, no fix / stale / outside / no pack, page cycle, render determinism,
   cache re-render rules, projection, track ring). Screens: `emu/map_page_shots.h`.
+
+## Launcher refactor: home screen, Settings, shared box settings (2026-10-16, emulator and builds only, not flashed)
+
+- **Flight pages unchanged.** Same 400 lines of 2026-08-16-XCT-SVE-09.igc from 4185, `--hz 3`, pages 0-4, a frame every
+  20 s: all 7 saved frames and the four behaviour digests are identical before and after (compass 5cf2bdda51c4ab9e,
+  thermal b301c577141014e4, profile 3dec62d6e433bfc0, home c61a45228ffd5619). Of the 43 emulator screens 34 are
+  byte-identical (all flight, map, standalone, status, profile, home pages); the six that differ are the menus and the
+  home screen by design (launcher x3, list, list_tool, tetris_pause). `box_vario_matches_alone` still passes.
+- **Storage.** The platform key store grew from 8 to 16 slots (`/box.cfg`, magic BOX2; a BOX1 file is read and rewritten,
+  so the boot app and high score survive). New slots: mounting, time zone, five for the calibration (float bits), a
+  "migrated" flag. Related sets are one flash write (`beginBatch` / `endBatch`, nesting): a calibration save is one write.
+  `ConfigStore::migrateTo` imports `/magcal3.bin`, `/mount.bin` and the tz field of `/vario.cfg` once, at the first start;
+  the old files are left alone. `Saved` keeps its tz field so `/vario.cfg` is not reset. The vario-only image now links the
+  key store too.
+- **A long press that opens another app must not be delivered to it.** Tetris first fired "Home" from the pause screen at
+  the 400 ms threshold; the switch was still down, so its release reached the launcher as a long press and opened the first
+  tile. It now acts on the release (the host delivers that event to the app that was active).
+- **Compass calibration in the vario-only image.** No on-device row (the vario menu holds flying things); `ctl.py cal`
+  still works, through the same `CompassCal` and screen as the Settings app. The vario feeds the calibration with the
+  readings it already takes, so the sensor is never read by two owners.
+- **Sizes** (device builds): vario only flash 266156 / RAM 68540, diagnostics 279744 / 82972, box 299720 / 90088
+  (before the refactor the box was about 272 kB; Settings, the icon and UI kit and the key-store change are the difference
+  together with the map page merged earlier). Stack: loop 2604 B (63 %), setup 2160 B (52 %), unchanged chain.
+- **Home screen design notes.** Tiles 108 x 136 (rows of two, fewer rows get taller tiles; three rows drop the second
+  text line); the chosen tile is a filled rounded box with inverted icon and text. The time is the tracer's GPS time of day
+  extrapolated with the millisecond counter, `--:--` until the vario saw a fix and after 12 h without one.

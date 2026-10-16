@@ -257,7 +257,7 @@ void TetrisView::draw(const Bitmap1& bm, const Game& g, uint32_t now) {
   drawStrip(bm, g);
   char buf[24];
   if (g.state() == ST_PAUSED) {
-    overlay(bm, "PAUSED", "MAIN: resume", nullptr, nullptr);
+    overlay(bm, "PAUSED", "press / A: resume", "hold / B: home", nullptr);
   } else if (g.state() == ST_OVER) {
     snprintf(buf, sizeof buf, "score %lu", (unsigned long)g.score());
     overlay(bm, "GAME OVER", g.newBest() ? "NEW BEST!" : buf, g.newBest() ? buf : nullptr, "MAIN: new game");

@@ -128,7 +128,7 @@ static bool gCountMode = false;
 static int cmdShots(const std::string& out, int rot) {
   if (!gCountMode) { ts::shots(out.c_str()); bs::shots(out.c_str()); ms::shots(out.c_str()); }
   struct Sc { const char* name; };
-  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag", "calibrate",
+  const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag",
                          "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
   for (const char* n : names) {
     if (gCountMode && strcmp(n, "live") && strcmp(n, "nofix") && strcmp(n, "mag") && strcmp(n, "standalone") &&
@@ -167,7 +167,6 @@ static int cmdShots(const std::string& out, int rot) {
     if (s == "big") { vm.s.alt = 2650; vm.s.vario = -4.2f; vm.s.speedKmh = 68; vm.glide = 12.8f; vm.avgVario = -3.0f; vm.wind.speedKmh = 38; }
     if (s == "nofix") { vm.s.fix = false; vm.s.speedKmh = NAN; vm.s.course = NAN; vm.glide = NAN; vm.wind.valid = false; vm.heading = NAN; vm.headingSrc = HDG_NONE; }
     if (s == "mag") { vm.s.fix = false; vm.s.speedKmh = NAN; vm.s.course = NAN; vm.glide = NAN; vm.wind.valid = false; vm.heading = 123; vm.headingSrc = HDG_MAG; }
-    if (s == "calibrate") { vm.calibrating = true; vm.calSpan[0] = 61; vm.calSpan[1] = 33; vm.calSpan[2] = 12; vm.fieldUt = 47; }
     if (s == "status") vm.fresh = false;
     if (s.rfind("standalone", 0) == 0) {
       vm.fresh = false; vm.link = ViewModel::LINK_SEARCHING;
@@ -215,15 +214,12 @@ static int cmdShots(const std::string& out, int rot) {
     p.setRotation(rot);
     if (s == "list") {
       ListModel lm;
-      lm.count = 3; lm.selected = 1;       // the calibrate row
+      lm.count = 3; lm.selected = 1;       // the second tracer
       strcpy(lm.items[0].name, "XC-Tracer"); lm.items[0].rssi = -52; strcpy(lm.items[0].id, "D6:75");
       strcpy(lm.items[1].name, "XC-Tracer"); lm.items[1].rssi = -83; strcpy(lm.items[1].id, "A1:0C");
       strcpy(lm.items[2].name, "Q-Series Soundbar"); lm.items[2].rssi = -78; strcpy(lm.items[2].id, "00:00");
       Bitmap1 bm = p.bitmap();
       drawList(p.gfx(), lm, vm, 0, &bm);
-    } else if (s == "calibrate") {
-      Bitmap1 bm = p.bitmap();
-      drawCalibrate(p.gfx(), vm, 0, &bm);
     } else if (gCountMode) {
       static CountingSharp cd;
       cd.setRotation((uint8_t)rot);

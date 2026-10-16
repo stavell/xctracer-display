@@ -558,22 +558,23 @@ static void test_app_fusion() {
     CHECK(angErr(app.buildViewModel(now).heading, 123) > 5.0f || !app.fused());   // wrong mounting: wrong or no heading
     Command c; c.type = Command::ORIENT; c.value = 13; r.laptop.cmds.push_back(c);
     run(4000);
-    CHECK(app.mountIndex() == 13 && r.settings.mount == 13);
+    CHECK(app.mountIndex() == 13 && r.settings.mountIndex() == 13);
     CHECK(app.fused());
     NEAR(angDiff(app.buildViewModel(now).heading, 123), 0, 1.0);
     Command bad; bad.type = Command::ORIENT; bad.value = 99; r.laptop.cmds.push_back(bad);
     run(100);
     CHECK(app.mountIndex() == 13); }
   // the stored hard-iron offset follows a change of mounting
-  { Rig r; r.settings.cal.valid = true; r.settings.hasCal = true;
-    r.settings.cal.off[0] = 10; r.settings.cal.off[1] = -20; r.settings.cal.off[2] = 30; r.settings.cal.radius = 45;
+  { Rig r; MagCal c0; c0.valid = true; c0.off[0] = 10; c0.off[1] = -20; c0.off[2] = 30; c0.radius = 45;
+    r.settings.saveMagCal(c0);
     Driven app(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
     app.begin(0);
     Command c; c.type = Command::ORIENT; c.value = 7; r.laptop.cmds.push_back(c);
     for (uint32_t now = 0; now < 100; now += 10) app.tick(now);
     Vec3 o; o.x = 10; o.y = -20; o.z = 30;
     o = mountRemap(0, 7, o);
-    NEAR(r.settings.cal.off[0], o.x, 1e-4); NEAR(r.settings.cal.off[1], o.y, 1e-4); NEAR(r.settings.cal.off[2], o.z, 1e-4); }
+    MagCal c1; CHECK(r.settings.loadMagCal(c1) && r.settings.mountIndex() == 7);
+    NEAR(c1.off[0], o.x, 1e-4); NEAR(c1.off[1], o.y, 1e-4); NEAR(c1.off[2], o.z, 1e-4); }
   // the command decoder accepts only valid indices
   { Command c; uint8_t ok[2] = {CMD_SET_ORIENT, 23}, no[2] = {CMD_SET_ORIENT, 24};
     CHECK(decodeCommand(ok, 2, c) && c.type == Command::ORIENT && c.value == 23);
@@ -1044,11 +1045,11 @@ static void test_app_heading() {
   CHECK(app.buildViewModel(now).calSpan[0] > 50);
   { Command cc; cc.type = Command::CAL; cc.value = 2; r.laptop.cmds.push_back(cc); }
   run(100);
-  CHECK(!app.calibrating()); CHECK(r.settings.hasCal); CHECK(r.settings.saves == 1);
+  { MagCal sc; CHECK(!app.calibrating()); CHECK(r.settings.loadMagCal(sc)); }
   r.compass.psi = 200; r.compass.pitch = 0; r.compass.roll = 0;
   run(2500);
   NEAR(fabsf(angDiff(app.buildViewModel(now).heading, 200)), 0, 4.0);
-  { Rig r2; r2.settings = r.settings; r2.compass = r.compass; r2.compass.enabled = false;
+  { Rig r2; r2.keys = r.keys; r2.compass = r.compass; r2.compass.enabled = false;
     Driven app2(r2.panel, r2.input, r2.battery, r2.tracer, r2.laptop, r2.settings, r2.compass, r2.thermo, r2.power);
     app2.begin(0);
     uint32_t n2 = 0;
@@ -1059,19 +1060,19 @@ static void test_app_heading() {
   run(100);
   { Command cc; cc.type = Command::CAL; cc.value = 0; r.laptop.cmds.push_back(cc); }
   run(100);
-  CHECK(!app.calibrating()); CHECK(r.settings.saves == 1);
-  // calibration from the device list: the second row
+  CHECK(!app.calibrating()); CHECK(r.keys.writes == 1);     // one flash write for the whole calibration
+  // the device list has no calibration row any more: it is Settings' (or ctl.py's) job
   r.input.press(now + 100, 900);                           // long: open the list
   run(1500);
   CHECK(app.listOpen());
-  r.input.press(now + 100, 150);                           // short: the calibrate row
+  r.input.press(now + 100, 150);                           // short: next row (a device; there is no Home row alone)
   run(600);
-  r.input.press(now + 100, 900);                           // long: start calibration
+  CHECK(app.listOpen() && !app.calibrating());
+  r.input.press(now + 100, 150);
+  run(600);
+  r.input.press(now + 100, 900);                           // long: back
   run(1500);
-  CHECK(app.calibrating());
-  r.input.press(now + 100, 150);                           // short: cancel
-  run(600);
-  CHECK(!app.calibrating());
+  CHECK(!app.listOpen() && !app.calibrating());
 }
 
 static void test_button() {
@@ -1136,7 +1137,7 @@ static void test_app() {
   Command c; c.type = Command::TZ; c.value = 180; r.laptop.cmds.push_back(c);
   r.laptop.inject(inj);
   run(100);
-  CHECK(r.settings.tz == 180);
+  CHECK(r.settings.tzMinutes() == 180);
   CHECK(app.buildViewModel(now).localMinutes == (10 * 60 + 38 + 180) % 1440);
   // laptop-drawn frames own the screen; the app resumes afterwards
   int before = r.panel.refreshes;
@@ -1151,8 +1152,6 @@ static void test_app() {
   r.input.press(now + 100, 900);                          // long press opens the list
   run(1500);
   CHECK(app.listOpen()); CHECK(r.tracer.opened);
-  r.input.press(now + 100, 150);                          // short: next row (the calibrate row)
-  run(600);
   r.input.press(now + 100, 150);                          // short: next row (the first device)
   run(600);
   r.input.press(now + 100, 900);                          // long: select the first device

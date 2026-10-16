@@ -12,6 +12,7 @@
 #include "apps/vario/app/app.h"
 #include "apps/vario/app/vario_app.h"
 #include "platform/app_host.h"
+#include "platform/settings/box_settings.h"
 
 class MockPanel : public IPanel {
  public:
@@ -82,9 +83,17 @@ class MockInput : public IInput {
 class MockKeyStore : public IKeyStore {
  public:
   uint32_t get(StoreSlot s) const override { return s < SLOT_COUNT ? v[s] : 0; }
-  void set(StoreSlot s, uint32_t x) override { if (s < SLOT_COUNT && v[s] != x) { v[s] = x; writes++; } }
+  void set(StoreSlot s, uint32_t x) override {
+    if (s >= SLOT_COUNT || v[s] == x) return;
+    v[s] = x;
+    if (batch > 0) dirty = true; else writes++;
+  }
+  void beginBatch() override { batch++; }
+  void endBatch() override { if (batch > 0 && --batch == 0 && dirty) { dirty = false; writes++; } }
   uint32_t v[SLOT_COUNT] = {};
-  int writes = 0;
+  int writes = 0;                  // flash writes: one per set(), one per batch
+  int batch = 0;
+  bool dirty = false;
 };
 
 class MockBattery : public IBattery {
@@ -139,21 +148,6 @@ class MockLaptop : public ILaptop {
   void inject(const std::string& line) { Command c; c.type = Command::XCTRC; strncpy(c.text, line.c_str(), sizeof c.text - 1); cmds.push_back(c); }
   std::deque<Command> cmds;
   bool drawing = false;
-};
-
-class MockSettings : public ISettings {
- public:
-  int tzMinutes() const override { return tz; }
-  void setTzMinutes(int m) override { tz = m; }
-  bool loadMagCal(MagCal& out) override { if (!hasCal) return false; out = cal; return true; }
-  void saveMagCal(const MagCal& c) override { cal = c; hasCal = true; saves++; }
-  int mountIndex() const override { return mount; }
-  void setMountIndex(int i) override { mount = i; }
-  int tz = 0;
-  int mount = 0;
-  MagCal cal;
-  bool hasCal = false;
-  int saves = 0;
 };
 
 // A magnetometer + accelerometer for a unit with a known orientation. Earth's field: 20 uT north and
@@ -239,7 +233,7 @@ class MockPower : public IPower {
 class Driven : public App {
  public:
   Driven(IPanel& panel, IInput& input, IBattery& battery, ITracer& tracer, ILaptop& laptop,
-         ISettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg = AppConfig())
+         BoxSettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg = AppConfig())
       : App(panel, battery, tracer, laptop, settings, compass, thermo, power, cfg),
         host_(panel, input), va_(*this) {
     host_.add(va_);
@@ -268,7 +262,8 @@ struct Rig {
   MockBattery battery;
   MockTracer tracer;
   MockLaptop laptop;
-  MockSettings settings;
+  MockKeyStore keys;            // the box's flash store: start-up app, high score, time zone, mounting, calibration
+  BoxSettings settings{keys};
   MockCompass compass;
   MockThermo thermo;
   MockPower power;

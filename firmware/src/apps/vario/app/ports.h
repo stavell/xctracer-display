@@ -1,6 +1,6 @@
 #pragma once
 // The seams between the vario app and its hardware: the generic ones are in platform/ports.h, these
-// belong to the flight display (tracer link, laptop link, saved settings).
+// belong to the flight display (tracer link, laptop link, saved tracer).
 #include "apps/vario/core/types.h"
 #include "apps/vario/view/viewmodel.h"
 #include "platform/ports.h"
@@ -42,15 +42,4 @@ class ILaptop {
   virtual bool pop(Command& out) = 0;
   virtual bool hostDrawing(uint32_t nowMs) = 0;        // the laptop drew recently: it owns the screen
   virtual void service(uint32_t nowMs) = 0;            // e.g. perform a pending host refresh
-};
-
-class ISettings {
- public:
-  virtual ~ISettings() {}
-  virtual int tzMinutes() const = 0;
-  virtual void setTzMinutes(int m) = 0;
-  virtual bool loadMagCal(MagCal& out) = 0;          // false if none is stored
-  virtual void saveMagCal(const MagCal& cal) = 0;
-  virtual int mountIndex() const = 0;                // board -> case rotation, 0..23 (platform/sensors/mount.h); 0 if none stored
-  virtual void setMountIndex(int index) = 0;
 };

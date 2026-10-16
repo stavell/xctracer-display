@@ -15,9 +15,9 @@ static float angDiffDeg(float a, float b) {      // absolute shortest angle betw
 }
 
 App::App(IPanel& panel, IBattery& battery, ITracer& tracer, ILaptop& laptop,
-         ISettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg)
+         BoxSettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg)
     : panel_(panel), battery_(battery), tracer_(tracer), laptop_(laptop),
-      settings_(settings), compassHw_(compass), thermo_(thermo), power_(power), cfg_(cfg) {}
+      settings_(settings), compassHw_(compass), thermo_(thermo), power_(power), cfg_(cfg), cal_(settings) {}
 
 void App::begin(uint32_t) {
   heading_.configure(cfg_.gpsHeadingOnKmh, cfg_.gpsHeadingOffKmh);
@@ -94,6 +94,7 @@ void App::ingestLine(const char* line, uint32_t now) {
 void App::feedFlight(const Sample& s, uint32_t now) {
   bool newSecond = flight_.feed(s);
   map_.feed(now, s, newSecond, flight_.clockMs());
+  if (clock_ && s.fix) clock_->set(s.hh * 3600 + s.mm * 60 + s.ss, now);   // GPS time of day for the home screen
   if (kit_ && s.fix) kit_->map.feedTrack(s.lat, s.lon, flight_.clockMs());   // flight clock: replays at any speed
 }
 
@@ -111,16 +112,10 @@ void App::handle(const Command& c, uint32_t now) {
       break;
     case Command::ORIENT:
       if (mountValid(c.value) && c.value != mount_) {
-        if (compass_.calibration().valid) {          // the stored offset lives in the device frame: move it along
-          MagCal cal = compass_.calibration();
-          Vec3 o; o.x = cal.off[0]; o.y = cal.off[1]; o.z = cal.off[2];
-          o = mountRemap(mount_, c.value, o);
-          cal.off[0] = o.x; cal.off[1] = o.y; cal.off[2] = o.z;
-          compass_.setCalibration(cal);
-          settings_.saveMagCal(cal);
-        }
+        settings_.setMountIndex(c.value);            // the platform moves the stored offsets (device frame) along
+        MagCal cal;
+        if (settings_.loadMagCal(cal)) compass_.setCalibration(cal);
         mount_ = c.value;
-        settings_.setMountIndex(mount_);
         compass_.reset();                            // keeps the calibration
         ahrs_.reset();
       }
@@ -156,7 +151,7 @@ void App::handle(const Command& c, uint32_t now) {
 }
 
 void App::startCalibration() {
-  compass_.startCalibration();
+  cal_.start();
   calibrating_ = true;
   listOpen_ = false;
   panel_.invalidate();
@@ -164,8 +159,11 @@ void App::startCalibration() {
 }
 
 void App::finishCalibration(bool keep) {
-  bool saved = compass_.finishCalibration(keep);
-  if (keep && saved) { settings_.saveMagCal(compass_.calibration()); ahrs_.reset(); }   // new offsets: re-seed the fusion
+  if (cal_.finish(keep)) {                                       // new offsets: use them now and re-seed the fusion
+    MagCal cal;
+    if (settings_.loadMagCal(cal)) compass_.setCalibration(cal);
+    ahrs_.reset();
+  }
   calibrating_ = false;
   panel_.invalidate();
   redraw_ = true;
@@ -191,7 +189,8 @@ void App::updateHeading(uint32_t now) {
   if (compassOn_ && compassHw_.read(a, m, g, hg)) {
     a = mountApply(mount_, a);                    // board frame -> device frame, all three sensors alike
     m = mountApply(mount_, m);
-    compass_.update(a, m, now);                   // calibration, field strength and the no-gyro fallback
+    compass_.update(a, m, now);                   // field strength and the no-gyro fallback
+    cal_.feed(a, m, now);                         // a calibration the laptop started (ctl.py cal start)
     if (hg) {
       g = mountApply(mount_, g);
       ahrs_.update(g, a, compass_.corrected(m), now);
@@ -283,7 +282,7 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   vm.headingSrc = h.src;
   vm.calibrating = calibrating_;
   vm.calValid = compass_.calibration().valid;
-  compass_.calibrationSpan(vm.calSpan);
+  cal_.span(vm.calSpan);
   vm.fieldUt = compass_.fieldUt();
   vm.page = page_;
   bool ambientFresh = haveAmbient_ && now - ambientMs_ <= 10000;   // the sensor reports every 2 s
@@ -388,8 +387,14 @@ void App::drawLiveScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t he
   drawLive(g, vm, held, &bm);
 }
 
-void App::drawCalibrateScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held) {
-  drawCalibrate(g, buildViewModel(now), held, &bm);
+void App::drawCalibrateScreen(Bitmap1& bm, Adafruit_GFX&, uint32_t, uint32_t held) {
+  CalModel c;
+  cal_.span(c.span);
+  c.fieldUt = cal_.fieldUt();
+  c.stored = cal_.stored();
+  c.battPct = battery_.percent();
+  c.heldMs = held;
+  drawCompassCal(bm, calFonts_, c);
 }
 
 void App::drawListScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held) {
@@ -399,7 +404,7 @@ void App::drawListScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t he
   if (lm.count > 8) lm.count = 8;
   for (int i = 0; i < lm.count; i++) tracer_.listItem(i, lm.items[i]);
   lm.selected = listSel_;
-  lm.appsRow = launcher_ != nullptr;
+  lm.homeRow = launcher_ != nullptr;
   lm.tools = cfg_.standalone;
   drawList(g, lm, buildViewModel(now), held, &bm);
 }
@@ -451,18 +456,17 @@ void App::tick(uint32_t now) {
   }
   if (listOpen_) {
     int n = tracer_.listCount();
-    const int extra = launcher_ ? 1 : 0;             // the "Apps..." row after "Calibrate compass"
-    if (ev == BTN_SHORT) { listSel_ = (listSel_ + 1) % (n + 2 + extra); redraw_ = true; }
+    const int extra = launcher_ ? 1 : 0;             // the "Home" row after "< back" (box image only)
+    if (ev == BTN_SHORT) { listSel_ = (listSel_ + 1) % (n + 1 + extra); redraw_ = true; }
     else if (ev == BTN_LONG) {
       if (listSel_ == 0) tracer_.listClose();
-      else if (listSel_ == 1) { tracer_.listClose(); startCalibration(); }
-      else if (launcher_ && listSel_ == 2) { tracer_.listClose(); launcher_->openLauncher(); }
-      else tracer_.listConnect(listSel_ - 2 - extra);
+      else if (launcher_ && listSel_ == 1) { tracer_.listClose(); launcher_->openLauncher(); }
+      else tracer_.listConnect(listSel_ - 1 - extra);
       listOpen_ = false;
       panel_.invalidate();
       redraw_ = true;
     }
-    if (listSel_ > n + 1 + extra) listSel_ = 0;
+    if (listSel_ > n + extra) listSel_ = 0;
   } else {
     if (ev == BTN_SHORT && !cfg_.standalone) {
       page_ = nextPage(page_);
