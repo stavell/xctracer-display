@@ -14,6 +14,21 @@ Hardware: Adafruit Feather nRF52840 Sense, LiPo, PlatformIO with the Arduino fra
 
 ![Enclosure](case/preview_assembly.png)
 
+## Screens
+
+Rendered by the PC emulator from the same drawing code that runs on the device (2x scale).
+
+![Screens overview](docs/screens/overview.png)
+
+| | | | |
+|---|---|---|---|
+| ![Compass](docs/screens/live.png) | ![Thermal](docs/screens/thermal_memory.png) | ![Profile](docs/screens/profile_inversion.png) | ![Home](docs/screens/home.png) |
+| **Compass**: speed, glide, altitude, climb, heading-up dial (GPS track or magnetic), wind | **Thermal**: heading-up map of the recent track in the air-mass frame, remembered thermals with their climb | **Profile**: wind and temperature by altitude, inversion band shaded | **Home**: direction and distance home, required glide ratio, arrival height |
+| ![Standalone](docs/screens/standalone.png) | ![Device list](docs/screens/list.png) | ![Calibration](docs/screens/calibrate.png) | ![Status](docs/screens/status.png) |
+| **Standalone**: no tracer connected, the box is a compass with temperature and humidity | **Device list**: pick the tracer, sorted by signal | **Compass calibration**: turn the box until the bars fill | **Status**: connecting / waiting for data |
+
+Grey tones are an 8x8 ordered dither on the 1-bit panel.
+
 ## Hardware and wiring (as built)
 
 | Display pin | Feather pad | Arduino pin | nRF GPIO |
