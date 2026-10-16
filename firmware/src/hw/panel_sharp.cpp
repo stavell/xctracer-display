@@ -24,11 +24,11 @@ static const nrfx_spim_t spim = NRFX_SPIM_INSTANCE(2);
 static uint8_t gTx[SHARP_PACK_MAX] __attribute__((aligned(4)));   // the packed transaction in flight
 static volatile bool gDone = true;
 static volatile uint32_t gStartCyc = 0;   // written by the loop before gDone = false
-static volatile uint32_t gEndCyc = 0;     // written by the handler (or the loop after an abort)
+static volatile uint32_t gSendUs = 0;     // duration of the last finished transfer
 
 // Interrupt context: flag and timestamp only. Chip select was already dropped by the driver.
 static void onSpim(nrfx_spim_evt_t const*, void*) {
-  gEndCyc = cycNow();
+  gSendUs = (cycNow() - gStartCyc) / CYC_PER_US;
   gDone = true;
 }
 
@@ -64,10 +64,8 @@ void SharpPanel::begin() {
   dirty_ = true;
 }
 
-uint32_t SharpPanel::sendUs() const {
-  uint32_t end = gEndCyc, start = gStartCyc;   // meaningful once the transfer is done
-  return (end - start) / CYC_PER_US;
-}
+// Measured when the transfer finishes, so a read while the next one is in flight stays valid.
+uint32_t SharpPanel::sendUs() const { return gSendUs; }
 
 void SharpPanel::waitIdle() {
   waitUs_ = 0;
@@ -81,7 +79,7 @@ void SharpPanel::waitIdle() {
       nrf_spim_event_clear(spim.p_reg, NRF_SPIM_EVENT_END);
       NVIC_ClearPendingIRQ(SPIM2_SPIS2_SPI2_IRQn);
       digitalWrite(PIN_DISP_CS, LOW);
-      gEndCyc = cycNow();
+      gSendUs = (cycNow() - gStartCyc) / CYC_PER_US;
       gDone = true;
       dirty_ = true;
       timeouts_++;

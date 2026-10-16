@@ -241,3 +241,11 @@ project is and how to run it; this file says what we found and why things are th
   about 1 ms steps, so small sections read 0 or 977 us.
 - Known, not fixed: the wind profile page divides by zero in landscape (`areaH / rows`); the box only
   runs in portrait.
+- Background panel send (2026-10-16, EasyDMA on SPIM2, packed copy of the changed lines as the second
+  buffer): present() now costs 2.2-2.9 ms of CPU (change detection + packing + snapshot) instead of
+  2-10 ms of blocking SPI; the transfer itself (3-8 ms) overlaps the next frame, wait=0 and no timeouts
+  in a 45 s thermal replay. Thermal page loop tick 15-30 ms (windfit is ~6 ms of it). +12.7 KB RAM.
+- The profiler now uses the DWT cycle counter; micros() on this core only ticks in ~977 us steps, so
+  every earlier sub-millisecond figure in these notes is rounded to that grid.
+- Next hot spot: the live (compass) page without a fix draws in 48 ms (tick 55-73 ms), far above every
+  other page.
