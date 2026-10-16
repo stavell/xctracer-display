@@ -855,13 +855,14 @@ void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitma
 
 void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm) {
   begin(g, bm);
-  header(vm, "SELECT VARIO");
+  header(vm, lm.tools ? "COMPASS" : "SELECT VARIO");
   char b[40];
   snprintf(b, sizeof b, "filter: %.16s", lm.filter);
-  text(6, HDR + 20, b, F9);
+  if (!lm.tools) text(6, HDR + 20, b, F9);
   const int n = lm.count, sel = lm.selected;
   const int rowH = 42, y0 = HDR + 30;
-  int rows = n + 2;
+  const int extra = lm.appsRow ? 1 : 0;
+  int rows = n + 2 + extra;
   int vis = (H - y0 - 30) / rowH;
   int first = sel >= vis ? sel - vis + 1 : 0;   // scroll so the selection stays visible
   for (int k = 0; k < vis && first + k < rows; k++) {
@@ -873,8 +874,10 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
       text(10, y + 27, "< back", F12B, AL, col);
     } else if (i == 1) {
       text(10, y + 27, "Calibrate compass", F12B, AL, col);
+    } else if (lm.appsRow && i == 2) {
+      text(10, y + 27, "Apps...", F12B, AL, col);
     } else {
-      const ListItem& it = lm.items[i - 2];
+      const ListItem& it = lm.items[i - 2 - extra];
       char nm[20];
       snprintf(nm, sizeof nm, "%.17s", it.name);
       text(10, y + 18, nm, F12B, AL, col);
@@ -882,7 +885,7 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
       text(10, y + 36, b, F9, AL, col);
     }
   }
-  if (n == 0) text(W / 2, y0 + 3 * rowH, "scanning...", F12B, AC);
+  if (n == 0 && !lm.tools) text(W / 2, y0 + (3 + extra) * rowH, "scanning...", F12B, AC);
   text(W / 2, H - 12, "press: next   hold: select", F9, AC);
   powerBanner(heldMs);
 }

@@ -101,7 +101,7 @@ uint32_t TetrisApp::nextWakeMs(uint32_t nowMs) {
   return t;
 }
 
-void TetrisApp::draw(Bitmap1& bm, uint32_t nowMs) {
+void TetrisApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
   view_.draw(bm, game_, nowMs);
   drawnVersion_ = game_.version();
   drawnPhase_ = TetrisView::flashPhase(game_, nowMs);

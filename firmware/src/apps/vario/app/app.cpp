@@ -13,9 +13,9 @@ static float angDiffDeg(float a, float b) {      // absolute shortest angle betw
   return d > 180.0f ? 360.0f - d : d;
 }
 
-App::App(IPanel& panel, IInput& input, IBattery& battery, ITracer& tracer, ILaptop& laptop,
+App::App(IPanel& panel, IBattery& battery, ITracer& tracer, ILaptop& laptop,
          ISettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg)
-    : panel_(panel), input_(input), battery_(battery), tracer_(tracer), laptop_(laptop),
+    : panel_(panel), battery_(battery), tracer_(tracer), laptop_(laptop),
       settings_(settings), compassHw_(compass), thermo_(thermo), power_(power), cfg_(cfg) {}
 
 void App::begin(uint32_t) {
@@ -24,9 +24,30 @@ void App::begin(uint32_t) {
   if (settings_.loadMagCal(cal)) compass_.setCalibration(cal);
   mount_ = settings_.mountIndex();
   if (!mountValid(mount_)) mount_ = 0;
+  tracer_.resume();                  // no-op unless end() paused it
+  if (left_) {                       // back from another app: whatever the laptop sent meanwhile is stale
+    left_ = false;
+    Command stale;
+    while (laptop_.pop(stale)) {}
+  }
   panel_.setRotation(cfg_.rotation);
   panel_.invalidate();
   redraw_ = true;
+}
+
+// Another app takes over: stop the tracer link and scan, switch the compass sensors off. The flight model
+// stays as it is; its data goes stale on its own (hasData() needs a sample in the last freshMs).
+void App::end() {
+  if (listOpen_) { tracer_.listClose(); listOpen_ = false; }
+  if (calibrating_) finishCalibration(false);
+  tracer_.pause();
+  if (compassOn_) { compassHw_.enable(false); compassOn_ = false; }
+  compass_.reset();                  // keeps the calibration
+  ahrs_.reset();
+  haveGyro_ = false;
+  fused_ = false;
+  ev_ = BTN_NONE;
+  left_ = true;
 }
 
 bool App::injecting(uint32_t now) const {
@@ -301,45 +322,35 @@ void App::shutdown() {
   power_.shutdown();             // blanks the panel, stops BLE and VCOM, enters System OFF
 }
 
-void App::drawLiveScreen(uint32_t now, uint32_t held) {
-  PROF_BEGIN(P_CLEAR);
-  panel_.clear();
-  PROF_END(P_CLEAR);
-  Bitmap1 bm = panel_.bitmap();
+void App::drawLiveScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held) {
   const ViewModel& vm = buildViewModel(now);
   drawnHeading_ = vm.heading;
   mapDrawnLive_ = vm.page == ViewModel::PAGE_THERMAL && vm.mapLive;
   if (mapDrawnLive_) {
     drawnCx_ = vm.mapAx; drawnCy_ = vm.mapAy; drawnMapHdg_ = vm.mapHdg; drawnMapScale_ = vm.mapScale;
   }
-  drawLive(panel_.gfx(), vm, held, &bm);
-  PROF_BEGIN(P_PRESENT);
-  panel_.present();
-  PROF_END(P_PRESENT);
+  drawLive(g, vm, held, &bm);
 }
 
-void App::drawCalibrateScreen(uint32_t now, uint32_t held) {
-  panel_.clear();
-  Bitmap1 bm = panel_.bitmap();
-  drawCalibrate(panel_.gfx(), buildViewModel(now), held, &bm);
-  panel_.present();
+void App::drawCalibrateScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held) {
+  drawCalibrate(g, buildViewModel(now), held, &bm);
 }
 
-void App::drawListScreen(uint32_t now, uint32_t held) {
+void App::drawListScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held) {
   ListModel lm;
   strncpy(lm.filter, tracer_.filter(), sizeof lm.filter - 1);
   lm.count = tracer_.listCount();
   if (lm.count > 8) lm.count = 8;
   for (int i = 0; i < lm.count; i++) tracer_.listItem(i, lm.items[i]);
   lm.selected = listSel_;
-  panel_.clear();
-  Bitmap1 bm = panel_.bitmap();
-  drawList(panel_.gfx(), lm, buildViewModel(now), held, &bm);
-  panel_.present();
+  lm.appsRow = launcher_ != nullptr;
+  lm.tools = cfg_.standalone;
+  drawList(g, lm, buildViewModel(now), held, &bm);
 }
 
 void App::tick(uint32_t now) {
-  ButtonEvent ev = input_.poll(now);
+  ButtonEvent ev = ev_;
+  ev_ = BTN_NONE;
   if (ev == BTN_HOLD) { shutdown(); return; }
 
   Command c;
@@ -369,38 +380,31 @@ void App::tick(uint32_t now) {
     wasLocal_ = local;
     if (local) { panel_.setRotation(cfg_.rotation); panel_.invalidate(); redraw_ = true; }
   }
+  local_ = local;
   if (!local) return;
 
-  uint32_t held = input_.heldMs(now);
+  tickMode_ = mode();
   if (calibrating_) {                               // turn the unit in every direction; hold = keep, press = cancel
     if (ev == BTN_LONG) finishCalibration(true);
     else if (ev == BTN_SHORT) finishCalibration(false);
-    if (calibrating_ && (redraw_ || now - lastDraw_ >= 200)) {
-      lastDraw_ = now;
-      redraw_ = false;
-      drawCalibrateScreen(now, held);
-    }
     return;
   }
   if (listOpen_) {
     int n = tracer_.listCount();
-    if (ev == BTN_SHORT) { listSel_ = (listSel_ + 1) % (n + 2); redraw_ = true; }
+    const int extra = launcher_ ? 1 : 0;             // the "Apps..." row after "Calibrate compass"
+    if (ev == BTN_SHORT) { listSel_ = (listSel_ + 1) % (n + 2 + extra); redraw_ = true; }
     else if (ev == BTN_LONG) {
       if (listSel_ == 0) tracer_.listClose();
       else if (listSel_ == 1) { tracer_.listClose(); startCalibration(); }
-      else tracer_.listConnect(listSel_ - 2);
+      else if (launcher_ && listSel_ == 2) { tracer_.listClose(); launcher_->openLauncher(); }
+      else tracer_.listConnect(listSel_ - 2 - extra);
       listOpen_ = false;
       panel_.invalidate();
       redraw_ = true;
     }
-    if (listSel_ > n + 1) listSel_ = 0;
-    if (listOpen_ && (redraw_ || now - lastDraw_ >= 250)) {
-      lastDraw_ = now;
-      redraw_ = false;
-      drawListScreen(now, held);
-    }
+    if (listSel_ > n + 1 + extra) listSel_ = 0;
   } else {
-    if (ev == BTN_SHORT) {
+    if (ev == BTN_SHORT && !cfg_.standalone) {
       page_ = (ViewModel::Page)((page_ + 1) % ViewModel::PAGE_COUNT);
       redraw_ = true;
     }
@@ -410,25 +414,40 @@ void App::tick(uint32_t now) {
       listSel_ = 0;
       redraw_ = true;
     }
-    uint32_t every = held >= ButtonFsm::ARM_MS ? 150 : cfg_.drawEveryMs;
-    uint32_t anim = page_ == ViewModel::PAGE_THERMAL ? cfg_.animThermalEveryMs
-                  : page_ == ViewModel::PAGE_COMPASS ? cfg_.animCompassEveryMs
-                  : page_ == ViewModel::PAGE_HOME ? cfg_.animEveryMs : every;
-    if (!hasData(now)) anim = cfg_.animCompassEveryMs;      // the standalone compass glides on every page
-    // Fused compass: animate while the shown heading is more than half a pixel from the drawn one. Others: until settled.
-    bool moving;
-    if (smoothSrc_ == HDG_MAG && smoothFused_) {
-      const float v = smooth_.value();
-      moving = isfinite(v) && (!isfinite(drawnHeading_) || angDiffDeg(v, drawnHeading_) > AppConfig::DIAL_HALF_PIXEL_DEG);
-    } else {
-      moving = !smooth_.settled();
-    }
-    if (moving && anim < every) every = anim;
-    if (mapMoving_ && cfg_.animMapEveryMs < every) every = cfg_.animMapEveryMs;
-    if (!listOpen_ && (redraw_ || now - lastDraw_ >= every)) {
-      lastDraw_ = now;
-      redraw_ = false;
-      drawLiveScreen(now, held);
-    }
   }
+}
+
+// The redraw cadence. True when the picture should be refreshed now: something asked for it (redraw_), or the
+// screen's own cadence is due. A screen change made inside the last tick (the list opened, the calibration
+// started or ended) draws on the next tick, as the app always did.
+bool App::wantsFrame(uint32_t now) const {
+  if (!local_ || mode() != tickMode_) return false;
+  if (tickMode_ == M_CAL) return redraw_ || now - lastDraw_ >= 200;
+  if (tickMode_ == M_LIST) return redraw_ || now - lastDraw_ >= 250;
+  const uint32_t held = held_;
+  uint32_t every = held >= ButtonFsm::ARM_MS ? 150 : cfg_.drawEveryMs;
+  uint32_t anim = page_ == ViewModel::PAGE_THERMAL ? cfg_.animThermalEveryMs
+                : page_ == ViewModel::PAGE_COMPASS ? cfg_.animCompassEveryMs
+                : page_ == ViewModel::PAGE_HOME ? cfg_.animEveryMs : every;
+  if (!hasData(now)) anim = cfg_.animCompassEveryMs;      // the standalone compass glides on every page
+  // Fused compass: animate while the shown heading is more than half a pixel from the drawn one. Others: until settled.
+  bool moving;
+  if (smoothSrc_ == HDG_MAG && smoothFused_) {
+    const float v = smooth_.value();
+    moving = isfinite(v) && (!isfinite(drawnHeading_) || angDiffDeg(v, drawnHeading_) > AppConfig::DIAL_HALF_PIXEL_DEG);
+  } else {
+    moving = !smooth_.settled();
+  }
+  if (moving && anim < every) every = anim;
+  if (mapMoving_ && cfg_.animMapEveryMs < every) every = cfg_.animMapEveryMs;
+  return redraw_ || now - lastDraw_ >= every;
+}
+
+void App::draw(Bitmap1& bm, Adafruit_GFX& g, uint32_t now) {
+  lastDraw_ = now;
+  redraw_ = false;
+  const uint32_t held = held_;
+  if (tickMode_ == M_CAL) drawCalibrateScreen(bm, g, now, held);
+  else if (tickMode_ == M_LIST) drawListScreen(bm, g, now, held);
+  else drawLiveScreen(bm, g, now, held);
 }

@@ -28,6 +28,7 @@ class ButtonFsm {
     return BTN_NONE;
   }
   uint32_t heldMs(uint32_t now) const { return stable_ ? now - pressedAt_ : 0; }
+  bool down() const { return stable_; }                 // debounced state, true from the first stable sample
 
  private:
   uint32_t debounce_;

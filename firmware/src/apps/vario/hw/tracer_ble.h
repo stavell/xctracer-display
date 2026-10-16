@@ -26,6 +26,8 @@ class TracerBle : public ITracer {
   bool popLine(char* buf, size_t n) override;
   void describe(char* buf, size_t n) const override;
   void disconnect();
+  void pause() override;                             // leaving the vario app (box image)
+  void resume() override;
 
  private:
   struct Item {
@@ -59,6 +61,7 @@ class TracerBle : public ITracer {
   std::atomic<bool> rescan_{false};
   volatile uint16_t conn_ = BLE_CONN_HANDLE_INVALID;
   bool listMode_ = false;
+  bool paused_ = false;
   ScanMode scanMode_ = SCAN_OFF;
   uint32_t fastUntil_ = 0;
   uint32_t lastNow_ = 0;        // the `now` of the latest update(), for calls that get no time

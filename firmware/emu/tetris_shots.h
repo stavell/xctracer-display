@@ -13,7 +13,7 @@ static uint8_t gFb[50 * 240];
 static void dump(TetrisApp& app, const char* dir, const char* name, uint32_t now) {
   memset(gFb, 0xFF, sizeof gFb);
   Bitmap1 bm{gFb, 400, 240, 50, 1};
-  app.draw(bm, now);
+  app.draw(bm, dummyGfx(), now);
   std::string path = std::string(dir) + "/" + name + ".pgm";
   FILE* f = fopen(path.c_str(), "wb");
   if (!f) return;

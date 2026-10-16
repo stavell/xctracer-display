@@ -380,3 +380,36 @@ feed the result to the view (`ViewModel::mapLive/mapCx/mapCy/mapHdg/mapScale`). 
   horizontal stripes; the 2 px dark bottom-right edge is the bevel. Distinct hashes are a test.
 - SDL: define `SDL_MAIN_HANDLED` (no SDL2main on the link line from `sdl2-config --libs`). The player converts
   the native buffer to RGB through `Bitmap1::getPixel`, so the rotation mapping is the device's.
+
+## Box: platform frame loop, launcher, stack check (2026-10-16, emulator and builds only, not flashed)
+
+- **The vario did not change.** `App::tick` no longer draws; `AppHost::tick` polls the switch, ticks the app, then asks
+  `wantsFrame` and does clear / draw / present. Proof (before vs after, same 600 s of 2026-08-16-XCT-SVE-09.igc from
+  4185, `--hz 3` and `--hz 1`, compass, thermal, profile and home pages, `--inject`, `--mix`, rotation 3, two
+  scripted-press runs through list and calibration and a 3 s power-off): every stdout line, every saved frame and the
+  behaviour digest (hash of each present() time and frame buffer) are identical, and all 31 emulator screens are
+  byte-identical. The test output (draw counts, cadence numbers) is identical line for line. One subtlety kept on
+  purpose: the old tick never drew on the tick in which the list or calibration screen opened or closed (the
+  branch had already been chosen); `wantsFrame` reproduces it with `tickMode_` (a screen change inside a tick draws on
+  the next one). Without it frames come 10 ms earlier and the digest differs.
+- **Sizes** (device builds, bytes). Vario only, before: flash 234108, RAM 65552. After: flash 236960, RAM 67340 (+2.8 KB
+  flash for the host, edge queue and `popEdge`; RAM includes +1.5 KB, the static `fitWind` buffers). Diagnostics image
+  and box image: see README. Box: flash 272432, RAM 87656; the second `App` (compass tool) is 19136 bytes of that,
+  the three launcher / Tetris font sets are built on the heap on first draw. The font bitmaps of FreeSansBold24 are
+  linked twice (vario view and Tetris view each `#include` the font header): about 8 KB flash, left alone.
+- **Stack.** `scripts/stack_check.py`: the first run found the 1864-byte frame of `fitWind` (three `double[64]` on
+  the stack) on the worst chain `loop -> VarioApp::tick -> App::tick (440) -> ... -> FlightModel::updateWind ->
+  fitWind -> sin -> __kernel_rem_pio2 (648)`: 3516 of 4096 bytes, 86 %, in the shipped vario. The arrays are static now
+  (same maths, byte-identical replay): worst chain 2604 bytes (63 %), now going through a flash write
+  (`TracerBle::listConnect -> writeAtomic -> littlefs -> assert -> printf`). `sin` can reach `__kernel_rem_pio2`
+  only for arguments above about 1.6 million radians, so the real figure is lower. What the checker cannot see:
+  function pointers and library virtuals, recursion, the BLE callback task (3 KB) and the interrupt stack. Frames are
+  read from the prologues (`push` lists, `sub sp`), calls from `bl`, virtual calls by the vtable slot loaded before the
+  `blx` and the interfaces named in the calling class (over-estimate). GCC 7.2 has no `-fcallgraph-info`.
+- **Device compiler is C++11 for aggregates**: a struct with default member initializers is not an aggregate there
+  (`KeyEdge{a, b, c}` failed to compile); the emulator (C++17) accepts it. Keep ports' small structs plain.
+- **Hold gesture in games.** Tetris acts on the switch's press edge (start) and its 0.4 s long press (hold piece), so a
+  3 s hold to leave also swaps the piece once and, on the title screen, starts a game first. Harmless, but a
+  dedicated "Exit" in Tetris's pause screen would be cleaner when the D-pad exists (A + B then replaces it).
+- **Box smoke run** (`build.sh smoke`): scripted keys through the real `ButtonFsm` in virtual time, 10 ms host ticks;
+  it fails if the active app at any screenshot is not the expected one.

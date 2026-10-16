@@ -22,6 +22,10 @@ class ITracer {
   virtual bool listConnect(int i) = 0;                 // connect and remember
   virtual bool popLine(char* buf, size_t n) = 0;       // next raw line received, without CR/LF
   virtual void describe(char* buf, size_t n) const = 0;  // which device is saved / connected (diagnostics)
+  // The vario app is left for another app (box image): stop scanning, drop the link, discard queued lines.
+  // resume() starts looking for the saved tracer again; it does nothing unless pause() ran.
+  virtual void pause() = 0;
+  virtual void resume() = 0;
 };
 
 // Commands from the laptop (BLE peripheral). Heavy parsing stays out of the BLE callbacks:

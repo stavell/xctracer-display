@@ -5,7 +5,10 @@
 #   ./build.sh count [outdir] [rot]  per-section draw work of the live page (pixel/span call counts)
 #   ./build.sh wind <lines.txt>     EKF vs circle-fit wind over a real flight (see emu_main.cpp)
 #   ./build.sh soak [lines.txt]     long session through the App, about a minute (see emu_main.cpp)
-#   ./build.sh play <app> [opts]    play an app on the PC in an SDL window (see play.cpp); e.g. play tetris
+#   ./build.sh play <app> [opts]    play an app on the PC in an SDL window (see play.cpp): tetris, or box
+#                                   (the whole box: launcher + vario + Tetris + compass tool)
+#   ./build.sh smoke                headless run of the whole box: renders the launcher, vario pages, Tetris
+#                                   started from the launcher and the way back (emu/out/box_*.png)
 set -e
 cd "$(dirname "$0")"
 G="../.pio/libdeps/feather_sense/Adafruit GFX Library"
@@ -15,17 +18,20 @@ grep -v "define pgm_read_pointer" "$G/Adafruit_GFX.cpp" > out/Adafruit_GFX_host.
 V=../src/apps/vario
 P=../src/platform
 T=../src/apps/games/tetris
+L=../src/apps/launcher
 TETRIS="$T/tetris.cpp $T/tetris_view.cpp $T/tetris_app.cpp"
+LAUNCHER="$L/launcher_app.cpp $L/launcher_view.cpp"
 GFX="$P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp"
-if [ "$1" = "play" ]; then
-  # The player: no sanitizers (speed), SDL2 from Homebrew, only the pieces an app needs.
+VARIO="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/prof.cpp $V/app/app.cpp"
+if [ "$1" = "play" ] || [ "$1" = "smoke" ]; then
+  # The player: no sanitizers (speed), SDL2 from Homebrew, the whole box over mock ports.
+  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" $(sdl2-config --cflags) \
+    $TETRIS $LAUNCHER $GFX $VARIO out/Adafruit_GFX_host.cpp play.cpp $(sdl2-config --libs) -o out/play
+  if [ "$1" = "smoke" ]; then exec ./smoke.sh; fi
   shift
-  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -Istubs -I../src -I. -I"$G" $(sdl2-config --cflags) \
-    $TETRIS $GFX play.cpp $(sdl2-config --libs) -o out/play
   exec out/play "$@"
 fi
-SRC="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $V/app/command_decode.cpp
-     $TETRIS $V/view/screens.cpp $V/view/prof.cpp $V/app/app.cpp out/Adafruit_GFX_host.cpp"
+SRC="$VARIO $GFX $TETRIS $LAUNCHER out/Adafruit_GFX_host.cpp"
 FLAGS="-std=c++17 -g -O1 -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I.
        -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all"
 c++ $FLAGS -I"$G" $SRC emu_main.cpp -o out/emu

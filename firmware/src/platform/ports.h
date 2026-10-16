@@ -9,6 +9,17 @@
 
 enum ButtonEvent { BTN_NONE, BTN_SHORT, BTN_LONG, BTN_HOLD };
 
+// Physical inputs. Today only KEY_MAIN exists on the device (the Feather user switch); the others are the
+// console's D-pad and its A / B buttons (KEY_ACTION is A), wired later through the table in
+// platform/hw/input_button.h.
+enum Key : uint8_t { KEY_MAIN, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_ACTION, KEY_B, KEY_COUNT };
+
+struct KeyEdge {                    // a debounced press (down) or release of one key, with the time it happened
+  Key key;
+  bool down;
+  uint32_t ms;
+};
+
 class IPanel {
  public:
   virtual ~IPanel() {}
@@ -23,11 +34,24 @@ class IPanel {
   virtual void showRaw(const uint8_t* frame) = 0;
 };
 
-class IInput {                      // the single user switch
+class IInput {                      // the user switch (and, later, the front buttons)
  public:
   virtual ~IInput() {}
-  virtual ButtonEvent poll(uint32_t nowMs) = 0;
-  virtual uint32_t heldMs(uint32_t nowMs) = 0;
+  virtual ButtonEvent poll(uint32_t nowMs) = 0;      // short / long / hold of the user switch (KEY_MAIN)
+  virtual uint32_t heldMs(uint32_t nowMs) = 0;       // how long KEY_MAIN has been down, 0 when up
+  // Next key edge in order, false when there is none. Edges are queued by the sampling timer, so a tap that
+  // starts and ends inside one slow redraw is still seen. Inputs without edge support deliver none.
+  virtual bool popEdge(KeyEdge& out) { (void)out; return false; }
+};
+
+// A few persistent numbers for the box itself (boot app, game high scores), kept in the nRF's flash.
+// Slots are small integers; an unset slot reads as 0.
+enum StoreSlot : uint8_t { SLOT_BOOT_APP, SLOT_TETRIS_BEST, SLOT_COUNT };
+class IKeyStore {
+ public:
+  virtual ~IKeyStore() {}
+  virtual uint32_t get(StoreSlot slot) const = 0;
+  virtual void set(StoreSlot slot, uint32_t value) = 0;   // persists at once; a no-op when unchanged
 };
 
 class IBattery {

@@ -9,6 +9,9 @@
 #include "platform/sensors/mount.h"
 #include "apps/vario/core/types.h"
 #include "apps/vario/app/ports.h"
+#include "apps/vario/app/app.h"
+#include "apps/vario/app/vario_app.h"
+#include "platform/app_host.h"
 
 class MockPanel : public IPanel {
  public:
@@ -28,6 +31,7 @@ class MockPanel : public IPanel {
   void showRaw(const uint8_t* frame) override { memcpy(disp_.getBuffer(), frame, sizeof snap_); refresh(); }
   int rawPixel(int x, int y) { return (disp_.getBuffer()[(y * 400 + x) / 8] >> (x & 7)) & 1; }   // native layout, 1 = white
   void dump(const char* path) { disp_.dumpPgm(path); }
+  const uint8_t* raw() { return disp_.getBuffer(); }   // native 400x240 buffer, 50 bytes per row
   int refreshes = 0;
   int presents = 0;        // every present() call, changed screen or not
  private:
@@ -38,17 +42,49 @@ class MockPanel : public IPanel {
 
 class MockInput : public IInput {
  public:
+  // The user switch: scripted presses (press) or a live level (setKey with KEY_MAIN), both through the real
+  // ButtonFsm. The front buttons (setKey with another key) only produce edges, like the device.
   void press(uint32_t at, uint32_t durMs) { presses_.push_back({at, durMs}); }
+  void setKey(Key k, bool down, uint32_t now) {
+    if (k >= KEY_COUNT || level_[k] == down) return;
+    level_[k] = down;
+    if (k != KEY_MAIN) pushEdge(KeyEdge{k, down, now});
+  }
+  bool keyDown(Key k) const { return level_[k]; }
   ButtonEvent poll(uint32_t now) override {
-    bool down = false;
+    bool down = level_[KEY_MAIN];
     for (auto& p : presses_) if (now - p.at < p.dur) down = true;   // unsigned difference: correct across the 49.7-day millis() wrap
-    return fsm_.feed(down, now);
+    ButtonEvent e = fsm_.feed(down, now);
+    if (fsm_.down() != mainDown_) {                                  // the same debounced edge the device queues
+      mainDown_ = fsm_.down();
+      pushEdge(KeyEdge{KEY_MAIN, mainDown_, now});
+    }
+    return e;
   }
   uint32_t heldMs(uint32_t now) override { return fsm_.heldMs(now); }
+  bool popEdge(KeyEdge& out) override {
+    if (head_ == tail_) return false;
+    out = edges_[tail_++ % EDGES];
+    return true;
+  }
  private:
   struct P { uint32_t at, dur; };
   std::vector<P> presses_;
   ButtonFsm fsm_;
+  bool level_[KEY_COUNT] = {};
+  bool mainDown_ = false;
+  static const unsigned EDGES = 64;                    // a fixed ring: the soak test counts heap allocations
+  void pushEdge(const KeyEdge& e) { if (head_ - tail_ < EDGES) edges_[head_++ % EDGES] = e; }
+  KeyEdge edges_[EDGES];
+  unsigned head_ = 0, tail_ = 0;
+};
+
+class MockKeyStore : public IKeyStore {
+ public:
+  uint32_t get(StoreSlot s) const override { return s < SLOT_COUNT ? v[s] : 0; }
+  void set(StoreSlot s, uint32_t x) override { if (s < SLOT_COUNT && v[s] != x) { v[s] = x; writes++; } }
+  uint32_t v[SLOT_COUNT] = {};
+  int writes = 0;
 };
 
 class MockBattery : public IBattery {
@@ -79,6 +115,10 @@ class MockTracer : public ITracer {
     return true;
   }
   void describe(char* buf, size_t n) const override { snprintf(buf, n, "mock"); }
+  void pause() override { paused = true; pauses++; lines.clear(); link_ = ViewModel::LINK_NONE; }
+  void resume() override { if (paused) { lines.clear(); resumes++; link_ = saved_ ? ViewModel::LINK_CONNECTED : ViewModel::LINK_NONE; } paused = false; }
+  bool paused = false;
+  int pauses = 0, resumes = 0;
   void addItem(const char* name, int rssi) { ListItem it; memset(&it, 0, sizeof it); strncpy(it.name, name, 23); it.rssi = rssi; strcpy(it.id, "00:00"); items_.push_back(it); }
 
   std::deque<std::string> lines;
@@ -192,6 +232,34 @@ class MockPower : public IPower {
   void shutdown() override { off = true; }
   bool off = false;
 };
+
+// What the device's main loop does around the vario: an AppHost running a VarioApp over the mock panel and
+// switch. Tests and replays drive the App through this, so they exercise the real host frame loop (clear,
+// draw, present) and the real redraw cadence (App::wantsFrame). begin() / tick() are the host's.
+class Driven : public App {
+ public:
+  Driven(IPanel& panel, IInput& input, IBattery& battery, ITracer& tracer, ILaptop& laptop,
+         ISettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg = AppConfig())
+      : App(panel, battery, tracer, laptop, settings, compass, thermo, power, cfg),
+        host_(panel, input), va_(*this) {
+    host_.add(va_);
+    host_.setProbe(&probe_);
+  }
+  void begin(uint32_t now) { host_.start(0, now); }
+  void tick(uint32_t now) { host_.tick(now); }
+  AppHost& host() { return host_; }
+
+ private:
+  AppHost host_;
+  VarioApp va_;
+  VarioProbe probe_;
+};
+
+// A canvas for apps that draw through the Bitmap1 only (the games ignore the GFX argument).
+inline Adafruit_GFX& dummyGfx() {
+  static Adafruit_SharpMem d(nullptr, 0, 400, 240, 0);
+  return d;
+}
 
 // Bundles one of everything, wired to an App.
 struct Rig {

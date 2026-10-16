@@ -426,7 +426,7 @@ static void app_wrapper() {
   CHECK(app.game().state() == ST_TITLE);
   CHECK(app.wantsFrame(t));                         // nothing drawn yet
   memset(gBuf, 0xFF, sizeof gBuf);
-  app.draw(bm, t);
+  app.draw(bm, dummyGfx(), t);
   int title = blackPixels(bm);
   CHECK(title > 1500);
   CHECK(!app.wantsFrame(t) && app.nextWakeMs(t) == 0xFFFFFFFFu);   // idle: sleep until a key
@@ -438,7 +438,7 @@ static void app_wrapper() {
   CHECK(app.game().state() == ST_PLAYING);
   CHECK(app.wantsFrame(t + 80));
   memset(gBuf, 0xFF, sizeof gBuf);
-  app.draw(bm, t + 80);
+  app.draw(bm, dummyGfx(), t + 80);
   CHECK(blackPixels(bm) > 1500 && !app.wantsFrame(t + 80));
   uint32_t wake = app.nextWakeMs(t + 80);
   CHECK(wake > t + 80 && wake <= t + 80 + 1000);     // the next gravity step
@@ -447,7 +447,7 @@ static void app_wrapper() {
   t += 1100;
   app.tick(t);
   CHECK(app.wantsFrame(t));
-  app.draw(bm, t);
+  app.draw(bm, dummyGfx(), t);
 
   // Short press of MAIN pauses at the release, the next short press resumes.
   app.onKey(KEY_MAIN, true, t);
@@ -455,7 +455,7 @@ static void app_wrapper() {
   app.onKey(KEY_MAIN, false, t + 100);
   CHECK(app.game().state() == ST_PAUSED);
   memset(gBuf, 0xFF, sizeof gBuf);
-  app.draw(bm, t + 100);
+  app.draw(bm, dummyGfx(), t + 100);
   t += 5000;
   app.onKey(KEY_MAIN, true, t);
   app.onKey(KEY_MAIN, false, t + 50);
@@ -467,7 +467,7 @@ static void app_wrapper() {
   app.onKey(KEY_MAIN, true, t);
   app.tick(t + 399);
   CHECK(app.game().held() == P_NONE);
-  app.draw(bm, t);
+  app.draw(bm, dummyGfx(), t);
   CHECK(app.nextWakeMs(t + 399) <= t + 400);
   app.tick(t + 400);
   CHECK(app.game().held() == cur);
@@ -495,7 +495,7 @@ static void app_wrapper() {
   }
   CHECK(g.state() == ST_OVER);
   memset(gBuf, 0xFF, sizeof gBuf);
-  app.draw(bm, t + 900);
+  app.draw(bm, dummyGfx(), t + 900);
   CHECK(blackPixels(bm) > 1500);
   app.onKey(KEY_MAIN, true, t + 1000);
   app.onKey(KEY_MAIN, false, t + 1100);
@@ -509,11 +509,11 @@ static void app_wrapper() {
   app.onKey(KEY_UP, true, u);
   app.onKey(KEY_UP, false, u);
   CHECK(g.state() == ST_CLEARING);
-  app.draw(bm, u);
+  app.draw(bm, dummyGfx(), u);
   CHECK(!app.wantsFrame(u + 10));
   CHECK(app.wantsFrame(u + TetrisView::FLASH_PHASE_MS));
   CHECK(app.nextWakeMs(u + 10) == u + TetrisView::FLASH_PHASE_MS);
-  app.draw(bm, u + TetrisView::FLASH_PHASE_MS);
+  app.draw(bm, dummyGfx(), u + TetrisView::FLASH_PHASE_MS);
   app.tick(u + g.cfg.clearMs);
   CHECK(g.state() == ST_PLAYING && app.wantsFrame(u + g.cfg.clearMs));
 }

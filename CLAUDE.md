@@ -18,19 +18,25 @@ right is worse than no data.
       gfx/       1-bit renderer: Bitmap1, gray dither, glyph atlas, font, shapes
       sensors/   compass tilt + hard-iron, AHRS, heading smoother, mount table
       panel/     pure panel helpers: line diff, Sharp frame packing
-      input/     button state machine
+      input/     button state machine, A+B combo hold, key debounce
       util/      spsc_ring, types (Vec3, MagCal, finite-math guard)
-      hw/        generic drivers: panel, button, battery, power, compass/thermo sensors, watchdog, pins
-      ports.h    ports to the generic hardware (panel, input, battery, compass, thermo, power)
-      app_host.h IApp (name/begin/end/tick/onInput) and AppHost (holds the active app)
+      hw/        generic drivers: panel, buttons (+ keymap.h for the six front buttons), battery, power, compass/thermo
+                 sensors, key store (boot app, high scores), watchdog, pins
+      ports.h    ports to the generic hardware (panel, input + key edges, battery, compass, thermo, power, key store)
+      app_host.h IApp (begin/end/tick, input, wantsFrame/draw, gestures) and AppHost: THE FRAME LOOP (poll input,
+                 tick, clear + draw + present when the app wants a frame), app switching, launcher gestures
     firmware/src/apps/vario/   the flight display
       core/      pure flight maths: parser, flight model, wind fit, thermal memory, heading selector, sim
       view/      draws a ViewModel onto an Adafruit_GFX canvas; no hardware, no state
       app/       the state machine (App) behind the vario ports in app/ports.h, VarioApp (IApp adapter)
       hw/        vario-only hardware: tracer BLE central, laptop BLE peripheral + protocol, flash config,
                  diagnostics
-    firmware/src/main_vario.cpp   wiring only; one main_<image>.cpp per firmware image
-    firmware/emu/        PC emulator: the same platform + vario core/view/app with mock ports, tests, screen renders
+    firmware/src/apps/launcher/   the app menu (LauncherApp: icons, battery, version, start-up app)
+    firmware/src/apps/games/tetris/   rules, 1-bit view, TetrisApp
+    firmware/src/main_vario.cpp   wiring only; one main_<image>.cpp per firmware image (main_vario: vario only,
+                                  main_box: launcher + vario + Tetris + compass tool)
+    firmware/emu/        PC emulator: the same platform + apps with mock ports, tests, screen renders, the PC player
+                         (play.cpp: `build.sh play tetris|box`), box.h = the whole box over mocks
     host/                Python tools: replay, control, capture, analysis (.venv at the repo root)
 
 ## Rules (each one was learned the hard way)
@@ -42,6 +48,17 @@ right is worse than no data.
   includes platform headers as `"platform/gfx/bitmap1.h"` (paths from `-Isrc`).
 - **BLE callbacks only copy bytes into queues.** No parsing, no maths, no drawing, no flash writes, no
   Bluefruit calls that the loop also makes. Parsing inside a callback once hung the device.
+- **The host owns the frame loop.** An app never clears or presents the panel: it answers `wantsFrame(now)` and
+  draws in `draw(bm, gfx, now)` onto a white canvas (`platform/app_host.h`). All redraw cadence rules (animation
+  rates, half-pixel rules) live in the app's `wantsFrame`. The vario's list / calibration screens only draw on the tick
+  after they were opened (as they always did): that is part of the cadence, keep it.
+- **Flight safety of the box image.** The box boots straight into the start-up app (default: the vario, stored in the
+  key store). The launcher opens only on a deliberate gesture from inside an app: the vario's device list has an
+  "Apps..." row (long press, short presses to the row, long press), 3 s hold of the switch in games and tools, A + B held
+  1.5 s on the six-button hardware. Leaving the vario stops the tracer scan and link and the compass sensors
+  (`App::end`, `ITracer::pause`); entering it again restarts them. Games never run unless chosen. The vario-only image
+  (`feather_sense`) has no launcher and none of this. `scripts/check.sh` proves the vario draws the same frames in
+  the box as alone (`box_vario_matches_alone`).
 - **The loop task has a 4 KB stack.** No large locals (view model, trails, buffers): make them static or
   members of global objects. `FlightModel::reset()` assigns members for this reason.
 - **Never fill the whole screen with `fillRect`** (per pixel, 142 ms on this chip). The app calls
@@ -57,11 +74,17 @@ right is worse than no data.
 
     firmware/emu/build.sh                 # emulator: all tests (sanitizers on) + screen PNGs in emu/out/
     firmware/emu/build.sh replay <lines> <outdir> [--hz 3 --inject --mix live.txt --thermal]
-    cd firmware && ../.venv/bin/pio run              # device build (vario image: platform/ + apps/vario/ via build_src_filter)
-    scripts/flash.sh                      # flash over USB: checks the port is free, verifies "Device programmed."
+    firmware/emu/build.sh play box        # the whole box on the PC in an SDL window (keys: see README, "Box on the PC")
+    firmware/emu/build.sh smoke           # headless scripted run of the box: launcher, vario, Tetris, tool -> emu/out/box_*.png
+    cd firmware && ../.venv/bin/pio run              # device builds: feather_sense (vario only), feather_sense_diag, feather_sense_box
+    scripts/flash.sh [env]                # flash over USB (default feather_sense): checks the port is free, verifies "Device programmed."
+    scripts/stack_check.py                # static worst-case stack depth from loop() / setup() of the built images (needs pio run first)
 
-Before every commit: the emulator tests pass and the device build succeeds. Look at the rendered PNGs
-after any view change.
+Before every commit: `scripts/check.sh` (emulator tests, box smoke run, device builds, stack check). Look at the
+rendered PNGs after any view change.
+
+The vario must not change when the platform around it does: compare `build.sh replay ... ` output (it ends with a
+behaviour digest of every present() time and frame) and the `out/*.pgm` renders before and after a refactor.
 
 Line files for replays: `python host/make_lines.py igc <file.igc> --start S --seconds N` and
 `python host/make_lines.py capture host/xct_capture.log`.
