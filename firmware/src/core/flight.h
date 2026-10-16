@@ -25,7 +25,8 @@ class FlightModel {
   bool flying() const { return flying_; }
   uint32_t flightSec() const;
   bool circling() const { return circling_; }
-  Wind wind() const;               // EKF estimate when confident, else the circle fit (with its age)
+  Wind wind() const;               // EKF estimate when confident, else the circle fit; ageS = time since the
+                                   // estimate was last informed by a turn (EKF) or a circle (fit)
   Wind circleWind() const;         // circle-fit estimate only (diagnostics)
   bool ekfConfident() const { return ekf_.confident(); }
   float ekfSigmaW() const { return ekf_.sigmaW(); }
@@ -36,7 +37,7 @@ class FlightModel {
   int thermals(ThermalRel* out, int maxN) const;
   // Wind by altitude, filled from fresh wind estimates while flying.
   const WindProfile& profile() const { return profile_; }
-  // Takeoff position (provisional first fix until takeoff is detected; kept for the rest of the session).
+  // Takeoff position (provisional first fix until takeoff is detected, then the spot where speed first passed the threshold; kept for the rest of the session).
   const HomePoint& home() const { return home_; }
   uint32_t clockMs() const { return clock_; }
   int histCount() const { return n_; }
@@ -66,12 +67,17 @@ class FlightModel {
   WindEkf ekf_;
   bool ekfStarted_ = false;
   uint32_t ekfAt_ = 0;
+  uint32_t ekfInformedAt_ = 0;     // flight clock of the last update made while the heading was changing
+  bool turnedRecently() const;
   WindProfile profile_;
   float tempC_ = NAN;
   uint32_t tempAt_ = 0;
   bool haveTemp_ = false;
   HomePoint home_;
   bool homeFixed_ = false;         // takeoff seen: home is final
+  bool candValid_ = false;         // position where speed first crossed the takeoff threshold
+  double candLat_ = 0, candLon_ = 0;
+  float candAlt_ = NAN;
   ThermalMemory mem_;
   AirPoint scratch_[HIST];         // working space for the thermal finder (too big for the stack)
 };

@@ -273,3 +273,14 @@ project is and how to run it; this file says what we found and why things are th
   250 ms at 80 Hz (252 ms), 200 ms at 10 Hz; still input with +-0.3 deg noise stays settled.
   To check on the device: `compass=` time in the status line (one 80 Hz read per loop tick) and the
   dial jitter with the box lying still.
+  Measured on the device: compass= 46 us; but lying still on a desk (next to a laptop) the shown heading
+  wandered 260-270 deg and ~180 lines changed every frame, so the 30 fps redraw never stopped. 50 ms of
+  filtering cannot hide the magnetometer noise; gyro fusion is the fix (in progress).
+- Correction to the line above (2026-10-16): `windfit=` is not a per-tick cost of the flight model. It is
+  a synthetic benchmark in `hw/diagnostics.cpp` (one `fitWind` over a canned circle) that was re-run on
+  every status line, so it showed up as ~5.7 ms in the loop tick of that moment even with no data. It now
+  runs once. The real fit runs once per data second, only with a fix, and rejects straight windows before
+  any trigonometry (emulator, 900 s real flight: 0.47 -> 0.37 us per call, identical outputs; the device
+  figure is not measured). Same change: EKF wind has a real age (seconds since an update while turning),
+  the EKF is seeded from the first circle fit when not yet confident, and home is the position/altitude
+  where speed first passed 10 km/h instead of where takeoff was detected 5 s later.

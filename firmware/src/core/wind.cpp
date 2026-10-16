@@ -12,13 +12,12 @@ static double det3(const double m[3][3]) {
 WindFit fitWind(const TrackPoint* pts, int n) {
   WindFit res;
   if (n < 15 || n > 64) return res;
+  // Cheap rejections first, trig only for a window that can still pass: straight flight (the normal
+  // case) leaves after the turn check without evaluating a single sin/cos.
   double vx[64], vy[64], ang[64];
   for (int i = 0; i < n; i++) {
     const TrackPoint& s = pts[i];
     if (!s.fix || !isfinite(s.speedKmh) || !isfinite(s.course) || s.speedKmh < 8) return res;
-    double ms = s.speedKmh / 3.6;
-    vx[i] = ms * sin(s.course * D2R);
-    vy[i] = ms * cos(s.course * D2R);
     ang[i] = fmod(fmod(s.course, 360.0) + 360.0, 360.0);
   }
   // the window must be turning at both ends: a window that starts or ends in a straight glide mixes in
@@ -48,6 +47,11 @@ WindFit fitWind(const TrackPoint* pts, int n) {
   }
   if (360.0 - gap < 200.0) return res;
 
+  for (int i = 0; i < n; i++) {
+    double ms = pts[i].speedKmh / 3.6;
+    vx[i] = ms * sin(pts[i].course * D2R);
+    vy[i] = ms * cos(pts[i].course * D2R);
+  }
   double sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, sz = 0, sxz = 0, syz = 0;
   for (int i = 0; i < n; i++) {
     double z = vx[i] * vx[i] + vy[i] * vy[i];

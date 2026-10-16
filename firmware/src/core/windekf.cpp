@@ -17,25 +17,25 @@ float WindEkf::sigmaW() const {
   return s > 0 ? sqrtf(s) : 0;
 }
 
-void WindEkf::step(float dtS, bool fix, float speedKmh, float courseDeg) {
+bool WindEkf::step(float dtS, bool fix, float speedKmh, float courseDeg) {
   if (!(dtS >= 1)) dtS = 1;                     // also catches NaN
   if (dtS > 5) dtS = 5;
   P_[0][0] += Q_W * dtS; P_[1][1] += Q_W * dtS; P_[2][2] += Q_VA * dtS;
 
-  if (!fix || !isfinite(speedKmh) || !isfinite(courseDeg)) return;
+  if (!fix || !isfinite(speedKmh) || !isfinite(courseDeg)) return false;
   float sp = speedKmh / 3.6f;
-  if (sp < 3.0f) return;
+  if (sp < 3.0f) return false;
   float c = courseDeg * 0.017453292f;
   float dx = sp * sinf(c) - x_[0], dy = sp * cosf(c) - x_[1];
   float r = sqrtf(dx * dx + dy * dy);
-  if (r < 0.5f) return;
+  if (r < 0.5f) return false;
 
   float H[3] = {-dx / r, -dy / r, -1};
   float y = -(r - x_[2]);
   float PH[3];
   for (int i = 0; i < 3; i++) PH[i] = P_[i][0] * H[0] + P_[i][1] * H[1] + P_[i][2] * H[2];
   float S = H[0] * PH[0] + H[1] * PH[1] + H[2] * PH[2] + R_MEAS;
-  if (!(S > 0) || y * y > 9 * S) return;        // 3 sigma outlier
+  if (!(S > 0) || y * y > 9 * S) return false;        // 3 sigma outlier
 
   float K[3];
   for (int i = 0; i < 3; i++) K[i] = PH[i] / S;
@@ -53,4 +53,5 @@ void WindEkf::step(float dtS, bool fix, float speedKmh, float courseDeg) {
   if (x_[2] > 25) x_[2] = 25;
   float w = sqrtf(x_[0] * x_[0] + x_[1] * x_[1]);
   if (w > 25) { x_[0] *= 25 / w; x_[1] *= 25 / w; }
+  return true;
 }

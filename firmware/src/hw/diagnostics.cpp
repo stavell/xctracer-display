@@ -28,9 +28,14 @@ void diagnosticsBegin(App& app, SharpPanel& panel, CompassLis& compass) {
 }
 
 #ifdef DIAGNOSTICS
-// Timing of the numerically heavy pieces on this chip (diagnostics only).
+// Timing of the numerically heavy pieces on this chip (diagnostics only). "windfit" is a one-off
+// synthetic benchmark: one fitWind() over a canned 30 s circle, not the flight's real work. It used to
+// be re-measured on every status line (and so looked like a cost paid on every tick, even with no data).
 static uint32_t benchParseUs = 0, benchWindUs = 0, benchVmUs = 0;
 static void runBench() {
+  static bool done = false;
+  if (done) return;
+  done = true;
   static TrackPoint pts[30];
   static bool init = false;
   if (!init) {                                           // a 30 s circle in a 12 km/h wind
