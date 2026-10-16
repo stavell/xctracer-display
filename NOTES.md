@@ -262,3 +262,11 @@ project is and how to run it; this file says what we found and why things are th
   5918 read-modify-writes of a native row per frame (a screen row is a native column in portrait), each
   recomputing an 8-pixel dither pattern. All screens are pixel-identical to before.
 - Seen while measuring: `windfit=` costs about 5.7 ms per tick even with no data and no fix.
+- Correction to the line above (2026-10-16): `windfit=` is not a per-tick cost of the flight model. It is
+  a synthetic benchmark in `hw/diagnostics.cpp` (one `fitWind` over a canned circle) that was re-run on
+  every status line, so it showed up as ~5.7 ms in the loop tick of that moment even with no data. It now
+  runs once. The real fit runs once per data second, only with a fix, and rejects straight windows before
+  any trigonometry (emulator, 900 s real flight: 0.47 -> 0.37 us per call, identical outputs; the device
+  figure is not measured). Same change: EKF wind has a real age (seconds since an update while turning),
+  the EKF is seeded from the first circle fit when not yet confident, and home is the position/altitude
+  where speed first passed 10 km/h instead of where takeoff was detected 5 s later.

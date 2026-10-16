@@ -28,6 +28,10 @@ void FlightModel::reset() {
   ekf_.reset();
   ekfStarted_ = false;
   ekfAt_ = 0;
+  ekfInformedAt_ = 0;
+  candValid_ = false;
+  candLat_ = candLon_ = 0;
+  candAlt_ = NAN;
   mem_.reset();
   profile_.reset();
   tempC_ = NAN;
@@ -59,8 +63,18 @@ void FlightModel::tick() {
 
   // takeoff / landing from ground speed
   float sp = (cur_.fix && isfinite(cur_.speedKmh)) ? cur_.speedKmh : 0;
-  if (sp > 10) { if (!fastSince_) fastSince_ = now; slowSince_ = 0; }
-  else { fastSince_ = 0; if (!slowSince_) slowSince_ = now; }
+  if (sp > 10) {
+    if (!fastSince_) {                       // candidate takeoff: remember where it began
+      fastSince_ = now;
+      candValid_ = isfinite(cur_.lat) && isfinite(cur_.lon);
+      candLat_ = cur_.lat; candLon_ = cur_.lon; candAlt_ = cur_.alt;
+    }
+    slowSince_ = 0;
+  } else {
+    fastSince_ = 0;                          // rejected (or not yet confirmed) takeoff: forget the candidate
+    candValid_ = false;
+    if (!slowSince_) slowSince_ = now;
+  }
   if (!flying_ && fastSince_ && now - fastSince_ > 5000) { flying_ = true; flightStart_ = fastSince_; }
   if (flying_ && slowSince_ && now - slowSince_ > 60000) flying_ = false;
 
@@ -72,9 +86,11 @@ void FlightModel::tick() {
       home_.lat = cur_.lat; home_.lon = cur_.lon; home_.alt = cur_.alt;
     }
     if (flying_ && !homeFixed_) {
+      // takeoff is detected 5 s after the speed threshold was passed; home is where it was passed
       homeFixed_ = true;
       home_.provisional = false;
-      home_.lat = cur_.lat; home_.lon = cur_.lon; home_.alt = cur_.alt;
+      if (candValid_) { home_.lat = candLat_; home_.lon = candLon_; home_.alt = candAlt_; }
+      else { home_.lat = cur_.lat; home_.lon = cur_.lon; home_.alt = cur_.alt; }
     }
   }
 
@@ -88,11 +104,11 @@ void FlightModel::tick() {
 
   updateWind();
   if (!ekfStarted_) {
-    if (windValid_) ekf_.init((float)wx_, (float)wy_, 4);
     ekfStarted_ = true;
     ekfAt_ = now - 1000;
   }
-  ekf_.step((now - ekfAt_) / 1000.0f, cur_.fix, cur_.speedKmh, cur_.course);
+  bool updated = ekf_.step((now - ekfAt_) / 1000.0f, cur_.fix, cur_.speedKmh, cur_.course);
+  if (updated && turnedRecently()) ekfInformedAt_ = now;
   ekfAt_ = now;
   updateProfile();
   updateTemperature();
@@ -141,11 +157,29 @@ int FlightModel::thermals(ThermalRel* out, int maxN) const {
   return mem_.relative(out, maxN, h_[n_ - 1].lat, h_[n_ - 1].lon, clock_, wx, wy);
 }
 
+// The EKF only learns about the wind while the heading changes (constant airspeed makes a straight
+// glide uninformative), so an update counts for its age only if the course moved by 15 degrees or more
+// within the last 10 s.
+bool FlightModel::turnedRecently() const {
+  if (n_ < 2 || !isfinite(cur_.course)) return false;
+  for (int i = n_ > 10 ? n_ - 10 : 0; i < n_ - 1; i++) {
+    if (!h_[i].fix) continue;
+    float d = fabsf(wrap180(h_[i].course - cur_.course));
+    if (isfinite(d) && d >= 15.0f) return true;
+  }
+  return false;
+}
+
 void FlightModel::updateWind() {
-  if (n_ < WIND_S) return;
+  if (n_ < WIND_S || !cur_.fix) return;      // the window needs a fix at its newest point too
   WindFit f = fitWind(h_ + n_ - WIND_S, WIND_S);
   if (!f.ok) return;
-  if (!windValid_ || clock_ - windAt_ > 120000) { wx_ = f.east; wy_ = f.north; }
+  if (!windValid_ || clock_ - windAt_ > 120000) {
+    wx_ = f.east; wy_ = f.north;
+    // First fit (or first after a long gap): the EKF has had no circle yet, so start it from the fit
+    // instead of from zero wind. A confident EKF knows better than a single 30 s fit and is left alone.
+    if (!ekf_.confident()) { ekf_.init((float)wx_, (float)wy_, 4); ekfInformedAt_ = clock_; }
+  }
   else { wx_ = 0.88 * wx_ + 0.12 * f.east; wy_ = 0.88 * wy_ + 0.12 * f.north; }   // smooth over ~8 s
   windAt_ = clock_;
   windValid_ = true;
@@ -170,7 +204,7 @@ static Wind makeWind(double wx, double wy, uint32_t ageS) {
 Wind FlightModel::wind() const {
   double wx, wy;
   if (!windXY(wx, wy)) return Wind();
-  return makeWind(wx, wy, ekf_.confident() ? 0 : (clock_ - windAt_) / 1000);
+  return makeWind(wx, wy, ekf_.confident() ? (clock_ - ekfInformedAt_) / 1000 : (clock_ - windAt_) / 1000);
 }
 
 Wind FlightModel::circleWind() const {

@@ -129,6 +129,11 @@ in nearly every thermal.
 (about 8 s time constant). If the last accepted fit is more than 120 s old, the estimate restarts from
 the new fit. The reported age is the flight seconds since the last accepted fit.
 
+**Cost.** The fit runs once per new data second, and only with a fix at the newest point. `fitWind`
+makes its cheap rejections first (fix, speed, turning at both ends, heading coverage) and evaluates the
+sin/cos of the 30 velocity vectors only for a window that can still pass, so straight flight costs no
+trigonometry. The results are bit-identical to evaluating them first.
+
 ## 4. Wind Kalman filter
 
 `firmware/src/core/windekf.cpp`
@@ -161,8 +166,22 @@ The circle fit needs a full turn. The extended Kalman filter (EKF) learns from o
 
 **Which wind is used.** `FlightModel::wind()` and the internal `windXY()` return the EKF wind when it is
 confident, otherwise the smoothed circle-fit wind. This one vector feeds the wind text and arrow, the
-home calculation, the air-mass map and the thermal drift. When the EKF is the source, the reported age
-is 0. The wind profile (next section) deliberately uses the circle fit only, because the EKF adapts over
+home calculation, the air-mass map and the thermal drift.
+
+**Age of the EKF wind.** The reported age is the flight seconds since the EKF last received an
+*informative* update: a measurement update that was applied (not skipped, not rejected as an outlier)
+while the course had moved by at least 15 degrees within the last 10 s. A straight glide changes nothing
+the filter can know (constant airspeed makes it unobservable) yet keeps applying updates and keeps the
+covariance low, so "time since the last update" or "time since confident" would never grow and the
+screen's `old` marker (age > 300 s) could never show. The filter's sigma grows only by $Q_W\Delta t$
+(about 0.0004 per second per axis), so it stays confident for many minutes of straight flight: the wind
+is then shown as `old` rather than dropped. If sigma does pass the gate the circle fit takes over with
+its own age.
+
+**Seeding.** The EKF starts at zero wind with $P=25$. The first accepted circle fit (and the first after a
+gap of more than 120 s) re-initialises it to the fit wind with $P=\mathrm{diag}(4,4,9)$ and $V_a=10$,
+but only while the EKF is not confident; a confident EKF is left alone, since it has averaged much
+more data than one 30 s fit. The seed happens before that tick's EKF step, so the sample still counts. The wind profile (next section) deliberately uses the circle fit only, because the EKF adapts over
 minutes on purpose and would smear how the wind changes with height.
 
 ## 5. Wind and temperature by altitude
@@ -242,8 +261,12 @@ snaps to fixed steps of 2.2, 1.6, 1.1, 0.7, 0.45, 0.28, 0.18, 0.11 px/m, the lar
 
 `firmware/src/core/home.cpp`
 
-**Which point.** The first fix is a provisional home. When takeoff is detected (section 2) the current
-position and altitude replace it, once; later slow flying does not move it.
+**Which point.** The first fix is a provisional home. Takeoff is detected 5 s after the speed passed
+10 km/h (section 2), by which time the pilot is already along the track and in the air, so the position and
+altitude where speed *first crossed* the threshold are remembered as the candidate start (the same
+instant as `flightStart_`) and replace the provisional home, once, when takeoff is confirmed. If the speed
+falls below the threshold again before that, the candidate is discarded. Later slow flying does not
+move home.
 
 **Distance and bearing.** A flat-earth (equirectangular) approximation, not haversine. With home
 $(\varphi_h,\lambda_h)$ and the pilot $(\varphi,\lambda)$:

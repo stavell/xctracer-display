@@ -10,7 +10,8 @@ class WindEkf {
   WindEkf() { reset(); }
   void reset();
   void init(float wx, float wy, float p);               // start from a known wind, P = diag(p, p, 9)
-  void step(float dtS, bool fix, float speedKmh, float courseDeg);   // one data second
+  // One data second. Returns true when a measurement update was applied (not skipped or rejected).
+  bool step(float dtS, bool fix, float speedKmh, float courseDeg);
   bool confident() const { return sigmaW() < 0.8f; }
   float wx() const { return x_[0]; }
   float wy() const { return x_[1]; }

@@ -561,15 +561,111 @@ static void test_home() {
   CHECK(!fm.home().valid);
   for (int i = 1; i < 10; i++) fm.feed(smp(i, true, 43.0, 26.0, 0, 0, 0, 800));
   CHECK(fm.home().valid && fm.home().provisional); NEAR(fm.home().lat, 43.0, 1e-9); NEAR(fm.home().alt, 800, 0.01);
-  for (int i = 10; i < 30; i++) fm.feed(smp(i, true, 43.0 + (i - 10) * 1e-4, 26.0, 20, 0, 0, 800 + (i - 10)));   // walks / runs off
+  for (int i = 10; i < 30; i++) fm.feed(smp(i, true, 43.0 + (i - 9) * 1e-4, 26.0, 20, 0, 0, 800 + (i - 10)));   // walks / runs off
   CHECK(fm.flying());
   CHECK(!fm.home().provisional);
   double homeLat = fm.home().lat;
   CHECK(homeLat > 43.0);                                  // the takeoff position, not the first fix
+  NEAR(homeLat, 43.0 + 1e-4, 1e-9);                       // where speed passed 10 km/h (i = 10), not at detection
+  NEAR(fm.home().alt, 800, 0.01);
   for (int i = 30; i < 60; i++) fm.feed(smp(i, true, 43.0 + (i - 10) * 1e-4, 26.0, 20, 0, 0, 900));
   NEAR(fm.home().lat, homeLat, 1e-12);                    // kept
   fm.reset();
   CHECK(!fm.home().valid);
+}
+
+// Drives a FlightModel along a track in a steady wind: airspeed 10 m/s, heading turning by `rate` deg/s
+// (0 = straight). Position integrates the ground velocity.
+struct WindFlier {
+  FlightModel* fm; double x = 0, y = 0, hdg = 40; int sec = 0; double wx, wy; double jit = 0;   // jit: +/- m/s on the reported speed, alternating
+  WindFlier(FlightModel* f, double toDeg, double kmh) : fm(f), wx(kmh / 3.6 * sin(toDeg * D2R)), wy(kmh / 3.6 * cos(toDeg * D2R)) {}
+  void fly(int secs, double rate) {
+    for (int k = 0; k < secs; k++, sec++) {
+      hdg += rate;
+      double gx = 10.0 * sin(hdg * D2R) + wx, gy = 10.0 * cos(hdg * D2R) + wy;
+      x += gx; y += gy;
+      fm->feed(smp(sec, true, 43 + y / 111320.0, 26 + x / (111320.0 * cos(43 * D2R)),
+                   (float)((hypot(gx, gy) + ((sec & 1) ? jit : -jit)) * 3.6), (float)fmod(atan2(gx, gy) / D2R + 360, 360), 1.0f, 1400 + sec));
+    }
+  }
+};
+
+static void test_ekf_seed_from_circle_fit() {
+  puts("EKF seeded from the first circle fit");
+  static FlightModel fm;
+  fm.reset();
+  WindFlier fl(&fm, 270, 12);
+  fl.jit = 1.2;                                           // noisy speed: the EKF converges slowly, the fit still passes
+  fl.fly(29, 7);                                          // not enough track for a fit yet
+  CHECK(!fm.circleWind().valid);
+  CHECK(!fm.ekfConfident());
+  printf("  sigma before the first fit: %.2f\n", fm.ekfSigmaW());
+  double cx = 0, cy = 0;
+  int tick = 0;
+  for (; tick < 20 && !fm.circleWind().valid; tick++) fl.fly(1, 7);
+  CHECK(fm.circleWind().valid);
+  Wind c = fm.circleWind();
+  cx = c.speedKmh / 3.6 * sin(c.toDeg * D2R); cy = c.speedKmh / 3.6 * cos(c.toDeg * D2R);
+  NEAR(cx, -12 / 3.6, 0.3);
+  // the EKF state at the tick of the first accepted fit equals the fit (plus at most one measurement)
+  NEAR(fm.ekf().wx(), cx, 0.4);
+  NEAR(fm.ekf().wy(), cy, 0.4);
+  CHECK(fm.ekfSigmaW() < 3.5f);                           // started from P = 4, not 25
+  // a confident EKF is not overwritten by a later fresh fit: new circle in a very different wind
+  fl.fly(120, 18);
+  CHECK(fm.ekfConfident());
+  fl.fly(150, 0);                                         // straight for 150 s: the fit goes stale
+  CHECK(fm.ekfConfident());
+  float ex = fm.ekf().wx(), ey = fm.ekf().wy();
+  fl.wx = 6; fl.wy = 0;                                   // the wind changes abruptly
+  int guard = 0;
+  while (fm.circleWind().ageS > 100 && guard++ < 60) fl.fly(1, 18);   // until a new fit is accepted
+  CHECK(guard < 60);
+  CHECK(fm.ekfConfident());
+  NEAR(fm.ekf().wx(), ex, 1.0);                           // moved by a few updates at most, not set to +6
+  CHECK(fabs(fm.ekf().wx() - 6) > 3.0);
+  (void)ey;
+}
+
+static void test_ekf_wind_age() {
+  puts("EKF wind age");
+  static FlightModel fm;
+  fm.reset();
+  WindFlier fl(&fm, 270, 12);
+  fl.fly(150, 18);
+  CHECK(fm.ekfConfident());
+  Wind w = fm.wind();
+  CHECK(w.valid && w.ageS <= 10);                         // informed by the circle just flown
+  fl.fly(60, 0);                                          // straight: updates continue but are not informative
+  w = fm.wind();
+  CHECK(w.valid);
+  CHECK(w.ageS >= 50 && w.ageS <= 80);                    // grows with flight seconds since the last turn
+  fl.fly(300, 0);
+  w = fm.wind();
+  printf("  after 6 min straight: valid=%d age=%u confident=%d sigma=%.2f\n", w.valid, (unsigned)w.ageS, fm.ekfConfident(), fm.ekfSigmaW());
+  CHECK(!w.valid || w.ageS > 300);                        // old (shown with the old marker) or dropped
+  fl.fly(40, 18);                                         // circling again refreshes it
+  w = fm.wind();
+  CHECK(w.valid && w.ageS <= 10);
+}
+
+static void test_home_at_speed_crossing() {
+  puts("home at the speed threshold");
+  static FlightModel fm;
+  fm.reset();
+  for (int i = 0; i < 10; i++) fm.feed(smp(i, true, 43.0, 26.0, 0, 0, 0, 800));
+  // a failed start: fast for 3 s, then stopped again; must not become home
+  for (int i = 10; i < 13; i++) fm.feed(smp(i, true, 43.5 + (i - 10) * 1e-4, 26.0, 20, 0, 0, 810));
+  for (int i = 13; i < 20; i++) fm.feed(smp(i, true, 43.5, 26.0, 0, 0, 0, 800));
+  CHECK(!fm.flying());
+  // the real start: speed passes 10 km/h at second 20 (position 43.2, 805 m), detection 5+ s later
+  for (int i = 20; i < 40; i++) fm.feed(smp(i, true, 43.2 + (i - 20) * 1e-4, 26.0, 20, 0, 0, 805 + (i - 20)));
+  CHECK(fm.flying());
+  CHECK(!fm.home().provisional);
+  NEAR(fm.home().lat, 43.2, 1e-9);
+  NEAR(fm.home().alt, 805, 0.01);
+  CHECK(fm.home().lat < 43.2 + 5e-4);                     // not the position at detection (>= 5 s along)
+  NEAR(fm.flightSec(), (40 - 1 - 20), 1);                 // consistent with flightStart_
 }
 
 static void test_air_trail() {
@@ -1367,6 +1463,9 @@ int main() {
   test_flight_temperature();
   test_app_temperature();
   test_home();
+  test_ekf_seed_from_circle_fit();
+  test_ekf_wind_age();
+  test_home_at_speed_crossing();
   test_air_trail();
   test_thermal();
   test_thermal_memory();
