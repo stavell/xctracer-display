@@ -6,7 +6,9 @@
 #   ./build.sh wind <lines.txt>     EKF vs circle-fit wind over a real flight (see emu_main.cpp)
 #   ./build.sh soak [lines.txt]     long session through the App, about a minute (see emu_main.cpp)
 #   ./build.sh play <app> [opts]    play an app on the PC in an SDL window (see play.cpp): tetris, or box
-#                                   (the whole box: launcher + vario + Tetris + compass tool)
+#                                   (the whole box: launcher + vario + Tetris + compass tool). The box loads a map pack
+#                                   (--pack FILE; default the Bulgaria pack from the study if present, else the Sopot
+#                                   fixture; --pack none for a box without terrain)
 #   ./build.sh smoke                headless run of the whole box: renders the launcher, vario pages, Tetris
 #                                   started from the launcher and the way back (emu/out/box_*.png)
 set -e
@@ -23,11 +25,11 @@ TERRAIN="$P/terrain/crc32.cpp $P/terrain/tile_codec.cpp $P/terrain/terrain.cpp $
 TETRIS="$T/tetris.cpp $T/tetris_view.cpp $T/tetris_app.cpp"
 LAUNCHER="$L/launcher_app.cpp $L/launcher_view.cpp"
 GFX="$P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp"
-VARIO="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/prof.cpp $V/app/app.cpp"
+VARIO="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/terrain_map.cpp $V/view/prof.cpp $V/app/app.cpp"
 if [ "$1" = "play" ] || [ "$1" = "smoke" ]; then
   # The player: no sanitizers (speed), SDL2 from Homebrew, the whole box over mock ports.
   c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" $(sdl2-config --cflags) \
-    $TETRIS $LAUNCHER $GFX $VARIO out/Adafruit_GFX_host.cpp play.cpp $(sdl2-config --libs) -o out/play
+    $TETRIS $LAUNCHER $GFX $VARIO $TERRAIN out/Adafruit_GFX_host.cpp play.cpp $(sdl2-config --libs) -o out/play
   if [ "$1" = "smoke" ]; then exec ./smoke.sh; fi
   shift
   exec out/play "$@"

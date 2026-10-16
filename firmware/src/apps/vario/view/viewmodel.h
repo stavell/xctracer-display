@@ -4,6 +4,8 @@
 #include "apps/vario/core/thermal.h"
 #include "apps/vario/core/types.h"
 
+class TerrainMap;
+
 // Everything the screens need, as plain data. Built by the app, consumed by the view.
 struct ViewModel {
   enum Link { LINK_NONE, LINK_SEARCHING, LINK_CONNECTING, LINK_CONNECTED };
@@ -21,7 +23,7 @@ struct ViewModel {
   int localMinutes = -1;         // minutes since midnight, local time; -1 = unknown
   int localBattPct = 0;
 
-  enum Page { PAGE_COMPASS, PAGE_THERMAL, PAGE_PROFILE, PAGE_HOME, PAGE_COUNT };
+  enum Page { PAGE_COMPASS, PAGE_THERMAL, PAGE_PROFILE, PAGE_HOME, PAGE_MAP, PAGE_COUNT };   // PAGE_MAP last: the host's page numbers stay; cycling puts it after the thermal page
   Page page = PAGE_COMPASS;
   static const int TRAIL_MAX = 180;      // 3 minutes of dense track
   AirPoint trail[TRAIL_MAX];      // wind-compensated track, filled for the thermal page
@@ -56,6 +58,14 @@ struct ViewModel {
   float homeGlideReq = NAN;        // NaN when not above home
   float homeArrival = NAN;         // metres above home on arrival (NaN: unknown)
   bool homeReachable = false;
+
+  // terrain (only with a map pack; without one terrainOn is false and nothing of this is drawn)
+  bool terrainOn = false;
+  float agl = NAN;                 // GNSS altitude minus the terrain model's elevation under the fix; NaN: no fix, no data
+  float clearance = NAN;           // GNSS altitude minus the highest terrain around the fix (for warnings)
+  TerrainMap* map = nullptr;          // the map page's cached picture and ground track
+  float mapMPerPx = 100;           // map page scale
+  bool mapAbout = false;           // first seconds on the map page: attribution and the AGL caveat
 
   // ambient air, NaN without a reading or when the last one is older than 10 s
   float ambientC = NAN;

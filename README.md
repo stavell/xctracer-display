@@ -33,7 +33,23 @@ Rendered by the PC emulator from the same drawing code that runs on the device (
 | ![Standalone](docs/screens/standalone.png) | ![Device list](docs/screens/list.png) | ![Calibration](docs/screens/calibrate.png) | ![Status](docs/screens/status.png) |
 | **Standalone**: no tracer connected, the box is a compass with temperature and humidity | **Device list**: pick the tracer, sorted by signal | **Compass calibration**: turn the box until the bars fill | **Status**: connecting / waiting for data |
 
+| ![Vario with AGL](docs/screens/live_agl.png) | ![Map](docs/screens/map.png) | ![Map, mountains](docs/screens/map_mountains.png) | |
+|---|---|---|---|
+| **AGL** (bottom right) with a map pack: GNSS altitude minus the terrain model | **Map** (after Thermal, only with a pack): north-up relief, contours, main roads, towns, track | The same over mountains (Stara Planina, test fixture) | |
+
 Grey tones are an 8x8 ordered dither on the 1-bit panel.
+
+### Terrain (map pack)
+
+With a map pack (`host/terrain/mkmappack.py`, format in `host/terrain/FORMAT.md`; Bulgaria is 1.72 MB: Copernicus GLO-90 heights
+on a 200 m grid, towns and main roads from OpenStreetMap) the vario shows **AGL** (bottom right of every page; the GNSS altitude of
+the tracer minus the terrain model under the fix, `--` without a fix or outside the pack) and a **map page** after the thermal page.
+AGL comes from a model: typically +-10 m, up to 80 m at single peaks and gorges, and it includes trees and buildings (a surface
+model). It is not the baro altitude. The map page is north-up at 100 m/px (22 x 38 km), light hillshade, contours (every 200 m,
+every 5th bolder), main roads, towns (Latin names), the track of the last 20 minutes and the pilot arrow. For the first 10 s on
+the page it shows the attribution: Map (c) OpenStreetMap contributors (ODbL), Copernicus DEM (c) DLR / Airbus, provided under
+COPERNICUS by the EU and ESA. Without a pack nothing changes. The device has no pack reader yet (QSPI driver is the next step);
+on the PC: `firmware/emu/build.sh play box --igc f.igc --pack bulgaria.pack` (default: the study pack if present, else the Sopot test fixture).
 
 ## Under the hood: what we are proud of
 

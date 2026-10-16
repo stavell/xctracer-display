@@ -1303,7 +1303,8 @@ static void test_command_decode() {
   { uint8_t d[] = {CMD_PAGE, 1}; CHECK(decodeCommand(d, 2, c) && c.type == Command::PAGE && c.value == 1); }
   { uint8_t d[] = {CMD_PAGE}; CHECK(!decodeCommand(d, 1, c)); }
   { uint8_t d[] = {CMD_PAGE, 3}; CHECK(decodeCommand(d, 2, c) && c.type == Command::PAGE && c.value == 3); }
-  { uint8_t d[] = {CMD_PAGE, 4}; CHECK(!decodeCommand(d, 2, c)); }    // unknown page: ignored
+  { uint8_t d[] = {CMD_PAGE, 4}; CHECK(decodeCommand(d, 2, c) && c.value == 4); }   // the map page (the app ignores it without a pack)
+  { uint8_t d[] = {CMD_PAGE, 5}; CHECK(!decodeCommand(d, 2, c)); }    // unknown page: ignored
   { uint8_t d[] = {CMD_PAGE, 255}; CHECK(!decodeCommand(d, 2, c)); }
   { uint8_t d[] = {CMD_XCTRC, '$', 'X', 'C'}; CHECK(decodeCommand(d, 4, c) && c.type == Command::XCTRC && strcmp(c.text, "$XC") == 0); }
   { uint8_t d[] = {CMD_SET_FILTER, 'X', 'C', '*'}; CHECK(decodeCommand(d, 4, c) && c.type == Command::FILTER && strcmp(c.text, "XC*") == 0); }
@@ -1586,6 +1587,7 @@ static void test_app_anim_cadence() {
 #include "sharp_frame_tests.h"
 #include "box_tests.h"
 #include "terrain_tests.h"
+#include "map_page_tests.h"
 
 static uint32_t fakeUs = 0;
 static uint32_t fakeClock() { return fakeUs += 7; }   // every call advances 7 us
@@ -1728,6 +1730,7 @@ int main() {
   tt::test_tetris();
   bx::test_box();
   terrain_tests::run();
+  map_page_tests::run();
   test_standalone_cadence();
   test_fuzz_parser();
   test_fuzz_app();

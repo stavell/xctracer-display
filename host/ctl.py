@@ -2,7 +2,7 @@
   python ctl.py filter 'XC*'     name filter for the vario scan list ('*' = everything)
   python ctl.py tz 180           local time offset from UTC, minutes
   python ctl.py sim on|off       built-in flight simulator (bench testing)
-  python ctl.py page compass|thermal|profile|home   switch the page
+  python ctl.py page compass|thermal|profile|home|map   switch the page
   python ctl.py cal start|save|cancel  magnetometer calibration
   python ctl.py orient 0..23     how the board sits in the case (host/orient_analyze.py finds the index)
   python ctl.py diag hang|off    diagnostics build only: hang the loop (watchdog test) / power off
@@ -36,7 +36,7 @@ async def main():
             return
         data = bytes([CMD_SET_ORIENT, int(arg)])
     elif cmd == "page":
-        pages = ["compass", "thermal", "profile", "home"]
+        pages = ["compass", "thermal", "profile", "home", "map"]
         if arg not in pages:
             print(__doc__)
             return
