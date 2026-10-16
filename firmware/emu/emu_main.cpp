@@ -436,6 +436,8 @@ static int cmdCue(int argc, char** argv) {
   for (int i = 3; i + 1 < argc; i += 2) {                         // --gain G --lean 0|1 --w a,b,c
     if (!strcmp(argv[i], "--gain")) ThermalColumn::cueGain = (float)atof(argv[i + 1]);
     else if (!strcmp(argv[i], "--lean")) ThermalColumn::cueLean = atoi(argv[i + 1]) != 0;
+    else if (!strcmp(argv[i], "--turns")) ThermalColumn::cueMinTurns = atoi(argv[i + 1]);
+    else if (!strcmp(argv[i], "--max")) ThermalColumn::cueMaxM = (float)atof(argv[i + 1]);
     else if (!strcmp(argv[i], "--w")) sscanf(argv[i + 1], "%f,%f,%f", &ThermalColumn::cueW[0], &ThermalColumn::cueW[1], &ThermalColumn::cueW[2]);
   }
   struct Rec {

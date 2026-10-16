@@ -68,6 +68,8 @@ class ThermalColumn {
   static float cueGain;
   static bool cueLean;
   static float cueW[3];
+  static int cueMinTurns;       // full turns before a cue is shown
+  static float cueMaxM;         // a shift longer than this is not believed (no cue)
   static const int MAX_AGE_S = 120;     // a climb that ended longer ago than this is not shown
 
   void reset();

@@ -6,6 +6,8 @@ static const float R2D = 57.29577951f;
 float ThermalColumn::cueGain = 2.5f;
 bool ThermalColumn::cueLean = false;
 float ThermalColumn::cueW[3] = {1.0f, 0.0f, 0.0f};
+int ThermalColumn::cueMinTurns = 2;
+float ThermalColumn::cueMaxM = 60.0f;
 
 static float wrap180(float a) {
   a = fmodf(a, 360.0f);
@@ -201,7 +203,7 @@ void ThermalColumn::computeCue(int sg, int lowest) {
     if (isfinite(pts_[i].rate)) acc += sg * pts_[i].rate * (pts_[i].tMs - pts_[i - 1].tMs) / 1000.0f;
     if (acc >= 360.0f) { cut[++nw] = i; acc -= 360.0f; }
   }
-  if (nw == 0) return;
+  if (nw < cueMinTurns) return;
   const bool useLean = cueLean && leanValid && leanPer100 <= 50.0f;
   const float slx = useLean ? coreSx : 0.0f, sly = useLean ? coreSy : 0.0f;
   const float zNow = pts_[n - 1].z;
@@ -231,10 +233,7 @@ void ThermalColumn::computeCue(int sg, int lowest) {
   cue.shiftX = cue.x - cue.cx;
   cue.shiftY = cue.y - cue.cy;
   cue.shiftM = hypotf(cue.shiftX, cue.shiftY);
-  if (cue.shiftM > 80.0f) {                                   // a cue that far off is noise: clamp, keep the direction
-    cue.shiftX *= 80.0f / cue.shiftM; cue.shiftY *= 80.0f / cue.shiftM; cue.shiftM = 80.0f;
-    cue.x = cue.cx + cue.shiftX; cue.y = cue.cy + cue.shiftY;
-  }
+  if (cue.shiftM > cueMaxM) { cue = CoreCue(); return; }       // a cue that far off is noise (a circle that is not one)
   float d = atan2f(cue.shiftX, cue.shiftY) * R2D;
   cue.shiftDeg = d < 0 ? d + 360.0f : d;
   cue.turns = nw;
@@ -379,6 +378,9 @@ void ThermalColumn::analyze(float windE, float windN) {
     leanPer100 = 100.0f * hypotf(f.sx, f.sy);
     float d = atan2f(f.sx, f.sy) * R2D;
     leanDeg = d < 0 ? d + 360.0f : d;
+    // more than 60 m per 100 m is not a thermal leaning, it is a wind estimate that is off (an error of 1 m/s in the wind
+    // is 100 / climb m per 100 m): say nothing
+    if (leanPer100 > 60.0f) leanValid = false;
   } else {
     const CoreCircle& c = circles[nCircles - 1];          // no lean yet: a vertical line through the newest core point
     coreX0 = c.x; coreY0 = c.y; coreZ0 = c.z;
