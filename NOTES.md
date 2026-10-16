@@ -256,3 +256,9 @@ project is and how to run it; this file says what we found and why things are th
   runs (native rows) in rotations 1/3 (344 rows). Circles and ticks use `circle`/`line` (same pixels as
   Adafruit_GFX, no virtual call). Rendered screens are byte-identical in all rotations. Device time not
   yet measured; sections ring/bezel/ticks/labels/hdgnum added to the profiler line.
+- Compass page (2026-10-16, `gfx/shapes`: fillRing/fillDisc as native-row runs, cached Bayer row
+  patterns, line/circle on the bitmap): live page without a fix 48 ms -> 7.6 ms on the device
+  (ring 2.2, bezel 1.2, ticks 0.5, labels 0.6, heading number 0.3 ms); loop tick 18 ms. The ring was
+  5918 read-modify-writes of a native row per frame (a screen row is a native column in portrait), each
+  recomputing an 8-pixel dither pattern. All screens are pixel-identical to before.
+- Seen while measuring: `windfit=` costs about 5.7 ms per tick even with no data and no fix.
