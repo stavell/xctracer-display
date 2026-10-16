@@ -173,3 +173,12 @@ redraw only on position/heading change; (4) box player integration (pack file in
 - Settings is a platform app: compass calibration (generic, used by every app), board mounting index, start-up app,
   time zone, About (version, map pack info, OSM / Copernicus attribution). ctl.py cal/orient talk to the platform.
 - Leaving any app: its menu's "Home" item, or A+B held on the six-button hardware.
+
+## Clock in sleep (idea 2026-10-16)
+
+Use the memory LCD's zero-power hold for a clock when the box is "off". The nRF52840 RTC (32.768 kHz crystal,
+~20 ppm) keeps running in System ON sleep but stops in System OFF, so the 3 s "off" gesture becomes a clock
+sleep: wake once a minute, redraw the digits, VCOM 1 Hz via RTC/PPI/GPIOTE without the CPU. Time comes from the
+tracer's UTC (every $XCTRC line) or ctl.py, plus the stored time zone; `--:--` until set. True System OFF stays
+for storage (longer hold, or critical battery). Estimated floor ~80-100 uA (Feather LDO ~55 uA and the VBAT
+divider ~20 uA dominate): about a year on the ~1000 mAh LiPo. Measure before promising.
