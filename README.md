@@ -13,8 +13,12 @@ Hardware: Adafruit Feather nRF52840 Sense, LiPo, PlatformIO with the Arduino fra
   thermal memory, home, tilt-compensated compass and calibration, heading smoothing, dithering.
 - `CLAUDE.md`: rules for contributors and AI agents (layering, stack limit, how to check).
 - `case/`: the 3D-printed enclosure (CadQuery model, STL/STEP, previews); see `case/README.md`.
+  Screwless (clips and pegs only), prints without supports on a Bambu A1 in PETG; D-pad + A/B below
+  the portrait screen, flat back for a velcro sticker, strap tunnel, swappable plain lid.
 
-![Enclosure](case/preview_assembly.png)
+| Front | Back | Inside |
+|---|---|---|
+| ![Front](case/preview_front.png) | ![Back](case/preview_iso_back.png) | ![Open](case/preview_open_iso.png) |
 
 ## Screens
 
