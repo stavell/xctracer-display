@@ -9,6 +9,7 @@
 #include "core/flight.h"
 #include "core/home.h"
 #include "core/linediff.h"
+#include "core/map_motion.h"
 #include <string.h>
 #include "core/windprofile.h"
 #include "core/heading.h"
@@ -1579,6 +1580,7 @@ static void test_app_anim_cadence() {
 }
 
 #include "robust_tests.h"
+#include "map_tests.h"
 #include "sharp_frame_tests.h"
 
 static uint32_t fakeUs = 0;
@@ -1688,6 +1690,8 @@ int main() {
   test_app_heading();
   test_app_fusion();
   test_app_anim_cadence();
+  mt::run();
+  mt::runApp();
   test_ambient();
   test_standalone_cadence();
   test_fuzz_parser();

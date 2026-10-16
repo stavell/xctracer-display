@@ -30,6 +30,16 @@ struct ViewModel {
   ThermalRel marks[MARKS_MAX];     // remembered thermals, newest first
   int markCount = 0;
   bool mapHeadingUp = true;
+  // Continuous map motion (app/core/map_motion.h). mapLive = false (static renders, tests): the map is
+  // centred on the newest trail point, turned and zoomed on its own. mapLive = true: the trail holds only
+  // the points up to the display time (trailCount already reduced), the view centre is (mapCx, mapCy) in
+  // the trail's frame, and the line is drawn on to the centre with the vario mapTailVario.
+  bool mapLive = false;
+  float mapCx = 0, mapCy = 0;      // metres east / north of the newest trail point
+  float mapAx = 0, mapAy = 0;      // the same centre in a frame that does not change with the trail origin (app: movement test)
+  float mapHdg = NAN;              // radians clockwise from north (NaN: let the view derive it)
+  float mapScale = NAN;            // pixels per metre (NaN: the view picks a fixed zoom step)
+  float mapTailVario = 0;
 
   // wind profile page: bands with data, lowest first
   static const int PROFILE_MAX = WindProfile::BANDS;

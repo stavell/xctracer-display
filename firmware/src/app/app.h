@@ -5,6 +5,7 @@
 #include "core/flight.h"
 #include "core/heading.h"
 #include "core/heading_smoother.h"
+#include "core/map_motion.h"
 #include "core/sim.h"
 #include "view/viewmodel.h"
 
@@ -25,6 +26,12 @@ struct AppConfig {
   static constexpr float DIAL_HALF_PIXEL_DEG = 0.5f / DIAL_RING_RADIUS_PX * 57.29577951f;   // about 0.28 deg
   uint32_t animEveryMs = 50;         // redraw cadence while the dial is still gliding (compass, home)
   uint32_t animThermalEveryMs = 50;  // same on the thermal page (its map costs about the same to draw)
+  uint32_t animMapEveryMs = 33;      // thermal page while the interpolated map is moving (30 fps)
+  float mapScaleTauMs = 300.0f;      // the map zoom glides to a new step with this time constant
+  // The map redraws at animMapEveryMs while the view moved more than half a pixel since the last drawn
+  // frame: the centre (pixels at the current scale), or the rotation (at about the map's half height).
+  static constexpr float MAP_HALF_RADIUS_PX = 104.0f;
+  static constexpr float MAP_HALF_PIXEL_RAD = 0.5f / MAP_HALF_RADIUS_PX;
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
   float gpsHeadingOnKmh = 4.0f;      // GPS track counts as a heading above this speed ...
   float gpsHeadingOffKmh = 2.5f;     // ... and stops counting below this one (hysteresis)
@@ -63,6 +70,9 @@ class App {
   void startCalibration();
   void finishCalibration(bool keep);
   void updateHeading(uint32_t now);
+  void feedFlight(const Sample& s, uint32_t now);   // flight model and map motion together
+  MapView mapView(uint32_t now, int trailN);
+  void updateMap(uint32_t now);                     // thermal page, once per tick: scale glide, moving flag
   bool hasData(uint32_t now) const;   // a valid sample arrived recently
   void drawCalibrateScreen(uint32_t now, uint32_t held);
   void drawLiveScreen(uint32_t now, uint32_t held);
@@ -102,6 +112,12 @@ class App {
   float ambientC_ = NAN, ambientRh_ = NAN;   // latest thermometer reading and when it came
   uint32_t ambientMs_ = 0;
   bool haveAmbient_ = false;
+  MapMotion map_;                    // interpolated view centre / heading for the thermal map
+  float mapScale_ = NAN, mapScaleTarget_ = NAN;   // shown zoom (px/m) and the step it glides to
+  uint32_t mapScaleMs_ = 0;
+  bool mapDrawnLive_ = false;        // the last frame drawn was a thermal map with interpolated motion
+  bool mapMoving_ = false;           // the interpolated view differs from the last drawn frame
+  float drawnCx_ = NAN, drawnCy_ = NAN, drawnMapHdg_ = NAN, drawnMapScale_ = NAN;
   bool calibrating_ = false;
   ViewModel vm_;
   ViewModel::Page page_ = ViewModel::PAGE_COMPASS;

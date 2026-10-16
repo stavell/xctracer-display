@@ -335,3 +335,33 @@ project is and how to run it; this file says what we found and why things are th
   near zero. The raw readings give a plausible dip (about 60 deg), so the stored hard-iron calibration is
   the first suspect; recalibrate away from the laptop. If the field is still vertical after that, the
   mag and accel chip axes disagree (run orient_log.py / orient_analyze.py).
+
+## Continuous thermal map (2026-10-16, emulator only, not yet on the device)
+
+The thermal map used to move only when a sample arrived (about 3 Hz), so trail and rings jumped several
+pixels. Now `core/map_motion.*` interpolates the view between samples; `App::updateMap` / `buildViewModel`
+feed the result to the view (`ViewModel::mapLive/mapCx/mapCy/mapHdg/mapScale`). Design:
+
+- Display time = now minus (sample interval + 50 ms): 383 ms live, 161 ms in a 3x replay (the interval is an
+  EMA of the arrival gaps). The centre is interpolated linearly between the two samples around it: never a
+  position that was not measured, never past the newest one; with no new data it holds there. After a pause
+  below 2 s the display time catches up at 2x speed (no jump); a gap above 2 s, a jump above 150 m or a
+  lost fix snaps. Arrival jitter of +-25 ms changes the frame step by at most 1.3x the mean (test).
+- Air-mass drift between samples: the data seconds are only 1 s resolution, so the drift uses the measured
+  ratio of data time to wall time (1.00 live, 3.00 at `igc_replay --speed 3`; test).
+- Trail: points newer than the display time are dropped and the centre is appended, so the line ends
+  under the arrow. The view applies the centre offset itself (no copy of the trail).
+- Heading: the map never used `HeadingSmoother` (it turned by the trail's last 3 s chord, in jumps of a
+  sample). Now the same chord on the interpolated path (centre now vs. centre 3 data seconds earlier), so it
+  is continuous and agrees with the translation by construction; below 3 m it uses the GPS course
+  interpolated on the shortest arc. Largest step 0.06 deg per 33 ms frame through north (test). The
+  compass page and the smoother are untouched.
+- Zoom: the fixed steps (2.2 ... 0.11 px/m) stay, the shown scale glides to the step with tau 300 ms;
+  snaps at page entry. Accelerating from 5 to 40 m/s: 373 changing frames, largest frame change 3.7 %.
+- Cadence: on the thermal page 33 ms while the view differs from the drawn frame by more than half a pixel
+  (centre in pixels at the current scale, rotation at 104 px, scale still gliding), else the usual 333 ms.
+  The map shows about 30 s of track whatever the speed, so straight flight moves it only 3-5 px/s: 5.6
+  draws/s at 10 m/s with a settled zoom. Circling (18 deg/s) asks for 33 ms: 25 draws/s with the 10 ms
+  test tick (a tick every 40 ms). Data frozen: 2.9 draws/s.
+- The robust-test storm detector (draws closer than 100 ms) now skips the thermal page.
+- Static emulator renders (no ViewModel::mapLive) are byte-identical to before.

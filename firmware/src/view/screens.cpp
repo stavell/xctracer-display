@@ -14,6 +14,7 @@
 
 static int W = 400, H = 240;   // logical size, follows the canvas rotation
 static const int HDR = 24;
+static const int THERMAL_X0 = 22;   // left edge of the page area (right of the thin vario)
 static const uint16_t BLK = 0, WHT = 1;
 static const float PI_F = 3.14159265f;
 
@@ -371,9 +372,74 @@ static bool clipSeg(float& x0, float& y0, float& x1, float& y1, float xmin, floa
   return true;
 }
 
-static float gRR[ViewModel::TRAIL_MAX], gUU[ViewModel::TRAIL_MAX];   // static: far too big for the 4 KB loop stack
+static float gRR[ViewModel::TRAIL_MAX + 1], gUU[ViewModel::TRAIL_MAX + 1];   // static: far too big for the 4 KB loop stack
 
 static float gMr[ViewModel::MARKS_MAX], gMu[ViewModel::MARKS_MAX];
+
+// The map in screen metres (r right, u up) around the view centre, turned heading-up. Live motion: the
+// trail's points up to the display time, then the centre itself as the last point, so the line ends under
+// the arrow. Returns the point count (the trail points plus the centre, if live) and the map rotation.
+static int mapPrepare(const ViewModel& vm, float& hdgOut) {
+  const int n0 = vm.trailCount;
+  const bool live = vm.mapLive;
+  const int m = n0 + (live ? 1 : 0);
+  float hdg = 0;
+  if (vm.mapHeadingUp) {
+    if (live && isfinite(vm.mapHdg)) hdg = vm.mapHdg;
+    else if (n0 >= 2) {
+      // direction of travel in the air frame: the last ~3 s of the trace (GPS course if barely moving)
+      const AirPoint& a = vm.trail[n0 >= 4 ? n0 - 4 : 0];
+      float dx = vm.trail[n0 - 1].x - a.x, dy = vm.trail[n0 - 1].y - a.y;
+      if (hypotf(dx, dy) > 3.0f) hdg = atan2f(dx, dy);
+      else if (isfinite(vm.s.course)) hdg = vm.s.course * PI_F / 180.0f;
+    }
+  }
+  if (!isfinite(hdg)) hdg = 0;                                    // never rotate by NaN
+  hdgOut = hdg;
+  const float ct = cosf(hdg), st = sinf(hdg);
+  const float ox = live ? vm.mapCx : 0, oy = live ? vm.mapCy : 0;
+  for (int i = 0; i < n0; i++) {
+    float x = vm.trail[i].x - ox, y = vm.trail[i].y - oy;
+    gRR[i] = x * ct - y * st;
+    gUU[i] = y * ct + x * st;
+  }
+  if (live) { gRR[n0] = 0; gUU[n0] = 0; }
+  const int nm = vm.markCount;
+  for (int i = 0; i < nm; i++) {
+    float x = vm.marks[i].x - ox, y = vm.marks[i].y - oy;
+    gMr[i] = x * ct - y * st;
+    gMu[i] = y * ct + x * st;
+  }
+  return m;
+}
+
+// zoom: fit the last 30 s, plus the newest thermal when it is within 800 m; fixed steps, so the picture
+// does not breathe (the app glides between steps)
+static float mapPickScale(int m, int nm, int mw, int mh) {
+  float smax = 1e9f;
+  const int margin = 14;
+  auto fit = [&](float r, float u) {
+    if (fabsf(r) > 1) smax = fminf(smax, (mw / 2 - margin) / fabsf(r));
+    if (fabsf(u) > 1) smax = fminf(smax, (mh / 2 - margin) / fabsf(u));
+  };
+  for (int i = m > 30 ? m - 30 : 0; i < m; i++) fit(gRR[i], gUU[i]);
+  if (nm > 0 && hypotf(gMr[0], gMu[0]) <= 800) fit(gMr[0], gMu[0]);
+  static const float zoom[] = {2.2f, 1.6f, 1.1f, 0.7f, 0.45f, 0.28f, 0.18f, 0.11f};
+  float s = zoom[7];
+  for (float z : zoom) if (z <= smax) { s = z; break; }
+  return s;
+}
+
+void thermalMapSize(int canvasW, int canvasH, int& mw, int& mh) {
+  mw = canvasW - THERMAL_X0 - 2;
+  mh = canvasH - 6 - 25 - 5 - (HDR + 130 + 2);
+}
+
+float thermalMapScale(const ViewModel& vm, int mw, int mh) {
+  float hdg;
+  int m = mapPrepare(vm, hdg);
+  return mapPickScale(m, vm.markCount, mw, mh);
+}
 
 // Thermal assistant. Heading-up map: the last 3 minutes of track in the air-mass frame (shifted by the
 // wind drift; the last 90 s solid and thicker where you were climbing, older track dashed) plus markers
@@ -382,43 +448,13 @@ static float gMr[ViewModel::MARKS_MAX], gMu[ViewModel::MARKS_MAX];
 // stays wide enough to show it. Fixed zoom levels, so the picture does not breathe.
 static void drawThermalMap(const ViewModel& vm, const Bitmap1* bm, int mx, int my, int mw, int mh) {
   d->drawRect(mx, my, mw, mh, BLK);
-  const int n = vm.trailCount;
+  float hdg;
+  const int n = mapPrepare(vm, hdg);                            // trail points, plus the centre when live
   if (n < 2) { text(mx + mw / 2, my + mh / 2 + 6, "no GPS track", F12B, AC); return; }
-
-  // direction of travel in the air frame: the last ~3 s of the trace (GPS course if barely moving)
-  float hdg = 0;
-  if (vm.mapHeadingUp) {
-    const AirPoint& a = vm.trail[n >= 4 ? n - 4 : 0];
-    float dx = vm.trail[n - 1].x - a.x, dy = vm.trail[n - 1].y - a.y;
-    if (hypotf(dx, dy) > 3.0f) hdg = atan2f(dx, dy);
-    else if (isfinite(vm.s.course)) hdg = vm.s.course * PI_F / 180.0f;
-  }
-  if (!isfinite(hdg)) hdg = 0;                                    // never rotate by NaN
-  const float ct = cosf(hdg), st = sinf(hdg);
   const int ox = mx + mw / 2, oy = my + mh / 2;                 // you, in the centre
-
-  for (int i = 0; i < n; i++) {                                 // screen offsets in metres: r right, u up
-    gRR[i] = vm.trail[i].x * ct - vm.trail[i].y * st;
-    gUU[i] = vm.trail[i].y * ct + vm.trail[i].x * st;
-  }
   const int nm = vm.markCount;
-  for (int i = 0; i < nm; i++) {
-    gMr[i] = vm.marks[i].x * ct - vm.marks[i].y * st;
-    gMu[i] = vm.marks[i].y * ct + vm.marks[i].x * st;
-  }
-
-  // zoom: fit the last 30 s, plus the newest thermal when it is within 800 m
-  float smax = 1e9f;
-  const int margin = 14;
-  auto fit = [&](float r, float u) {
-    if (fabsf(r) > 1) smax = fminf(smax, (mw / 2 - margin) / fabsf(r));
-    if (fabsf(u) > 1) smax = fminf(smax, (mh / 2 - margin) / fabsf(u));
-  };
-  for (int i = n > 30 ? n - 30 : 0; i < n; i++) fit(gRR[i], gUU[i]);
-  if (nm > 0 && hypotf(gMr[0], gMu[0]) <= 800) fit(gMr[0], gMu[0]);
-  static const float zoom[] = {2.2f, 1.6f, 1.1f, 0.7f, 0.45f, 0.28f, 0.18f, 0.11f};
-  float s = zoom[7];
-  for (float z : zoom) if (z <= smax) { s = z; break; }
+  const float s = (isfinite(vm.mapScale) && vm.mapScale > 0) ? vm.mapScale : mapPickScale(n, nm, mw, mh);
+  auto vario = [&](int i) { return i < vm.trailCount ? vm.trail[i].vario : vm.mapTailVario; };
 
   // Grey first (it overwrites whatever is under it), then everything black on top. Remembered thermals
   // get a LIGHT disc, bigger for a stronger climb; the older track is MID grey, 2 px or more.
@@ -447,10 +483,10 @@ static void drawThermalMap(const ViewModel& vm, const Bitmap1* bm, int mx, int m
       if (!clipSeg(x0, y0, x1, y1, cx0, cy0, cx1, cy1)) continue;
       const int ax = (int)lroundf(x0), ay = (int)lroundf(y0), bx = (int)lroundf(x1), by = (int)lroundf(y1);
       if (bm && old) {
-        int cw = climbWidth(vm.trail[i].vario);
+        int cw = climbWidth(vario(i));
         greyLine(*bm, ax, ay, bx, by, cw < 2 ? 2 : cw, MID);
       } else {
-        thickLine(ax, ay, bx, by, climbWidth(vm.trail[i].vario), old);
+        thickLine(ax, ay, bx, by, climbWidth(vario(i)), old);
       }
     }
 
@@ -479,7 +515,7 @@ static void drawThermalMap(const ViewModel& vm, const Bitmap1* bm, int mx, int m
         d->fillTriangle(ex + (int)lroundf(9 * sx), ey + (int)lroundf(9 * cy),
                         hx + (int)lroundf(6 * qx), hy + (int)lroundf(6 * qy),
                         hx - (int)lroundf(6 * qx), hy - (int)lroundf(6 * qy), WHT);
-        float dist = hypotf(vm.marks[0].x, vm.marks[0].y);
+        float dist = hypotf(gMr[0], gMu[0]);
         if (dist >= 1000) snprintf(lb, sizeof lb, "%.1f km", dist / 1000.0f);
         else snprintf(lb, sizeof lb, "%d m", (int)(dist + 0.5f));
         int lx = ex - (int)lroundf(ux * 34), ly = ey - (int)lroundf(uy * 22);
@@ -728,7 +764,7 @@ static void drawLiveBody(const ViewModel& vm, const Bitmap1* bm) {
   const Sample& v = vm.s;
   char b[24];
   const int barX = 3, barW = 9;              // thin vario on the left edge
-  const int cx0 = 22, cellW = 107;           // two cells to the right of it
+  const int cx0 = THERMAL_X0, cellW = 107;   // two cells to the right of it
   const int row1 = HDR + 2, row2 = HDR + 66, gridEnd = HDR + 130;
 
   // no GPS fix: speed and track read 0 (the title says NO FIX) instead of dashes
@@ -747,18 +783,19 @@ static void drawLiveBody(const ViewModel& vm, const Bitmap1* bm) {
   // compass with the wind arrow in a corner
   const Wind& w = vm.wind;
   const int R = 92, cx = cx0 + (W - cx0) / 2, cy = gridEnd + 8 + R + 6;
-  const int pageH = H - 6 - 25 - 5 - (gridEnd + 2);
+  int mapW, pageH;
+  thermalMapSize(W, H, mapW, pageH);
   if (vm.page == ViewModel::PAGE_THERMAL) {
     PROF_BEGIN(P_THERMAL);
-    drawThermalMap(vm, bm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+    drawThermalMap(vm, bm, cx0, gridEnd + 2, mapW, pageH);
     PROF_END(P_THERMAL);
   } else if (vm.page == ViewModel::PAGE_PROFILE) {
     PROF_BEGIN(P_WPROFILE);
-    drawWindProfile(vm, bm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+    drawWindProfile(vm, bm, cx0, gridEnd + 2, mapW, pageH);
     PROF_END(P_WPROFILE);
   } else if (vm.page == ViewModel::PAGE_HOME) {
     PROF_BEGIN(P_HOME);
-    drawHome(vm, cx0, gridEnd + 2, W - cx0 - 2, pageH);
+    drawHome(vm, cx0, gridEnd + 2, mapW, pageH);
     PROF_END(P_HOME);
   } else {
     PROF_BEGIN(P_DIAL);

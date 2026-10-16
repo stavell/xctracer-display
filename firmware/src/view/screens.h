@@ -23,3 +23,8 @@ size_t viewFontRam();
 // 3 Bold18, 4 Bold24 (the view's own copies: font tables are per translation unit). Diagnostics time it.
 const GFXfont* viewGfxFont(int i);
 const Font1* viewFont(const GFXfont* f, int rot);
+
+// The thermal map's frame in pixels for a canvas of this size, and the zoom step (pixels per metre) the
+// map would pick for this view model: the app glides the shown scale toward it (ViewModel::mapScale).
+void thermalMapSize(int canvasW, int canvasH, int& mw, int& mh);
+float thermalMapScale(const ViewModel& vm, int mw, int mh);

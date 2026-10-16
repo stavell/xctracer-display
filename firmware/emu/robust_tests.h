@@ -338,7 +338,8 @@ static void test_time_wrap() {
   // redraw cadence away from the wrap: 333 ms while idle, never two draws closer than 100 ms. The
   // heading glides (50 ms redraws) after a source switch, also when data returns after a gap: about 3 s of
   // them in this script (63 draws), so the bound is a storm detector, not a cadence check.
-  { int tooClose = 0; for (size_t i = 1; i < ref.drawTimes.size(); i++) if ((ref.v[ref.drawTimes[i] / 10] & 1) && (ref.v[ref.drawTimes[i - 1] / 10] & 1) && ref.drawTimes[i] - ref.drawTimes[i - 1] < 100) tooClose++; CHECK(tooClose < 100); }
+  // The thermal page (page 1) redraws at 30 fps while its interpolated map moves, so its draws are not counted.
+  { int tooClose = 0; for (size_t i = 1; i < ref.drawTimes.size(); i++) if (((ref.v[ref.drawTimes[i] / 10] >> 2) & 7) != ViewModel::PAGE_THERMAL && (ref.v[ref.drawTimes[i] / 10] & 1) && (ref.v[ref.drawTimes[i - 1] / 10] & 1) && ref.drawTimes[i] - ref.drawTimes[i - 1] < 100) tooClose++; CHECK(tooClose < 100); }
 
   // the same script with the wrap at script time w (w + 5 ms, so a tick never lands exactly on 0: see the
   // zero-sentinel checks below)

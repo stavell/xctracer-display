@@ -257,6 +257,25 @@ the last ~3 s of the air-frame trail (if it moved more than 3 m; otherwise the G
 snaps to fixed steps of 2.2, 1.6, 1.1, 0.7, 0.45, 0.28, 0.18, 0.11 px/m, the largest that fits the last
 30 s of track (and the newest thermal when it is within 800 m), so the picture does not breathe.
 
+**Motion between samples** (`core/map_motion.cpp`, `App::updateMap`). Samples arrive about 3 per second, so
+the map is drawn as of a display time $t_d = t_{now} - (\bar\Delta + 50\,\text{ms})$, where $\bar\Delta$ is
+an exponential average of the arrival gaps. The pilot position is the linear interpolation between the
+two samples around $t_d$ (never extrapolated; $t_d$ is held at the newest sample when data stops, and
+catches up at twice real time after a pause). In the trail's frame (origin = the sample that started the
+newest data second) the view centre is
+
+$$\mathbf c = \mathbf g(t_d) - \mathbf g_o - \mathbf w\,\rho\,(t_d - t_o)$$
+
+with $\mathbf g$ the interpolated ground position, $\rho$ the measured data-time / wall-time ratio (1 live,
+3 in a 3x replay; the time stamps only resolve seconds) and $\mathbf w$ the wind of `airTrail`. Trail
+points newer than $t_d$ are dropped and $\mathbf c$ is appended, so the line ends under the arrow. The
+map rotation is the direction of $\mathbf c(t_d) - \mathbf c(t_d - 3\,\text{s}/\rho)$ on the same
+interpolated path (GPS course, interpolated on the shortest arc, when it is shorter than 3 m). A gap above
+2 s, a jump above 150 m or a lost fix snaps to the newest sample. The shown scale approaches the fixed
+zoom step exponentially, $\tau = 300$ ms. The app redraws at 33 ms while the centre moved more than half a
+pixel (at the current scale), the rotation more than $0.5/104$ rad, or the scale is still gliding, since
+the last drawn frame.
+
 ## 7. Home
 
 `firmware/src/core/home.cpp`

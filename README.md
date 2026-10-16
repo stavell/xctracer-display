@@ -119,7 +119,9 @@ circle). The last 90 s is solid, thicker where you climbed faster; older track i
 remembered thermals appear as rings with their average climb; a thermal is remembered after at least 8
 points of 0.5 m/s or more adding up to 15 m of climb (the circling part sets its centre), drifts with the wind and expires after 15 minutes. When the newest thermal
 is off the map an arrow badge at the frame edge points to it with the distance. The map has a north
-marker (top-left), a wind arrow (top-right) and a scale bar. It reads `no GPS track` until there is a
+marker (top-left), a wind arrow (top-right) and a scale bar. The map moves continuously between the tracer's
+samples (shown about 0.4 s behind the newest one, interpolated, never extrapolated), and the zoom glides
+between its fixed steps. It reads `no GPS track` until there is a
 track.
 
 Wind comes from a circle fit over about the last 30 s of ground velocity while turning. It needs about

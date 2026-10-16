@@ -39,7 +39,7 @@ void App::ingestLine(const char* line, uint32_t now) {
   Sample s;
   if (xctrcParse(line, s)) {
     linesOk_++;
-    flight_.feed(s);
+    feedFlight(s, now);
     lastSampleMs_ = now;
     haveSample_ = true;
   } else {
@@ -47,11 +47,17 @@ void App::ingestLine(const char* line, uint32_t now) {
   }
 }
 
+void App::feedFlight(const Sample& s, uint32_t now) {
+  bool newSecond = flight_.feed(s);
+  map_.feed(now, s, newSecond, flight_.clockMs());
+}
+
 void App::handle(const Command& c, uint32_t now) {
   switch (c.type) {
     case Command::SIM:
       simOn_ = c.value != 0;
       flight_.reset();
+      map_.reset();
       if (simOn_) sim_.reset(now);
       break;
     case Command::TZ:
@@ -166,6 +172,44 @@ void App::updateHeading(uint32_t now) {
   smooth_.update(h.deg, now);   // once per tick: buildViewModel only reads it
 }
 
+// The map view as of `now`: the centre interpolated between the last two samples, one sample interval
+// behind the newest. The wind is the one airTrail removes.
+MapView App::mapView(uint32_t now, int trailN) {
+  const Wind w = flight_.wind();
+  float we = 0, wn = 0;
+  if (w.valid) {
+    const float ms = w.speedKmh / 3.6f, th = w.toDeg * 0.017453292f;
+    we = ms * sinf(th);
+    wn = ms * cosf(th);
+  }
+  return map_.view(now, we, wn, trailN - 1);
+}
+
+// Once per tick on the thermal page: glide the zoom toward its step, and decide whether the picture
+// differs from the drawn one by more than half a pixel.
+void App::updateMap(uint32_t now) {
+  mapMoving_ = false;
+  if (page_ != ViewModel::PAGE_THERMAL) { mapScale_ = NAN; mapDrawnLive_ = false; return; }
+  if (isfinite(mapScale_) && isfinite(mapScaleTarget_)) {
+    const uint32_t dt = now - mapScaleMs_;
+    const float a = cfg_.mapScaleTauMs > 0 ? 1.0f - expf(-(float)(dt > 1000 ? 1000 : dt) / cfg_.mapScaleTauMs) : 1.0f;
+    mapScale_ += (mapScaleTarget_ - mapScale_) * a;
+    if (fabsf(mapScaleTarget_ - mapScale_) < 0.003f * mapScaleTarget_) mapScale_ = mapScaleTarget_;
+  }
+  mapScaleMs_ = now;
+  if (!hasData(now) || !isfinite(mapScale_)) return;
+  MapView mv = mapView(now, ViewModel::TRAIL_MAX);
+  if (!mv.valid) return;
+  if (!mapDrawnLive_) return;      // the last frame was not an interpolated one: the normal cadence draws one
+  const float movedPx = hypotf(mv.ax - drawnCx_, mv.ay - drawnCy_) * mapScale_;
+  float turn = 0;
+  if (isfinite(mv.hdgRad) && isfinite(drawnMapHdg_)) {
+    turn = fabsf(fmodf(mv.hdgRad - drawnMapHdg_, 6.2831853f));
+    if (turn > 3.1415927f) turn = 6.2831853f - turn;
+  }
+  mapMoving_ = movedPx > 0.5f || turn > AppConfig::MAP_HALF_PIXEL_RAD || mapScale_ != drawnMapScale_;
+}
+
 const ViewModel& App::buildViewModel(uint32_t now) {
   ViewModel& vm = vm_;
   vm.link = tracer_.link();
@@ -204,6 +248,26 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   if (page_ == ViewModel::PAGE_THERMAL) {
     vm.trailCount = flight_.airTrail(vm.trail, ViewModel::TRAIL_MAX);
     vm.markCount = flight_.thermals(vm.marks, ViewModel::MARKS_MAX);
+    vm.mapLive = false;
+    vm.mapScale = NAN;
+    if (vm.trailCount >= 2) {
+      MapView mv = mapView(now, vm.trailCount);
+      if (mv.valid) {
+        vm.mapLive = true;
+        vm.mapCx = mv.cx;
+        vm.mapCy = mv.cy;
+        vm.mapAx = mv.ax;
+        vm.mapAy = mv.ay;
+        vm.mapHdg = mv.hdgRad;
+        vm.mapTailVario = vm.trail[vm.trailCount - 1].vario;
+        vm.trailCount -= mv.drop;
+      }
+      int mw, mh;
+      thermalMapSize(panel_.gfx().width(), panel_.gfx().height(), mw, mh);
+      mapScaleTarget_ = thermalMapScale(vm, mw, mh);
+      if (!isfinite(mapScale_)) mapScale_ = mapScaleTarget_;      // page entry: no glide
+      vm.mapScale = mapScale_;
+    }
   }
   vm.profileCount = 0;
   vm.homeValid = false;
@@ -244,6 +308,10 @@ void App::drawLiveScreen(uint32_t now, uint32_t held) {
   Bitmap1 bm = panel_.bitmap();
   const ViewModel& vm = buildViewModel(now);
   drawnHeading_ = vm.heading;
+  mapDrawnLive_ = vm.page == ViewModel::PAGE_THERMAL && vm.mapLive;
+  if (mapDrawnLive_) {
+    drawnCx_ = vm.mapAx; drawnCy_ = vm.mapAy; drawnMapHdg_ = vm.mapHdg; drawnMapScale_ = vm.mapScale;
+  }
   drawLive(panel_.gfx(), vm, held, &bm);
   PROF_BEGIN(P_PRESENT);
   panel_.present();
@@ -281,7 +349,7 @@ void App::tick(uint32_t now) {
   tracer_.update(now);
   if (simOn_) {
     Sample s;
-    if (sim_.step(now, s)) { flight_.feed(s); lastSampleMs_ = now; haveSample_ = true; linesOk_++; }
+    if (sim_.step(now, s)) { feedFlight(s, now); lastSampleMs_ = now; haveSample_ = true; linesOk_++; }
   }
   char line[200];
   while (tracer_.popLine(line, sizeof line)) {
@@ -294,6 +362,7 @@ void App::tick(uint32_t now) {
   }
   laptop_.service(now);
   updateHeading(now);
+  updateMap(now);
 
   bool local = !laptop_.hostDrawing(now);
   if (local != wasLocal_) {
@@ -355,6 +424,7 @@ void App::tick(uint32_t now) {
       moving = !smooth_.settled();
     }
     if (moving && anim < every) every = anim;
+    if (mapMoving_ && cfg_.animMapEveryMs < every) every = cfg_.animMapEveryMs;
     if (!listOpen_ && (redraw_ || now - lastDraw_ >= every)) {
       lastDraw_ = now;
       redraw_ = false;
