@@ -295,16 +295,17 @@ and is built into the box image (on the device it says "needs the map pack" unti
 
 ![Flight sim: top-down on the Sopot ridge, 3D on the ridge, top-down with the thermal assist, 3D in a thermal](docs/screens/sim_overview.png)
 
-Left to right: the map view on the south slope above Sopot with the wind blowing onto it; the first-person view there;
-the map with the thermal assist on (dithered rings, the pilot circling in one); the 3D view banked in the thermal.
+Left to right: the map at launch with the thermal assist on (black rings = cores of 2.5 m/s and more, dithered = weaker; the
+ones near the glider are the "house thermals" of the site); the chase camera in a right turn (the glider swings to the left
+of the screen and the horizon tilts a third of the bank); the chase camera circling in a thermal; the pause menu.
 
 | Key | Function |
 |---|---|
 | left / right | bank (ramps to full in 0.33 s, back to level when released) |
 | up / down | speed bar (37 -> 52 km/h) / brake (down to 28 km/h; the wing stalls in a turn at that speed) |
-| X (A) | toggle map / first-person 3D |
+| X (A) | toggle map / 3D chase view |
 | F | simulation speed x1 / x3 / x5 (default x3; also the pause menu Speed row); a box under the top strip shows it |
-| Z or Esc (B / MAIN) | pause menu: Resume, View, Assist (thermals on the map), Site (5 takeoffs), Controls Buttons / Tilt, Zero tilt, Speed x1/x3/x5, New flight, Home |
+| Z or Esc (B / MAIN) | pause menu: Resume, View, Assist (thermals on the map), Site (8 takeoffs), Controls Buttons / Tilt, Zero tilt, Speed x1/x3/x5, Thermals, Wind from, Wind speed, New flight, Home |
 | T | tilt steering with the mouse: x = roll, y = pitch (top of the window = top of the box away = speed bar); T again = buttons |
 | after landing | X = new flight, Z = home |
 
@@ -328,10 +329,32 @@ game mode (10 ms otherwise) so the main loop hits the 20 ms frame clock. The sim
 37 km/h 1.20, full bar 52 km/h 2.20); coordinated turn omega = g tan(bank) / V; extra sink in turns from induced drag
 (n^2); roll lag 0.4 s (pendulum), airspeed lag 1.2 s; stall below 26 km/h x sqrt(n) with strong sink and a warning. The air:
 wind (grows 40 % per 1000 m), seeded thermals triggered on sun-facing slopes and ridge tops found in the DEM (tilted columns with a
-Gaussian core, 1-5 m/s, 50-150 m, 10-20 min life cycle, cloud base 2000-2600 m), ridge lift = wind . slope with a height decay, lee
-sink, general sink 0.5-1 m/s. Ground contact is a landing (<= 4.5 m/s on <= 35 degree ground) or a crash.
+Gaussian core, 2-4.6 m/s on a medium day, 80-200 m radius widening with height, 15-25 min life cycle with overlap, cloud base
+2200-2800 m), three always-working "house thermals" per takeoff (trigger spurs below the launch whose bubble drifts over it), ridge
+lift = wind . slope with a height decay (it replaces the general sink where it lifts), lee sink, general sink 0.3-0.6 m/s.
+At the edge of a thermal the wing tip on the stronger side rises and the glider rolls a few degrees away from it: turn toward the
+high wing to centre (the "lift feel", `World::rollKick`). Ground contact is a landing (<= 4.5 m/s on <= 35 degree ground) or a crash.
 
-**Takeoffs** (approximate, corrected against the terrain model): Sopot, Kalofer, Vratsa, Sliven, Bansko. Note that the
+**3D chase view.** The camera hangs 46 m behind and 20 m above the glider, looking along a smoothed heading (it lags the glider by
+0.5 s of sim time, so turns swing the glider across the screen and the world sweeps past); the horizon follows a third of the bank
+(with tilt steering it counter-rotates by the box roll as before and the sprite shows the bank relative to it). The glider is a
+1-bit sprite from behind (canopy with cells, lines, pilot) in the lower middle of the screen, rolling with the bank and showing
+more of the canopy's top when the speed bar is pushed; a shadow appears on the ground when it is within about 60 m below. Code:
+`sim/chase.*`.
+
+**Day settings.** Starting the sim shows a "TODAY" screen: Site, Thermals (weak / medium / strong / epic), Wind from (the
+site's usual or N .. NW), Wind speed (usual 18 km/h, or 0 / 10 / 15 / 20 / 25 / 30 km/h) and Start; up / down pick the row,
+left / right (or A) change it, A on Start flies, B goes home. The "usual" wind is the way the takeoff slope faces (taken from the
+terrain model) at 5 m/s. Thermals scale the core strength (x0.8 / 1 / 1.25 / 1.5), the share of trigger cells that fire (x0.7 / 1 /
+1.15 / 1.25), the cloud base (-350 / 0 / +250 / +450 m) and the general sink (x0.7 / 1 / 1.3 / 1.6) together; medium is the
+tuned good day the playability test measures. Ridge lift and lee sink follow the wind, so turning the wind around moves the
+lift to the other side of the ridge. The same three rows are in the pause menu: wind changes apply at once and the air eases
+into them over about 15 s (0.6 m/s per second, no jump under the glider); Site and Thermals apply at New flight (the row shows a
+`*` while it differs from the flight you are in).
+
+**Takeoffs** (approximate, corrected against the terrain model): Sopot, Kalofer, Vratsa, Sliven, Bansko, and the north-eastern plateau
+sites Shumen, Madara and Nevsha (launch = steepest convex plateau-edge cell of the terrain model near the rough position).
+`build.sh simreach [PACK] [seeds]` prints how many thermals each takeoff can reach and how a scripted pilot climbs. Note that the
 coordinates 42.6575 N, 24.7531 E are Sopot town (530 m); the launch is on the slope about 3.7 km north, 1400 m.
 
 ## Box: home screen, vario, Tetris, compass tool and Settings in one image

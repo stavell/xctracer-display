@@ -239,3 +239,11 @@ columns (240 vs 400) and a portrait screen column is a contiguous native row (by
 same orientation as the vario pages the sim feeds; tall view suits looking down/ahead; ~70 deg horizontal FOV;
 bank from the gravity direction in the screen plane. Landscape stays possible (renderer supports rotations): compare in
 the PC prototype if portrait feels cramped.
+
+**Playable air, chase camera, Day settings (2026-10-17, branch worktree-agent-a7f0bf8ddea82e02c).** Done: reachability tool and
+playability tests (92 % of 288 scripted flights climb >= 500 m in 10 min, every launch has >= 2 thermals reachable with margin),
+house thermals, tuned medium day, wing-tip lift feel, chase camera with glider sprite (replaces first person), three NE takeoffs
+(Shumen, Madara, Nevsha), "Day" screen and pause rows (thermals weak..epic, wind direction and speed). Numbers in NOTES.md.
+Next: look at the chase sprite on the device panel (halo cost), tune weak days (the scripted pilot only gains 500 m), a "reachable
+thermals" cue for the assist (arrows instead of rings), ridge lift from a smoother terrain scale, take the usual wind per site from
+real flying records.

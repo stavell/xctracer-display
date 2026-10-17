@@ -289,9 +289,11 @@ void SimApp::drawFlight(Bitmap1& bm) {
       static ThermalInfo th[Air::kMaxInfo];                 // static: the loop task has 4 KB of stack
       const int n = world_.air().nearby(g.x, g.y, g.z, world_.time(), 4500.0f, th, Air::kMaxInfo);
       for (int i = 0; i < n; i++) {
+        if (th[i].strength < 1.2f) continue;                 // still building up or dying: not worth a ring
         top_.worldToScreen(th[i].x, th[i].y, &px, &py);
-        const int r = 7 + (int)(th[i].strength * 3.0f);
-        fillRing(bm, (int)lroundf(px), (int)lroundf(py), r, r - 4, Gray(6), clip);
+        const int r = 6 + (int)(th[i].strength * 2.5f);
+        if (th[i].strength >= 2.5f) fillRing(bm, (int)lroundf(px), (int)lroundf(py), r, r - 3, DRAW_CLEAR, clip);   // strong: a black ring
+        else fillRing(bm, (int)lroundf(px), (int)lroundf(py), r, r - 3, Gray(7), clip);
       }
     }
     // Trail.

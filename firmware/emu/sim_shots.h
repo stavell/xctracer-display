@@ -90,7 +90,7 @@ static void shots(const char* dir, terrain::Terrain& t) {
   dump(app, dir, "sim_chase_turn", 3);
   app.onKey(KEY_RIGHT, false, 0);
   app.onKey(KEY_UP, true, 0);                                // speed bar: the canopy shows more of its top
-  run(app, 100, sm);
+  run(app, 45, sm);
   dump(app, dir, "sim_chase_bar", 3);
 
   SimApp app2;
@@ -109,6 +109,7 @@ static void shots(const char* dir, terrain::Terrain& t) {
   // At launch with the assist on: the thermals a pilot can reach.
   SimApp app3;
   app3.setTerrain(&t);
+  app3.showDayScreen(false);
   app3.setSite(0);
   app3.setSeed(7);
   app3.begin(0);
@@ -120,6 +121,16 @@ static void shots(const char* dir, terrain::Terrain& t) {
   app3.setView(SimApp::View::CHASE);
   run(app3, 5, sm3);
   dump(app3, dir, "sim_chase_launch", 3);
+  app3.onKey(KEY_B, true, 0);                                // the pause menu with the Day rows
+  dump(app3, dir, "sim_menu", 3);
+
+  SimApp app4;                                               // the Day screen
+  app4.setTerrain(&t);
+  app4.setSite(5);
+  app4.begin(0);
+  app4.onKey(KEY_DOWN, true, 0);
+  app4.onKey(KEY_RIGHT, true, 0);
+  dump(app4, dir, "sim_day", 3);
 }
 
 // The standard renders from the Sopot fixture pack (run by emu_main shots).

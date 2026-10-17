@@ -688,3 +688,84 @@ confident state (change to 30 km/h; old: stuck at 11 km/h), and replays of the S
 from the reference once a wind is shown. They fail on the old code (8 failures). `test_ekf_seed_from_circle_fit` also covers the restart from a
 persistent contradiction. Whole flights: `host/wind_ref.py <igc>` (manual), `build.sh wind lines.txt` as before.
 
+
+## Flight simulator: playable air, chase camera, Day settings (2026-10-17)
+
+User feedback after playing: "I can't even reach a thermal". `build.sh simreach [PACK] [seeds] [t0..]` (`emu/sim_reach.cpp`, shared code
+in `emu/sim_reach.h`) measures it: per takeoff, seed and start time (180 / 1800 / 3600 s) the thermals working at launch (core
+>= 1.5 m/s with the life cycle applied, within 3.6 km), the nearest, how many a straight trim glide reaches (re-aimed at the moving
+column, >= 30 m above the ground on arrival), how many of those are still reached when the air sinks 0.5 m/s more ("with margin"), and
+what a scripted pilot (nearest reachable thermal, circle at 0.3 R, soar the slope when nothing is in reach) gains in 10 sim minutes.
+
+| | old air (same launch 150 m, wind 5 m/s) | new air, medium day |
+|---|---|---|
+| thermals working within 3.6 km | 1.6 - 3.6 (Bansko 1.6) | 11.6 - 16.1 |
+| nearest working thermal (median) | 870 - 2300 m | 160 - 400 m |
+| reachable at trim | 0 - 1.2 (mean) | 5.0 - 10.6 |
+| reachable with the 0.5 m/s margin | 0 - 1.0 | 3.4 - 8.3 |
+| runs with fewer than 2 reachable with margin | 86 of 90 | 2 of 288 (Sopot, t0 180 / 1800) |
+| scripted pilot gains >= 500 m in 10 min | 2 of 90 (2 %) | 264 of 288 (92 %), median gain 700 - 1600 m |
+
+(the very first run, with the old 60 m launch height and the old measure, was 0 of 90). Per site, new air (12 seeds x 3 start times):
+Sopot 33/36, Kalofer 32/36, Vratsa 32/36, Sliven 34/36, Bansko 36/36, Shumen 33/36, Madara 30/36, Nevsha 34/36.
+
+**What was wrong.** (1) The launch was 60 m above the takeoff with a 5 m/s headwind: ground speed 5 m/s at 1.9 m/s sink is a
+glide of 2.7 over the ground, so anything beyond 160 m was out of reach, and the nearest thermal was 0.9 - 2.3 km away. (2) The
+ridge lift (0.9 x wind x slope, slope from 150 m differences on a 200 m grid: noisy, sign flips every 400 m) was cancelled by the
+general sink of 0.5 - 1.0 m/s applied on top: net about zero on the slope, no soaring. (3) Thermals were few: one trigger per 1.8 km
+cell fired with 25 - 90 % chance, a period of 900 - 1500 s against lives of 600 - 1200 s (about a third of the time active), cores
+1 - 5 m/s with a median of 1.6, radius 50 - 150 m: about 3 working thermals within 9 km and most too weak for a turn (a turn costs
+0.35 m/s more sink, the Gaussian core at 0.45 R only 0.8 of its peak). (4) Nothing tied a trigger to the launch (real sites have
+known trigger spurs). (5) The table wind did not match the terrain (Sopot 190 degrees, the slope at the model's launch faces 138).
+(6) Launch spots in gullies or behind a knob: Sopot's launch cell is a notch between two bumps of +125 m.
+
+**Tuned (medium day).** Cloud base 2200 - 2800 m (seeded). General sink 0.3 - 0.6 m/s (seeded), faded to nothing where the ridge
+lifts by 1.2 m/s, reduced in cores. Thermal cells: period 600 - 1000 s, life 900 - 1500 s (15 - 25 min, overlapping; the collector
+looks 3 numbers back), fire probability (0.35 + 0.6 score), core S = 2.0 + 2.6 u^1.2 (0.5 + 0.5 score) = 2.0 - 4.6 m/s, radius 80 - 200 m
+widening 60 % per 1000 m of climb, lean with the wind as before. House thermals (`Air::setHome`, 3 per takeoff): trigger spots
+250 - 2000 m from the launch, 30 - 500 m below it, whose bubble (leaning downwind) crosses 150 - 800 m from the launch at launch
+height, with a 4:1 glide from the launch that clears the terrain, best sun score, in different directions (a relaxed search if the
+terrain has none); period 500 - 700 s, life 1100 - 1500 s (always >= 2 alive per house), S 2.6 - 4.4. Ridge lift = 1.0 x wind . slope,
+gradient on 300 m, decay with height 260 m. The start is 150 m above the takeoff (`World::kLaunchAgl`: the first seconds after
+leaving the slope), the wind blows onto the slope (direction from the 600 m aspect of the terrain model) at 5 m/s (18 km/h), 3
+minutes into the sim day. Test limits in `sim_tests.h` follow (cores 2 - 4.6 m/s, radius 80 - 200 x 1.9, cloud base 2200 - 2800).
+**Lift feel.** `AirSample.gx/gy` is the analytic gradient of the thermal part; the lift difference across the 10 m span (right minus
+left wing tip) gives a roll kick of 0.35 rad per m/s, at most 8 degrees, lagged 0.5 s, added to the commanded bank (`World::rollKick`,
+`Glider::step(..., rollKick)`). The tip on the stronger side rises, so the glider banks away from the core (physical): the pilot
+turns toward the high wing. At a thermal's edge (0.8 R of a 3 m/s core) it is about 4 degrees.
+
+**Playability test** (`playability()` in `sim_tests.h`, Sopot fixture 8 seeds x 2 start times, and when the real pack exists all 8
+takeoffs x 4 seeds): every run has >= 2 house thermals, >= 2 thermals reachable with the 0.5 m/s margin, nearest < 1.5 km; the
+scripted pilot gains >= 500 m in 10 min in >= 80 % of the runs (measured: fixture 14 of 16, real pack 31 of 32). The measured rates are
+printed. Also `day_settings()`: levels order strength, density, cloud base and sink; the scripted pilot's mean 10 minute gain on the
+fixture by level weak / medium / strong / epic = 507 / 916 / 1176 / 1387 m; wind direction flips ridge lift and lee sides; calm = no
+ridge lift; a wind change eases in at 0.6 m/s per second.
+
+**Day settings.** `SimApp` opens a "TODAY" screen (Site, Thermals, Wind from, Wind speed, Start; `showDayScreen(false)` for tests
+and tools) and the pause menu has the same rows. Thermals (`Air::setLevel`): weak / medium / strong / epic scale the core strength
+(x0.8 / 1 / 1.25 / 1.5), the fire probability (x0.7 / 1 / 1.15 / 1.25), the cloud base (-350 / 0 / +250 / +450 m) and the sink
+(x0.7 / 1 / 1.3 / 1.6): more lift up goes with more sink in between. Measured means (thermals > 1 m/s) 2.2 / 2.7 / 3.3 / 3.9 m/s, cloud
+base 2219 / 2569 / 2819 / 3019 m, sink 0.31 / 0.44 / 0.57 / 0.70. Decision for changes during a flight: the wind applies at once and eases in (the
+air is a continuous function of the wind vector, so a ramp of 0.6 m/s per second never jumps under the glider); the thermal level and
+the site regenerate the day and so apply at New flight (the menu row shows `*` while pending), because re-rolling the thermals under
+a flying glider would pop columns in and out.
+
+**Takeoffs added** (NE plateau): found with the terrain model around the rough positions (steepest convex edge cell: slope >= 0.15 at
+400 m, >= 200 m of drop within 1.5 km downhill, the plateau behind it, wind = the way the edge faces): Shumen 43.2529 N 26.9272 E 460 m
+(SE-facing, 2.9 km from the guess: the model's best edge near the town), Madara 43.2709 N 27.1188 E 405 m (NW, 0.2 km from the
+guess), Nevsha 43.2256 N 27.4744 E 330 m (NW, 3.6 km east of the village: the model's plateau edge above the Provadiya valley, 40 m
+floor to 300 m plateau). The pack covers them and the relief reads as plateau and valley (Shumen plateau 480 m over a 300 m valley;
+Madara 405 m over 130 m; Nevsha 330 m over 40 m). All approximate.
+
+**Chase camera** (`sim/chase.*`, replaces the first-person view; the enum is `View::CHASE`). 46 m behind, 20 m above, pitch 0.09 rad
+(horizon about 15 px lower: more ground in front), heading smoothed with tau 0.5 s of sim time (the update runs in sim seconds, so
+the lag looks the same at x1 / x3 / x5), roll = 0.35 of the bank (tau 0.3 s); the camera is lifted to 8 m above the ground behind
+the glider. The sprite (half span 46 px, a real 5 m at this distance would be 19 px: exaggerated to read) is drawn where the glider
+projects (lower middle, sideways in a turn), a black outline pass then a white fill: the canopy as a stack of arches with its seams,
+the lines and the pilot, rolled by bank minus camera roll, the canopy thickness 9 px at trim growing to 17 px at full bar (nose
+down). Shadow: a flat ellipse where the glider's position meets the ground, only while that is on the screen (AGL below about
+60 m). With tilt steering the camera roll is the box roll (horizon counter-rotation as before). **Device estimate** (same two
+methods as step 1, `build.sh simbench`): renderer unchanged 12.3 ms (cycle count; 0.78 M cycles), sprite + shadow 22 us on the PC =
+1.4 ms with the calibration factor 60 (about 800 short line calls), camera maths negligible, HUD about 1 ms, sim step 0.5 ms: about
+15 - 16 ms of the 20 ms frame (was 13 - 14), no margin for a second sprite. If it must shrink: halo outline only on the top arch
+(saves about 0.5 ms).

@@ -103,6 +103,17 @@ int main(int argc, char** argv) {
   const double vox = timeIt([&](int) { sim::Camera c; c.x = 0; c.y = -1000; c.z = 1400; c.heading = 0.35f; c.roll = 0.0f; c.pitch = 0.05f; app.voxel().render(bm, app.world().cache(), c); }, 300, &w3);
   rows.push_back({"3D renderer alone", vox, w3});
 
+  {
+    sim::Glider gl = app.world().glider();
+    gl.bank = 0.3f; gl.airspeed = 45.0f / 3.6f;
+    sim::ChaseCam cc;
+    cc.reset(gl);
+    const sim::Camera cam = cc.camera(gl, app.world().cache());
+    const double sp = timeIt([&](int) { cc.drawGlider(bm, gl, app.world().cache(), cam); }, 2000, &w3);
+    rows.push_back({"chase camera: glider sprite + shadow alone", sp, w3});
+    const double cm = timeIt([&](int) { cc.update(gl, NAN, 0.06f); (void)cc.camera(gl, app.world().cache()); }, 2000, &w3);
+    rows.push_back({"chase camera: smoothing + camera", cm, w3});
+  }
   app.setView(sim::SimApp::View::TOP);
   const double top = timeIt([&](int i) { memset(fb, 0xFF, sizeof fb); app.draw(bm, gfx, 20u * i); }, 300, &w3);
   rows.push_back({"top-down frame (blit + trail + glider + HUD)", top, w3});
