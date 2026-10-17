@@ -12,7 +12,7 @@ for p in glob.glob(os.path.join(d, "sim_*.pgm")):
     im.resize((im.width * 2, im.height * 2), Image.NEAREST).save(p[:-4] + ".png")
 
 cols = [("clouds", "assist off: clouds only"), ("columns", "columns"), ("bubbles", "bubbles"), ("both", "both")]
-rows = [("approach", "approaching, 1.6 km"), ("inside", "circling inside")]
+rows = [("approach", "approaching, 2.3 km"), ("inside", "circling inside")]
 files = [[os.path.join(d, "sim_thermal_%s_%s.pgm" % (r, c)) for c, _ in cols] for r, _ in rows]
 if all(os.path.exists(f) for fr in files for f in fr):
     pw, ph, gap, top = 240, 400, 8, 22

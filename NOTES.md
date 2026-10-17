@@ -769,3 +769,49 @@ methods as step 1, `build.sh simbench`): renderer unchanged 12.3 ms (cycle count
 1.4 ms with the calibration factor 60 (about 800 short line calls), camera maths negligible, HUD about 1 ms, sim step 0.5 ms: about
 15 - 16 ms of the 20 ms frame (was 13 - 14), no margin for a second sprite. If it must shrink: halo outline only on the top arch
 (saves about 0.5 ms).
+
+## Flight simulator: clouds and thermals in the 3D view (2026-10-17)
+
+User: "can we have the thermals visible in the 3D mode?" `sim/sky3d.*` (`SkyFx`), `Air::columns` / `columnPoint` (`ColumnInfo`), a depth buffer in
+`VoxelView`. Renders: `docs/screens/sim_thermal_styles.png` (contact sheet: approaching a thermal at 2.3 km and circling in it, assist off and the
+three styles), `sim_clouds_approach.png`, `sim_thermal_approach_bubbles.png`; `build.sh simdemo [PACK] [OUTDIR]` makes them (real pack),
+`build.sh simtests [sky_fx]` runs the sim tests alone in seconds (no sanitizers).
+
+- **Cumulus (always on).** One per thermal, from `Air::columns`: none until 20 % of the thermal's life, full from 40 % to 60 %, thinning to
+  nothing at 95 % (a smoothstep up and down), centre over the column's top at the cloud base plus a downwind drift of 0.10 x wind x age since it formed,
+  width (450 + 140 S) m x (0.3 + 0.7 x development). Drawn as 7 discs (5 on a flat base, 2 on top, shape from the thermal's hash) column by column:
+  black outline (thicker where the edge is steep), white top, grey body, dark base band, black base line; the nearest 4 within 9 km and in front.
+- **Depth against terrain (choice).** Not "clouds first, terrain over them": the terrain renderer writes spans front to back and the sky last, so
+  drawing clouds before it would need the terrain to skip them. Instead `VoxelView` stores, per ray (120) and per bin of two steps (26 bins, 6 kB RAM), the
+  highest screen row covered by terrain NEARER than that step (one store per two steps in the ray loop, about 0.3 ms estimated). A cloud, shaft or bubble at
+  distance s is clipped to the rows above `nearerRow(column, step(s))`; exact at bin edges, conservative in between. Test: a 4 km wall hides a cumulus
+  behind it (picture = bare terrain), the same cumulus is drawn from beyond the wall.
+- **Thermals (assist on), `Thermals view` row of the pause menu** (default bubbles): *columns* = a curtain from the trigger to the cloud base along the
+  leaning column (5 segments, 1.5 x core radius wide, dashed vertical hatching every 4 / 6 px by strength, dashed outline); *bubbles* = rings rising
+  through the column at 8 x S m per sim second (a visual speed: the real 3 m/s is not seen to move at 1 km), 4 - 8 per thermal by strength, more of them
+  near the axis; *both* = outline and bubbles. The thermal the glider is in always shows 16 larger bubbles around its altitude. The first attempt (XOR
+  dots) was unreadable over the dithered sky and hillside; dashed black lines read on both.
+- **Honest recommendation: bubbles as the default.** Cheapest (0.45 ms vs 1.2 ms counted), cleanest, and the one that carries strength (speed and number) and
+  the lean (the chain of rings follows the column). Columns show the extent and the exact lean but their hatching reads as a band at a distance, fill
+  the view when a thermal is close, and cost more. Both adds the outline to the bubbles and looks busier than either. Stills cannot judge the motion of
+  the bubbles; this wants one flight on the device.
+- **Budget** (`build.sh simbench`, approach scene with 4 clouds and 3 thermals in view, renderer unchanged at 12.3 ms by cycle count): the
+  estimates are cycles counted inside `SkyFx` (per column evaluation, per span byte, per bubble) next to the PC time x 59 (calibration):
+
+  | scene | clouds | thermals | counted | PC x 59 | 3D frame (16.3 + 0.14 columns + this) |
+  |---|---|---|---|---|---|
+  | assist off | 4 (134 cols) | | 0.35 ms | 0.29 ms | 16.8 ms |
+  | columns | 4 | 3 shafts, 404 cols | 1.19 ms | 0.58 ms | 17.6 ms |
+  | bubbles | 4 | 11 rings | 0.45 ms | 0.46 ms | 16.9 ms |
+  | both | 4 | 3 shafts, 180 cols, 11 rings | 1.15 ms | 0.70 ms | 17.6 ms |
+
+  The base 16.3 ms is the earlier 15 - 16 ms frame plus 0.3 ms for the depth buffer. Hard limits make the worst case bounded: clouds <= 1.0 ms
+  (64 k cycles), assist <= 1.5 ms (96 k cycles) plus the glider's own bubbles (about 0.15 ms), `Air::columns` about 0.15 ms: worst frame about 19.1 ms, under
+  the 20 ms budget but with little margin. Adaptive degradation (`SkyFx::draw`): cost is estimated from the geometry before drawing; over the budget the clouds use 4
+  columns per evaluation instead of 2, the shafts use 3 segments instead of 5 and the thermals 4 bubbles instead of 8, and then the farthest clouds and
+  thermals are left out (at most 3 shafts, 28 bubbles, 4 clouds). On the PC the counted numbers are the ones to trust (the calibration factor is a
+  rough ratio, as for the sprite); to be measured on the device.
+- **Tests** (`sky_fx` in `sim_tests.h`): cumulus factor 0 before 20 % of the life and from 95 %, 1 between 42 % and 60 %, width grows
+  with strength, drifts downwind with age and thins in the decay; deterministic rendering (same picture twice, bubbles and shafts too); behind the wall
+  hidden, beyond it drawn; the three styles differ; budgets respected; bubbles move with time; the depth buffer is empty at step 0 and full at the last.
+  The menu gained a row (13 rows, row height 25), existing key-sequence tests moved by one row.
