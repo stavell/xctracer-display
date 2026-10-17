@@ -12,7 +12,8 @@
 #                                   (--pack FILE; default the Bulgaria pack from the study if present, else the Sopot
 #                                   fixture; --pack none for a box without terrain)
 #   ./build.sh simbench [PACK]      flight sim frame timing on the PC, scaled to the device (see sim_bench.cpp)
-#   ./build.sh smoke                headless run of the whole box: renders the launcher, vario pages, Tetris
+#   ./build.sh simreach [PACK] [seeds] [t0..]  reachability of thermals from every takeoff + scripted-pilot climb (sim_reach.cpp)
+#   ./build.sh smoke               headless run of the whole box: renders the launcher, vario pages, Tetris
 #                                   started from the launcher and the way back (emu/out/box_*.png)
 set -e
 cd "$(dirname "$0")"
@@ -39,6 +40,13 @@ if [ "$1" = "simbench" ]; then
     $SIM $GFX $VARIO $SETTINGS $TETRIS $LAUNCHER $TERRAIN out/Adafruit_GFX_host.cpp sim_bench.cpp -o out/sim_bench
   shift
   exec out/sim_bench "${1:-fixtures/sopot.pack}"
+fi
+if [ "$1" = "simreach" ]; then
+  # Playability of the air from every takeoff (see sim_reach.cpp).
+  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -Istubs -I../src -I. -I"$G" \
+    $SIM $GFX $TERRAIN out/Adafruit_GFX_host.cpp sim_reach.cpp -o out/sim_reach
+  shift
+  exec out/sim_reach "$@"
 fi
 if [ "$1" = "play" ] || [ "$1" = "smoke" ]; then
   # The player: no sanitizers (speed), SDL2 from Homebrew, the whole box over mock ports.

@@ -8,6 +8,7 @@ void World::place(float x, float y, float aglStart, float headingDeg) {
   g_.reset(x, y, gh + aglStart, headingDeg * kDeg2Rad);
   status_ = Status::FLYING;
   vario_ = 0;
+  kick_ = 0;
   ground_ = gh;
   agl_ = aglStart;
   maxAlt_ = startAlt_ = g_.z;
@@ -25,16 +26,27 @@ void World::beginAt(IHeightSource* src, uint32_t seed, float x, float y, float a
   air_.setSeed(seed);
   air_.setField(&cache_);
   air_.setWind(windFromDeg, windSpeed, gh + aglStart);
+  air_.setHome(x, y);
   windFrom_ = windFromDeg;
   t_ = timeOfDay;
   place(x, y, aglStart, headingDeg);
   air_.sample(g_.x, g_.y, g_.z, t_, &s_);
 }
 
-void World::begin(IHeightSource* src, uint32_t seed, const Takeoff& to, float windSpeed) {
+void World::begin(IHeightSource* src, uint32_t seed, const Takeoff& to, float windSpeed, float timeOfDay) {
   // The takeoff is the origin of the local frame; fly into the wind, 3 minutes into the sim day so thermals
-  // are already working.
-  beginAt(src, seed, 0.0f, 0.0f, 60.0f, to.windFromDeg, to.windFromDeg, windSpeed, 180.0f);
+  // are already working. The wind blows onto the slope the takeoff is on: the direction comes from the terrain model
+  // (the way the slope faces, 600 m scale) when it is clear, else from the table.
+  float from = to.windFromDeg;
+  float h0, a, b, c, d;
+  if (src->at(0, 0, &h0) && src->at(600, 0, &a) && src->at(-600, 0, &b) && src->at(0, 600, &c) && src->at(0, -600, &d)) {
+    const float gx = (a - b) / 1200.0f, gy = (c - d) / 1200.0f;
+    const float slope = sqrtf(gx * gx + gy * gy);
+    if (slope > 0.12f) from = atan2f(-gx, -gy) * kRad2Deg;     // downhill side: the wind comes up the slope
+    if (from < 0) from += 360.0f;
+  }
+  if (windSpeed <= 0) windSpeed = 5.0f;
+  beginAt(src, seed, 0.0f, 0.0f, kLaunchAgl, from, from, windSpeed, timeOfDay);
 }
 
 void World::step(const Controls& c, float dt) {
@@ -43,7 +55,11 @@ void World::step(const Controls& c, float dt) {
   cache_.refresh(48);
   air_.sample(g_.x, g_.y, g_.z, t_, &s_);
   const float px = g_.x, py = g_.y;
-  g_.step(c, s_.wx, s_.wy, s_.wz, dt);
+  // Tip lift: lift difference between the right and left wing tip along the wing, from the thermal's gradient.
+  const float rx = cosf(g_.heading), ry = -sinf(g_.heading);
+  const float dw = (s_.gx * rx + s_.gy * ry) * kSpan;
+  kick_ += (clampf(-dw * kKickPerMs, -kKickMax, kKickMax) - kick_) * lagFactor(dt, 0.5f);
+  g_.step(c, s_.wx, s_.wy, s_.wz, dt, kick_);
   t_ += dt;
   dist_ += sqrtf((g_.x - px) * (g_.x - px) + (g_.y - py) * (g_.y - py));
   vario_ += (g_.vz - vario_) * lagFactor(dt, 0.8f);

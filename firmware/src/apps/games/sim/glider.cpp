@@ -45,7 +45,7 @@ void Glider::reset(float x0, float y0, float z0, float heading0) {
   gy = airspeed * cosf(heading);
 }
 
-void Glider::step(const Controls& c, float wx, float wy, float wz, float dt) {
+void Glider::step(const Controls& c, float wx, float wy, float wz, float dt, float rollKick) {
   if (!(dt > 0)) return;
   // Pilot inputs reach the wing smoothed: the bar and the brake are slow controls.
   const float kc = lagFactor(dt, 0.35f);
@@ -53,7 +53,7 @@ void Glider::step(const Controls& c, float wx, float wy, float wz, float dt) {
   brakeSmooth += (clampf(c.brake, 0, 1) - brakeSmooth) * kc;
 
   // Bank: first-order lag to the commanded angle.
-  const float bankCmd = clampf(c.bank, -1.0f, 1.0f) * kMaxBank;
+  const float bankCmd = clampf(clampf(c.bank, -1.0f, 1.0f) * kMaxBank + rollKick, -kMaxBank, kMaxBank);
   bank += (bankCmd - bank) * lagFactor(dt, kRollTau);
   load = 1.0f / cosf(bank);
   const float rootN = sqrtf(load);

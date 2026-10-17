@@ -34,6 +34,7 @@ struct AirSample {
   float thermal = 0;             // thermal part of wz
   float ridge = 0;               // ridge lift (+) / lee sink (-) part
   float base = 0;                // general sink part (negative)
+  float gx = 0, gy = 0;          // horizontal gradient of the thermal part, (m/s) per m: the wing tips feel it
 };
 
 struct ThermalInfo {             // for the assist overlay and the tests
@@ -47,13 +48,14 @@ class Air {
  public:
   static constexpr float kTile = 1800.0f;
   static constexpr int kSlots = 64;               // cache of the cells' trigger points (probe window of 4)
-  static constexpr int kMaxInfo = 16;
-  static constexpr int kMaxActive = 24;
+  static constexpr int kHouses = 3;
+  static constexpr int kMaxInfo = 32;
+  static constexpr int kMaxActive = 48;
 
   explicit Air(uint32_t seed = 1) { setSeed(seed); }
   void setSeed(uint32_t seed);
   uint32_t seed() const { return seed_; }
-  void setField(const HeightCache* f) { field_ = f; clearTiles(); }
+  void setField(const HeightCache* f) { field_ = f; nHouse_ = 0; clearTiles(); }
   // Wind from fromDeg (meteorological), speed m/s at refAlt (m).
   void setWind(float fromDeg, float speed, float refAlt);
   float cloudBase() const { return cloudBase_; }
@@ -65,6 +67,12 @@ class Air {
   // Thermals active at time t whose columns come within `range` m of (x, y) at altitude z.
   int nearby(float x, float y, float z, float t, float range, ThermalInfo* out, int cap) const;
 
+  // The takeoff's "house thermals": three reliable trigger spots (the best sun-facing spurs below or beside the launch,
+  // 300-1100 m away) that are always working, with overlapping lives, like the known trigger spots of a real site.
+  void setHome(float x, float y);
+  int houseCount() const { return nHouse_; }
+  bool house(int i, float* x, float* y) const { if (i < 0 || i >= nHouse_) return false; *x = house_[i].x; *y = house_[i].y; return true; }
+
   // Quality of a trigger point 0..1 for the given spot (sun-facing slope + ridge top); -1 where the terrain is not loaded.
   float triggerScore(float x, float y) const;
 
@@ -73,6 +81,7 @@ class Air {
     int tx = 0x7fffffff, ty = 0;
     bool valid = false;
     float x = 0, y = 0, z = 0, score = 0;       // best trigger candidate in the cell
+    bool house = false;                         // a house thermal: always fires, never weak
   };
   struct Th {
     float x0, y0, z0, t0, life, S, R;
@@ -87,7 +96,8 @@ class Air {
   void clearTiles() { for (int i = 0; i < kSlots; i++) tiles_[i].valid = false; }
   const Tile* tile(int tx, int ty) const;
   int collect(float x, float y, float z, float t, float range, Active* out, int cap) const;
-  bool thermalOf(const Tile& tl, int tx, int ty, int number, Th* out) const;
+  bool thermalOf(const Tile& tl, uint32_t tk, int number, Th* out) const;
+  void timing(uint32_t tk, bool house, float* period, float* offset) const;
   float envelope(const Th& th, float t) const;
   void columnCentre(const Th& th, float z, float t, float* cx, float* cy) const;
   float ridgeLift(float x, float y, float z) const;
@@ -96,6 +106,8 @@ class Air {
   const HeightCache* field_ = nullptr;
   float windToX_ = 0, windToY_ = 1, windSpeed_ = 0, windRefAlt_ = 0;
   float cloudBase_ = 2400, baseSink_ = 0.7f;
+  Tile house_[kHouses];
+  int nHouse_ = 0;
   mutable Tile tiles_[kSlots];
   mutable Active scratch_[kMaxActive];
 };

@@ -249,10 +249,10 @@ static void air_model() {
     sameSamples += sa.wz == sb.wz && sa.thermal == sb.thermal && sa.ridge == sb.ridge;
   }
   CHECK(sameSamples == 200);
-  // Thermals follow the rules: 1-5 m/s, 50-150 m cores, a life of 10-20 minutes (checked through the strength envelope).
+  // Thermals follow the rules: 2-4.6 m/s, 80-200 m cores (wider higher up), a life of 15-25 minutes (checked through the strength envelope).
   for (int i = 0; i < na; i++) {
-    CHECK(ta[i].strength >= 0 && ta[i].strength <= 5.0f);
-    CHECK(ta[i].radius >= 50.0f && ta[i].radius <= 150.0f * 1.7f);
+    CHECK(ta[i].strength >= 0 && ta[i].strength <= 4.6f);
+    CHECK(ta[i].radius >= 80.0f && ta[i].radius <= 200.0f * 1.9f);
   }
   // In the core the thermal lifts: at the column centre the thermal part is about the strength; far away it is not.
   const ThermalInfo& t0 = ta[0];
@@ -265,9 +265,9 @@ static void air_model() {
   AirSample high;
   a.sample(t0.x, t0.y, a.cloudBase() + 300.0f, 700, &high);
   NEAR(high.thermal, 0, 0.05);
-  CHECK(a.cloudBase() >= 2000.0f && a.cloudBase() <= 2600.0f);
-  // Between thermals the air sinks 0.5 - 1.0 m/s.
-  CHECK(a.baseSink() >= 0.5f && a.baseSink() <= 1.0f);
+  CHECK(a.cloudBase() >= 2200.0f && a.cloudBase() <= 2800.0f);
+  // Between thermals the air sinks 0.3 - 0.6 m/s.
+  CHECK(a.baseSink() >= 0.3f && a.baseSink() <= 0.6f);
   // Life cycle: a thermal that is alive at some time has no lift long before its start nor long after its end.
   int alive = 0, dead = 0;
   for (float t = 0; t < 6000; t += 60) {

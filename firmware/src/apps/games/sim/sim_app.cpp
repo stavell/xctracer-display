@@ -225,7 +225,7 @@ void SimApp::drawFlight(Bitmap1& bm) {
     top_.worldToScreen(g.x, g.y, &sx, &sy);
     // Thermals the pilot cannot see: only with the assist on, as soft dithered rings.
     if (assist_) {
-      ThermalInfo th[Air::kMaxInfo];
+      static ThermalInfo th[Air::kMaxInfo];                 // static: the loop task has 4 KB of stack
       const int n = world_.air().nearby(g.x, g.y, g.z, world_.time(), 4500.0f, th, Air::kMaxInfo);
       for (int i = 0; i < n; i++) {
         top_.worldToScreen(th[i].x, th[i].y, &px, &py);

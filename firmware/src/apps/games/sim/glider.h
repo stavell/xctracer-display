@@ -58,7 +58,9 @@ struct Glider {
   float groundSpeed() const { return sqrtf(gx * gx + gy * gy); }
   float airspeedKmh() const { return airspeed * 3.6f; }
   // Advance dt seconds in an air mass moving (wx, wy) horizontally and wz vertically (m/s).
-  void step(const Controls& c, float wx, float wy, float wz, float dt);
+  // rollKick: extra bank (rad) from the air itself, e.g. a wing tip lifted by the edge of a thermal (added to the commanded bank,
+  // so it passes through the same roll lag).
+  void step(const Controls& c, float wx, float wy, float wz, float dt, float rollKick = 0.0f);
 };
 
 }  // namespace sim

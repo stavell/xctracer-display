@@ -10,8 +10,9 @@ constexpr int kReach = 2;                            // cells searched around th
 
 void Air::setSeed(uint32_t seed) {
   seed_ = seed;
-  cloudBase_ = 2000.0f + 600.0f * unit(hash3(seed, 0xC10D, 1));
-  baseSink_ = 0.5f + 0.5f * unit(hash3(seed, 0xBA5E, 2));
+  cloudBase_ = 2200.0f + 600.0f * unit(hash3(seed, 0xC10D, 1));
+  baseSink_ = 0.3f + 0.3f * unit(hash3(seed, 0xBA5E, 2));
+  nHouse_ = 0;
   clearTiles();
 }
 
@@ -73,20 +74,83 @@ const Air::Tile* Air::tile(int tx, int ty) const {
   return &slot;
 }
 
-bool Air::thermalOf(const Tile& tl, int tx, int ty, int number, Th* out) const {
-  const uint32_t tk = hash3(seed_, (uint32_t)tx, (uint32_t)ty);
-  const float period = 900.0f + 600.0f * unit(hash32(tk ^ 0xA1));
-  const float offset = period * unit(hash32(tk ^ 0xB2));
+void Air::timing(uint32_t tk, bool house, float* period, float* offset) const {
+  *period = house ? 500.0f + 200.0f * unit(hash32(tk ^ 0xA1)) : 600.0f + 400.0f * unit(hash32(tk ^ 0xA1));
+  *offset = *period * unit(hash32(tk ^ 0xB2));
+}
+
+bool Air::thermalOf(const Tile& tl, uint32_t tk, int number, Th* out) const {
+  float period, offset;
+  timing(tk, tl.house, &period, &offset);
   const uint32_t h = hash3(tk, (uint32_t)number, 0x7117);
-  if (unit(h) >= 0.25f + 0.65f * tl.score) return false;
+  if (!tl.house && unit(h) >= 0.35f + 0.6f * tl.score) return false;
   const float u1 = unit(hash32(h ^ 1)), u2 = unit(hash32(h ^ 2)), u3 = unit(hash32(h ^ 3));
   out->x0 = tl.x; out->y0 = tl.y; out->z0 = tl.z;
   out->t0 = offset + number * period;
-  out->life = 600.0f + 600.0f * u3;
-  out->S = 1.0f + 4.0f * powf(u1, 1.5f) * (0.35f + 0.65f * tl.score);
-  out->R = 50.0f + 100.0f * u2;
+  out->life = (tl.house ? 1100.0f : 900.0f) + (tl.house ? 400.0f : 600.0f) * u3;     // 15 - 25 min, longer than the period: they overlap
+  out->S = tl.house ? 2.6f + 1.8f * powf(u1, 1.2f) : 2.0f + 2.6f * powf(u1, 1.2f) * (0.5f + 0.5f * tl.score);
+  out->R = 80.0f + 120.0f * u2;
   out->id = h;
   return true;
+}
+
+void Air::setHome(float hx, float hy) {
+  nHouse_ = 0;
+  float gh;
+  if (!field_ || !field_->height(hx, hy, &gh)) return;
+  float wx, wy;
+  wind(gh, &wx, &wy);
+  const float wsp = sqrtf(wx * wx + wy * wy);
+  Tile best[kHouses];
+  float bestV[kHouses], bestA[kHouses] = {0, 0, 0};
+  // A spot below the launch whose bubble, leaning downwind as it climbs, passes over the launch area 150 - 800 m from the
+  // launch point at launch height, with a glide to it that clears the terrain: that is how a real site's trigger spur
+  // works. A site whose terrain has no such spot gets the best of a relaxed search (any spot 100 - 1100 m away).
+  for (int pass = 0; pass < kHouses; pass++) {
+    bestV[pass] = -1e9f;
+    for (int strict = 1; strict >= 0 && bestV[pass] < -1e8f; strict--)
+      for (int ring = 0; ring < 7; ring++)
+        for (int b = 0; b < 12; b++) {
+          const uint32_t idx = (uint32_t)(ring * 12 + b);
+          const float d = 250.0f + 250.0f * ring + 60.0f * (unit(hash3(seed_, 0x4011, idx)) - 0.5f);
+          const float a = (b + unit(hash3(seed_, 0x4012, idx))) * (kPi / 6.0f);
+          const float x = hx + d * sinf(a), y = hy + d * cosf(a);
+          float z;
+          if (!field_->height(x, y, &z)) continue;
+          const float drop = gh + 50.0f - z;                              // the bubble's climb to launch height
+          if (strict ? (drop < 30.0f || drop > 500.0f) : (drop < 0.0f || drop > 700.0f)) continue;
+          const float lean = fminf(drop * wsp / (0.8f * 3.0f), kMaxTilt);
+          const float cx = x + wx / (wsp + 1e-3f) * lean - hx, cy = y + wy / (wsp + 1e-3f) * lean - hy;
+          const float dc = sqrtf(cx * cx + cy * cy);
+          if (strict ? (dc < 150.0f || dc > 800.0f) : (dc < 100.0f || dc > 1100.0f)) continue;
+          if (strict) {                                                   // a glide from the launch (100 m up, 4:1 over the ground) must clear the terrain
+            bool clear = true;
+            for (int k = 1; k <= 8 && clear; k++) {
+              float zz;
+              const float f = k / 8.0f;
+              clear = field_->height(hx + cx * f, hy + cy * f, &zz) && zz + 40.0f < gh + 100.0f - f * dc * 0.25f;
+            }
+            if (!clear) continue;
+          }
+          const float s = triggerScore(x, y);
+          if (s < 0) continue;
+          bool apart = true;                                              // the next ones: other directions
+          for (int q = 0; q < pass; q++) apart = apart && fabsf(wrapPi(a - bestA[q])) > 0.9f;
+          if (!apart) continue;
+          const float v = s + 0.3f * (1.0f - fabsf(dc - 450.0f) / 450.0f) + 0.3f * unit(hash3(seed_, 0x4013, idx + (uint32_t)pass * 100u));
+          if (v > bestV[pass]) {
+            bestV[pass] = v; bestA[pass] = a;
+            best[pass].x = x; best[pass].y = y; best[pass].z = z; best[pass].score = s;
+          }
+        }
+  }
+  for (int pass = 0; pass < kHouses; pass++)
+    if (bestV[pass] > -1e8f) {
+      house_[nHouse_] = best[pass];
+      house_[nHouse_].house = true;
+      house_[nHouse_].valid = true;
+      nHouse_++;
+    }
 }
 
 float Air::envelope(const Th& th, float t) const {
@@ -113,32 +177,34 @@ void Air::columnCentre(const Th& th, float z, float t, float* cx, float* cy) con
 
 int Air::collect(float x, float y, float z, float t, float range, Active* out, int cap) const {
   int n = 0;
+  auto add = [&](const Tile& tl, uint32_t tk) {
+    float period, offset;
+    timing(tk, tl.house, &period, &offset);
+    const int nNow = (int)floorf((t - offset) / period);
+    for (int k = nNow - 3; k <= nNow; k++) {                    // lives are up to 3 periods (houses)
+      Th th;
+      if (!thermalOf(tl, tk, k, &th)) continue;
+      const float env = envelope(th, t);
+      if (env <= 0) continue;
+      Active a;
+      a.th = th;
+      a.env = env;
+      columnCentre(th, z, t, &a.cx, &a.cy);
+      a.R = th.R * (1.0f + 0.6f * fmaxf(z - th.z0, 0.0f) / 1000.0f);   // a widening top
+      const float ddx = x - a.cx, ddy = y - a.cy;
+      const float reach = range + 3.0f * a.R;
+      if (ddx * ddx + ddy * ddy > reach * reach) continue;
+      if (n < cap) out[n++] = a;
+    }
+  };
   const int cx = (int)floorf(x / kTile), cy = (int)floorf(y / kTile);
   for (int dy = -kReach; dy <= kReach; dy++)
     for (int dx = -kReach; dx <= kReach; dx++) {
       const int tx = cx + dx, ty = cy + dy;
       const Tile* tl = tile(tx, ty);
-      if (!tl) continue;
-      const uint32_t tk = hash3(seed_, (uint32_t)tx, (uint32_t)ty);
-      const float period = 900.0f + 600.0f * unit(hash32(tk ^ 0xA1));
-      const float offset = period * unit(hash32(tk ^ 0xB2));
-      const int nNow = (int)floorf((t - offset) / period);
-      for (int k = nNow - 1; k <= nNow; k++) {
-        Th th;
-        if (!thermalOf(*tl, tx, ty, k, &th)) continue;
-        const float env = envelope(th, t);
-        if (env <= 0) continue;
-        Active a;
-        a.th = th;
-        a.env = env;
-        columnCentre(th, z, t, &a.cx, &a.cy);
-        a.R = th.R * (1.0f + 0.4f * fmaxf(z - th.z0, 0.0f) / 1000.0f);
-        const float ddx = x - a.cx, ddy = y - a.cy;
-        const float reach = range + 3.0f * a.R;
-        if (ddx * ddx + ddy * ddy > reach * reach) continue;
-        if (n < cap) out[n++] = a;
-      }
+      if (tl) add(*tl, hash3(seed_, (uint32_t)tx, (uint32_t)ty));
     }
+  for (int i = 0; i < nHouse_; i++) add(house_[i], hash3(seed_, 0x4005E + (uint32_t)i, 0x4011));
   return n;
 }
 
@@ -152,21 +218,21 @@ float Air::ridgeLift(float x, float y, float z) const {
   if (sp < 0.5f) return 0;
   const float agl = fmaxf(z - g0, 0.0f);
   float gx, gy;
-  if (!field_->gradient(x, y, 150.0f, &gx, &gy)) return 0;
+  if (!field_->gradient(x, y, 300.0f, &gx, &gy)) return 0;
   const float uHere = wx * gx + wy * gy;          // wind . slope: > 0 when the terrain rises in the wind direction (windward)
   float uUp = uHere;
   const float back = clampf(0.8f * agl, 100.0f, 500.0f);
-  if (field_->gradient(x - wx / sp * back, y - wy / sp * back, 150.0f, &gx, &gy)) uUp = wx * gx + wy * gy;
+  if (field_->gradient(x - wx / sp * back, y - wy / sp * back, 300.0f, &gx, &gy)) uUp = wx * gx + wy * gy;
   const float lift = fminf(fmaxf(fmaxf(uHere, uUp), 0.0f), 5.5f);
   const float lee = fmaxf(fminf(uHere, 0.0f), -4.0f);
-  return 0.9f * lift * expf(-agl / 220.0f) + lee * expf(-agl / 380.0f);
+  return 1.0f * lift * expf(-agl / 260.0f) + lee * expf(-agl / 380.0f);
 }
 
 void Air::sample(float x, float y, float z, float t, AirSample* out) const {
   wind(z, &out->wx, &out->wy);
   Active* act = scratch_;                      // a member: the loop task has 4 KB of stack
   const int n = collect(x, y, z, t, 0.0f, act, kMaxActive);
-  float th = 0, core = 0;
+  float th = 0, core = 0, gxs = 0, gys = 0;
   for (int i = 0; i < n; i++) {
     const Active& a = act[i];
     const float dx = x - a.cx, dy = y - a.cy;
@@ -177,11 +243,17 @@ void Air::sample(float x, float y, float z, float t, AirSample* out) const {
     const float fc = 1.0f - smoothstep((z - (cloudBase_ - 250.0f)) / 250.0f);
     const float S = a.th.S * a.env * fh * fc;
     th += S * (1.25f * e1 - 0.25f * e2);
+    const float k = -2.0f * S / (a.R * a.R) * (1.25f * e1 - 0.25f * e2 / 4.84f);       // d/dr2 of the profile, times 2 dx / R2
+    gxs += k * dx;
+    gys += k * dy;
     if (e1 * a.env > core) core = e1 * a.env;
   }
   out->thermal = th;
+  out->gx = gxs;
+  out->gy = gys;
   out->ridge = ridgeLift(x, y, z);
-  out->base = -baseSink_ * (1.0f - clampf(core, 0.0f, 1.0f));
+  // The general sink fades where the slope lifts the air (the lift is the net) and inside a core.
+  out->base = -baseSink_ * (1.0f - clampf(core, 0.0f, 1.0f)) * (1.0f - clampf(out->ridge / 1.2f, 0.0f, 1.0f));
   out->wz = clampf(out->thermal + out->ridge + out->base, -10.0f, 10.0f);
 }
 

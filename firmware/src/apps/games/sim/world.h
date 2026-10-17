@@ -28,13 +28,21 @@ class World {
   struct TrailPt { float x, y, z; };
 
   World() : air_(1) {}
-  // Start a flight. The cache window is filled completely before returning.
-  void begin(IHeightSource* src, uint32_t seed, const Takeoff& to, float windSpeed = 5.0f);
+  // Start a flight. The cache window is filled completely before returning. windSpeed 0 = the default flying wind (5 m/s,
+  // 18 km/h, a speed a pilot flying a 37 km/h trim can still make progress against).
+  void begin(IHeightSource* src, uint32_t seed, const Takeoff& to, float windSpeed = 0.0f, float timeOfDay = 180.0f);
   // Same with explicit values (tests, scenarios): glider at (x, y) at altitude z flying heading deg, wind.
   void beginAt(IHeightSource* src, uint32_t seed, float x, float y, float aglStart, float headingDeg, float windFromDeg,
                float windSpeed, float timeOfDay = 0);
 
   void step(const Controls& c, float dt);
+  // Roll feel: the wing tip on the stronger-lifting side rises, so the glider banks away from it by up to about 8 degrees; the
+  // pilot turns toward the high wing. Rad of bank per m/s of lift difference across the span.
+  static constexpr float kSpan = 10.0f;
+  static constexpr float kKickPerMs = 0.35f;           // rad per (m/s): 0.26 m/s at a thermal's edge = 5 degrees
+  static constexpr float kKickMax = 8.0f * 0.0174533f;
+  float rollKick() const { return kick_; }
+  static constexpr float kLaunchAgl = 150.0f;          // m above the takeoff at the start: the first seconds after leaving the ground
 
   const Glider& glider() const { return g_; }
   Glider& gliderMut() { return g_; }
@@ -64,6 +72,7 @@ class World {
   HeightCache cache_;
   AirSample s_;
   Status status_ = Status::FLYING;
+  float kick_ = 0;
   float t_ = 0, vario_ = 0, ground_ = 0, agl_ = 0, maxAlt_ = 0, startAlt_ = 0, dist_ = 0, trailT_ = 0, windFrom_ = 0;
   TrailPt trail_[kTrailMax];
   int trailN_ = 0, trailHead_ = 0;
