@@ -74,6 +74,83 @@ static bool thermal(SimApp& app, terrain::Terrain& t, uint32_t& simMs) {
   return true;
 }
 
+// A scene for the thermal views: the strongest thermal 1.2 - 3.5 km from the Sopot launch whose cumulus is fully grown at some
+// time of the first 40 minutes (the day is seeded, so it is the same one on every run).
+static bool pickCloudThermal(SimApp& app, ColumnInfo* best, float* bestT) {
+  ColumnInfo c[48];
+  float bs = 0;
+  for (float tm = 400.0f; tm <= 2400.0f; tm += 50.0f) {
+    const int n = app.world().air().columns(0, 0, tm, 5000.0f, c, 48);
+    for (int i = 0; i < n; i++) {
+      const float d = sqrtf(c[i].cx * c[i].cx + c[i].cy * c[i].cy);
+      if (c[i].cloud > 0.97f && d > 1200.0f && d < 3500.0f && c[i].strength > bs) { bs = c[i].strength; *best = c[i]; *bestT = tm; }
+    }
+  }
+  return bs > 0;
+}
+
+// inside = false: 1.6 km from the thermal's trigger, flying toward it at 1500 m; true: circling in its core.
+static bool thermalScene(SimApp& app, terrain::Terrain& t, bool inside, uint32_t& sm, float headingDeg = 90.0f) {
+  app.setTerrain(&t);
+  app.showDayScreen(false);
+  app.setSite(0);
+  app.setSeed(7);
+  app.begin(0);
+  app.startAt(0.0f, 0.0f, 150.0f, 0.0f, 190.0f, 5.0f, 7, 1200.0f);
+  ColumnInfo c;
+  float tm = 0;
+  if (!pickCloudThermal(app, &c, &tm)) return false;
+  app.startAt(0.0f, 0.0f, 150.0f, 0.0f, 190.0f, 5.0f, 7, tm);
+  Glider& g = app.world().gliderMut();
+  const float h = headingDeg * kDeg2Rad;
+  float cx, cy;
+  app.world().air().columnPoint(c, 1500.0f, tm, &cx, &cy);
+  g.z = 1500.0f;
+  g.heading = h;
+  printf("thermal scene: t %.0f s, thermal %u S %.1f strength %.1f cloud %.2f, trigger (%.0f, %.0f, %.0f), column top (%.0f, %.0f), cloud (%.0f, %.0f) width %.0f, column at 1500 m (%.0f, %.0f)\n",
+         (double)tm, c.id, (double)c.S, (double)c.strength, (double)c.cloud, (double)c.x0, (double)c.y0, (double)c.z0, (double)c.cx, (double)c.cy,
+         (double)c.cloudX, (double)c.cloudY, (double)c.width, (double)cx, (double)cy);
+  if (inside) { g.x = cx; g.y = cy; }
+  else {                                                  // 2.3 km from the middle of the column (its trigger and its top), looking across the lean
+    const float mx = 0.5f * (c.x0 + c.cx), my = 0.5f * (c.y0 + c.cy);
+    g.x = mx - 2300.0f * sinf(h);
+    g.y = my - 2300.0f * cosf(h);
+    float gh = 0;
+    app.world().cache().height(g.x, g.y, &gh);
+    if (g.z < gh + 250.0f) g.z = gh + 250.0f;
+  }
+  app.setView(SimApp::View::CHASE);
+  sm = 0;
+  if (inside) {
+    app.onKey(KEY_RIGHT, true, 0);
+    run(app, 60, sm);
+  } else {
+    run(app, 2, sm);
+  }
+  return true;
+}
+
+// The three thermal styles, approaching and inside, plus the clouds alone (assist off): sim_thermal_<scene>_<style>.pgm.
+static void thermalStyleShots(const char* dir, terrain::Terrain& t) {
+  const char* sn[3] = {"columns", "bubbles", "both"};
+  for (int inside = 0; inside < 2; inside++) {
+    for (int st = -1; st < 3; st++) {
+      SimApp app;
+      uint32_t sm = 0;
+      if (!thermalScene(app, t, inside != 0, sm)) return;
+      app.setAssist(st >= 0);
+      if (st >= 0) app.setThermalStyle((SkyFx::Style)st);
+      char name[64];
+      snprintf(name, sizeof name, "sim_thermal_%s_%s", inside ? "inside" : "approach", st < 0 ? "clouds" : sn[st]);
+      dump(app, dir, name, 3);
+      const SkyFx::Stats& s = app.sky().stats();
+      printf("%-34s thermals %d, clouds %d (%d cols), shafts %d (%d cols), bubbles %d, level %d, est. %.0f + %.0f cycles = %.2f ms\n", name, s.found, s.clouds,
+             s.cloudCols, s.shafts, s.shaftCols, s.bubbles, s.level, (double)s.cloudCycles, (double)s.assistCycles,
+             (double)(s.cloudCycles + s.assistCycles) / 64000.0);
+    }
+  }
+}
+
 static void shots(const char* dir, terrain::Terrain& t) {
   SimApp app;
   uint32_t sm = 0;
@@ -131,6 +208,7 @@ static void shots(const char* dir, terrain::Terrain& t) {
   app4.onKey(KEY_DOWN, true, 0);
   app4.onKey(KEY_RIGHT, true, 0);
   dump(app4, dir, "sim_day", 3);
+  thermalStyleShots(dir, t);
 }
 
 // The standard renders from the Sopot fixture pack (run by emu_main shots).

@@ -36,6 +36,7 @@ class VoxelView {
   static constexpr int kMaxSteps = 96;
   static constexpr int kBilinearSteps = 24;             // steps (from the camera) that interpolate (about the first 1.2 km)
   static constexpr int kColStep = 2;                    // screen columns per ray
+  static constexpr int kYBins = 26;                     // depth buffer: bins of two steps (48 steps at present)
 
   struct Stats {                                        // work of the last render
     int columns = 0, rays = 0, steps = 0, samples = 0, bilinear = 0, spans = 0, bytes = 0, early = 0;
@@ -47,6 +48,12 @@ class VoxelView {
   const Stats& stats() const { return stats_; }
   int stepCount() const { return nSteps_; }
   float stepDistance(int i) const { return s_[i]; }
+  // Depth buffer for things drawn after the terrain (clouds, thermal shafts): the highest screen row covered by terrain
+  // NEARER than distance s along the view axis in screen column x (kH when none). Whatever is at distance s must not be
+  // drawn at rows >= this value. Exact for the bin edges (every second step), conservative in between.
+  int stepFor(float s) const { int i = 0; while (i < nSteps_ && s_[i] < s) i++; return i; }   // first step at or beyond s
+  int nearerRow(int x, int step) const { int b = (step >> 1) - 1; if (b < 0) return kH; if (b >= kYBins) b = kYBins - 1; return yb_[x / kColStep][b]; }
+  uint8_t pattern(int level, int xm) const { return pat_[level][xm]; }
   // Focal length in pixels.
   static float focal();
 
@@ -63,6 +70,7 @@ class VoxelView {
   float ka_[kMaxSteps], kb_[kMaxSteps];   // grey level = shade * ka + kb
   struct Span { int16_t y0, y1; uint8_t lvl; };
   Span spans_[kMaxSteps + 1];  // the spans of the ray being drawn
+  int16_t yb_[kW / kColStep][kYBins];   // highest terrain row after steps 0..2b+1 of each ray
   uint8_t pat_[17][8];         // dither byte per level and column phase
 };
 

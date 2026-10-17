@@ -104,7 +104,9 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
     const float dxk = (fx + rx * u) * HeightCache::kInv, dyk = (fy + ry * u) * HeightCache::kInv;
     const float hyf = horizon - (xc - kCx) * tanRoll;
     int ymin = kH, ns = 0, i = 0;
+    int16_t* yb = yb_[x / kColStep];
     for (; i < n; i++) {
+      if (!(i & 1) && i) yb[(i >> 1) - 1 < kYBins ? (i >> 1) - 1 : kYBins - 1] = (int16_t)ymin;
       const float s = s_[i];
       const float pxk = cxk + s * dxk, pyk = cyk + s * dyk;
       float h, sh;
@@ -142,6 +144,7 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
       ymin = yi;
       if (yi == 0) break;
     }
+    for (int b = (i >> 1) < kYBins ? (i >> 1) : kYBins; b < kYBins; b++) yb[b] = (int16_t)ymin;
     walked += i;
     bilin += i < kBilinearSteps ? i : kBilinearSteps;
     const int hyi = hyf < -2000.0f ? -2000 : (hyf > 2000.0f ? 2000 : (int)floorf(hyf));

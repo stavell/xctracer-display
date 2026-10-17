@@ -393,6 +393,149 @@ static void voxel() {
   CHECK(gVoxel.stats().columns == 0);
 }
 
+
+// ---- clouds and thermal views (sky3d)
+// Hills with a 4 km wall along y = 0 (|y| < 250): whatever lies north of it is hidden from the south.
+struct WallHills : IHeightSource {
+  bool at(float x, float y, float* o) override {
+    Hills h;
+    h.at(x, y, o);
+    if (fabsf(y) < 250.0f) *o += 4000.0f;
+    return true;
+  }
+};
+
+static int diffBits(const uint8_t* a, const uint8_t* b, size_t n) {
+  int d = 0;
+  for (size_t i = 0; i < n; i++) d += __builtin_popcount((unsigned)(uint8_t)(a[i] ^ b[i]));
+  return d;
+}
+
+static void sky_fx() {
+  static WallHills wall;
+  gCache.attach(&wall);
+  gCache.fill(0, 0);
+  static Air air(5);
+  air.setField(&gCache);
+  air.setWind(190.0f, 5.0f, 1200.0f);
+  // Cumulus life cycle follows the thermal: none until a fifth of its life, full at 0.4 - 0.6, none from 0.95; never listed outside its life.
+  static ColumnInfo ci[48];
+  int early = 0, full = 0, late = 0, seen = 0;
+  uint32_t trackId = 0;
+  float d1 = -1, d2 = -1, w0, w1;
+  for (float t = 0; t < 5000.0f; t += 25.0f) {
+    const int n = air.columns(0, 0, t, 6000.0f, ci, 48);
+    for (int i = 0; i < n; i++) {
+      const float a = t - ci[i].t0, L = ci[i].life;
+      CHECK(a > 0 && a < L);
+      CHECK(ci[i].cloud >= 0 && ci[i].cloud <= 1.0f);
+      if (a < 0.2f * L) { CHECK(ci[i].cloud == 0); early++; }
+      if (a > 0.42f * L && a < 0.6f * L) { CHECK(ci[i].cloud > 0.99f); CHECK(ci[i].width > 0.99f * (450.0f + 140.0f * ci[i].S)); full++; }
+      if (a > 0.95f * L) { CHECK(ci[i].cloud == 0); late++; }
+      CHECK(ci[i].cloudY > -1e6f);
+      seen++;
+      // the cumulus leaves its column's top downwind as it ages (wind blows to the NNE: to 10 degrees)
+      if (!trackId && ci[i].life > 1000.0f && a > 0.45f * L && a < 0.5f * L) {
+        trackId = ci[i].id;
+        d1 = (ci[i].cloudX - ci[i].cx) * 0.17f + (ci[i].cloudY - ci[i].cy) * 0.98f;
+        w0 = ci[i].width;
+      }
+      if (trackId && ci[i].id == trackId && a > 0.8f * L && a < 0.85f * L && d2 < 0) {
+        d2 = (ci[i].cloudX - ci[i].cx) * 0.17f + (ci[i].cloudY - ci[i].cy) * 0.98f;
+        w1 = ci[i].width;
+      }
+    }
+  }
+  CHECK(seen > 50 && early > 5 && full > 5 && late > 1);
+  CHECK(d1 >= 0 && d2 > d1 + 50.0f);                       // drifted further downwind later
+  CHECK(w1 < w0);                                          // thinning in the decay phase
+
+  // Rendering: deterministic, and a cloud behind the wall is hidden by it (the depth buffer), the same cloud seen from beyond it is not.
+  ColumnInfo pick;
+  float pickT = 0;
+  bool have = false;
+  for (float t = 200.0f; t < 4000.0f && !have; t += 25.0f) {
+    const int n = air.columns(0, 2500.0f, t, 4000.0f, ci, 48);
+    for (int i = 0; i < n && !have; i++)
+      if (ci[i].cloud > 0.95f && ci[i].y0 > 1500.0f && ci[i].cloudY > 2500.0f && ci[i].strength > 2.0f) { pick = ci[i]; pickT = t; have = true; }
+  }
+  CHECK(have);
+  if (!have) return;
+  static uint8_t fa[50 * 240], fb[50 * 240], fc[50 * 240];
+  Bitmap1 a{fa, 400, 240, 50, 1}, b{fb, 400, 240, 50, 1}, c{fc, 400, 240, 50, 1};
+  Glider g;
+  g.reset(pick.cloudX, pick.cloudY - 3000.0f, pick.cloudY > 0 ? 1600.0f : 1600.0f, 0.0f);
+  static SkyFx sky;
+  sky.setUnlimited(true);                                  // every cloud in view, so this one is drawn whatever else is near
+  auto scene = [&](const Bitmap1& bm, float camY, bool assist, SkyFx::Style st) {
+    Camera cam;
+    cam.x = pick.cloudX; cam.y = camY; cam.z = air.cloudBase() - 400.0f; cam.heading = 0.0f; cam.pitch = 0.09f;
+    gVoxel.render(bm, gCache, cam);
+    sky.draw(bm, gVoxel, air, g, cam, pickT, assist, st);
+  };
+  auto terrainOnly = [&](const Bitmap1& bm, float camY) {
+    Camera cam;
+    cam.x = pick.cloudX; cam.y = camY; cam.z = air.cloudBase() - 400.0f; cam.heading = 0.0f; cam.pitch = 0.09f;
+    gVoxel.render(bm, gCache, cam);
+  };
+  // Beyond the wall (camera at y = 500, wall at y = 0): the cumulus is drawn.
+  scene(a, 500.0f, false, SkyFx::Style::BOTH);
+  SkyFx::CloudShot cs[SkyFx::kMaxCols];
+  int n = sky.cloudShots(cs, SkyFx::kMaxCols);
+  bool found = false, hidden = true;
+  for (int i = 0; i < n; i++) if (cs[i].id == pick.id) { found = true; hidden = cs[i].hidden; }
+  CHECK(found && !hidden);
+  terrainOnly(b, 500.0f);
+  CHECK(diffBits(fa, fb, sizeof fa) > 100);                // clouds changed the picture
+  scene(c, 500.0f, false, SkyFx::Style::BOTH);
+  CHECK(memcmp(fa, fc, sizeof fa) == 0);                   // deterministic
+  scene(a, 500.0f, true, SkyFx::Style::BUBBLES);
+  scene(c, 500.0f, true, SkyFx::Style::BUBBLES);
+  CHECK(memcmp(fa, fc, sizeof fa) == 0);
+  CHECK(sky.stats().clouds >= 1 && sky.stats().cloudCycles <= SkyFx::kCloudBudget + 1.0f);
+  // In front of the wall (camera at y = -1500): the same cumulus is behind the 4 km wall; nothing of it, its shaft or its bubbles shows.
+  scene(a, -1500.0f, true, SkyFx::Style::BOTH);
+  terrainOnly(b, -1500.0f);
+  n = sky.cloudShots(cs, SkyFx::kMaxCols);
+  found = false; hidden = false;
+  for (int i = 0; i < n; i++) if (cs[i].id == pick.id) { found = true; hidden = cs[i].hidden; }
+  CHECK(found && hidden);
+  bool nearer = false;                                     // a cumulus this side of the wall (the wall is 1250 - 1750 m away) is still drawn
+  for (int i = 0; i < n; i++) {
+    if (cs[i].dist > 1800.0f) CHECK(cs[i].hidden);
+    else nearer = true;
+  }
+  if (!nearer) {
+    CHECK(sky.stats().cloudCols == 0 && sky.stats().bubbles == 0);
+    CHECK(memcmp(fa, fb, sizeof fa) == 0);                 // the picture is the bare terrain
+  }
+  // The assist adds to the clouds-only picture, and the styles differ.
+  scene(a, 500.0f, false, SkyFx::Style::BOTH);
+  scene(b, 500.0f, true, SkyFx::Style::COLUMNS);
+  scene(c, 500.0f, true, SkyFx::Style::BUBBLES);
+  CHECK(diffBits(fa, fb, sizeof fa) > 50 && diffBits(fa, fc, sizeof fa) > 20 && diffBits(fb, fc, sizeof fa) > 50);
+  // The budget: no style over the budgets; a heavy case (a camera right under three thermals) degrades by level, never past them.
+  for (int st = 0; st < SkyFx::kStyles; st++) {
+    scene(a, 500.0f, true, (SkyFx::Style)st);
+    CHECK(sky.stats().assistCycles <= SkyFx::kAssistBudget * 1.3f);
+    CHECK(sky.stats().bubbles <= SkyFx::kMaxBubbles + 10);
+  }
+  // Bubbles rise: the picture changes with time (a bubble at a given height moves up).
+  Camera cam;
+  cam.x = pick.cloudX; cam.y = 500.0f; cam.z = air.cloudBase() - 400.0f; cam.heading = 0.0f; cam.pitch = 0.09f;
+  gVoxel.render(a, gCache, cam);
+  sky.draw(a, gVoxel, air, g, cam, pickT, true, SkyFx::Style::BUBBLES);
+  gVoxel.render(b, gCache, cam);
+  sky.draw(b, gVoxel, air, g, cam, pickT + 6.0f, true, SkyFx::Style::BUBBLES);
+  CHECK(diffBits(fa, fb, sizeof fa) > 20);
+  // The terrain depth buffer itself: nothing nearer than the first step; a wall in front covers the rows above the horizon.
+  Camera low = cam;
+  low.y = -1500.0f;
+  gVoxel.render(a, gCache, low);
+  CHECK(gVoxel.nearerRow(120, 0) == VoxelView::kH);
+  CHECK(gVoxel.nearerRow(120, gVoxel.stepCount() - 1) == 0);
+}
+
 static void topdown() {
   Hills hills;
   gCache.attach(&hills);
@@ -615,7 +758,7 @@ static void time_scale() {
   c.setTimeScale(3);
   c.startAt(0, 0, 900, 0, 270, 0, 3, 300);
   c.onKey(KEY_B, true, 0);
-  for (int i = 0; i < 6; i++) c.onKey(KEY_DOWN, true, 0);
+  for (int i = 0; i < 7; i++) c.onKey(KEY_DOWN, true, 0);
   c.onKey(KEY_ACTION, true, 0);
   CHECK(c.timeScale() == 5);
   c.onKey(KEY_B, true, 0);
@@ -683,7 +826,10 @@ static void app_logic() {
   CHECK(app->mode() == SimApp::Mode::FLYING);
   // Tilt: the menu's Controls row switches to tilt and opens the calibration page, A sets the zero.
   app->onKey(KEY_B, true, 0);
-  app->onKey(KEY_DOWN, true, 0); app->onKey(KEY_DOWN, true, 0); app->onKey(KEY_DOWN, true, 0); app->onKey(KEY_DOWN, true, 0);
+  app->onKey(KEY_DOWN, true, 0); app->onKey(KEY_DOWN, true, 0); app->onKey(KEY_DOWN, true, 0);
+  app->onKey(KEY_ACTION, true, 0);                         // row 3: the thermals view cycles columns -> bubbles -> both
+  CHECK(app->thermalStyle() == SkyFx::Style::BOTH);          // from the default, bubbles
+  app->onKey(KEY_DOWN, true, 0); app->onKey(KEY_DOWN, true, 0);
   app->onKey(KEY_ACTION, true, 0);
   CHECK(app->control() == SimApp::Control::TILT && app->mode() == SimApp::Mode::CALIB);
   tilt.r = 12.0f; tilt.p = -8.0f;                          // how the pilot holds the box
@@ -1040,6 +1186,7 @@ static void run() {
   ridge_lift();
   landing();
   voxel();
+  sky_fx();
   topdown();
   game_mode();
   time_scale();

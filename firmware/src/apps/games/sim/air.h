@@ -44,6 +44,20 @@ struct ThermalInfo {             // for the assist overlay and the tests
   uint32_t id;
 };
 
+// A thermal as the 3D view draws it: the column from the trigger on the ground up to the cloud base and the cumulus on top.
+struct ColumnInfo {
+  uint32_t id;
+  float x0, y0, z0;              // trigger point on the ground
+  float S;                       // peak strength, m/s (sets the bubbles' rise speed)
+  float R0;                      // core radius at the trigger
+  float strength;                // m/s now (peak x life cycle)
+  float t0, life;                // start and length, s of the sim day
+  float cloud;                   // 0..1 how developed the cumulus is: 0 before the thermal matures and after it has decayed
+  float cx, cy;                  // column centre at the cloud base
+  float cloudX, cloudY;          // cumulus centre (drifted downwind of the column's top)
+  float width;                   // cumulus width, m
+};
+
 class Air {
  public:
   static constexpr float kTile = 1800.0f;
@@ -73,6 +87,14 @@ class Air {
 
   // Thermals active at time t whose columns come within `range` m of (x, y) at altitude z.
   int nearby(float x, float y, float z, float t, float range, ThermalInfo* out, int cap) const;
+
+  // Thermals alive at time t whose column top (at the cloud base) lies within `range` m of (x, y), with their cumulus
+  // (see ColumnInfo). Cumulus life cycle: none until a fifth of the thermal's life has passed, full at two fifths, thinning
+  // from 65 % of the life, gone at 95 %. It forms over the column's top and drifts downwind of it as it lives.
+  int columns(float x, float y, float t, float range, ColumnInfo* out, int cap) const;
+  // Centre of the thermal's column at altitude z (tilt and drift as in the air model).
+  void columnPoint(const ColumnInfo& c, float z, float t, float* x, float* y) const;
+  static float coreRadius(const ColumnInfo& c, float z) { return c.R0 * (1.0f + 0.6f * fmaxf(z - c.z0, 0.0f) / 1000.0f); }
 
   // The takeoff's "house thermals": three reliable trigger spots (the best sun-facing spurs below or beside the launch,
   // 300-1100 m away) that are always working, with overlapping lives, like the known trigger spots of a real site.
@@ -106,6 +128,7 @@ class Air {
   bool thermalOf(const Tile& tl, uint32_t tk, int number, Th* out) const;
   void timing(uint32_t tk, bool house, float* period, float* offset) const;
   float envelope(const Th& th, float t) const;
+  static float cloudFactor(const Th& th, float t);
   void columnCentre(const Th& th, float z, float t, float* cx, float* cy) const;
   float ridgeLift(float x, float y, float z) const;
 

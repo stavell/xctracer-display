@@ -127,14 +127,15 @@ void SimApp::menuAct() {
     case 0: mode_ = Mode::FLYING; break;
     case 1: setView(view_ == View::TOP ? View::CHASE : View::TOP); break;
     case 2: assist_ = !assist_; break;
-    case 3: setSite(site_ + 1); break;
-    case 4: setControl(ctl_ == Control::TILT ? Control::BUTTONS : Control::TILT); break;
-    case 5: if (ctl_ == Control::TILT) mode_ = Mode::CALIB; break;
-    case 6: cycleTimeScale(); break;
-    case 7: level_ = (level_ + 1) % Air::kLevels; break;                         // applies at the next flight
-    case 8: dirIdx_ = (dirIdx_ + 1) % 9; applyWind(); break;
-    case 9: spdIdx_ = (spdIdx_ + 1) % (kWindSpeeds + 1); applyWind(); break;
-    case 10: startFlight(); break;
+    case 3: style_ = (SkyFx::Style)(((int)style_ + 1) % SkyFx::kStyles); break;
+    case 4: setSite(site_ + 1); break;
+    case 5: setControl(ctl_ == Control::TILT ? Control::BUTTONS : Control::TILT); break;
+    case 6: if (ctl_ == Control::TILT) mode_ = Mode::CALIB; break;
+    case 7: cycleTimeScale(); break;
+    case 8: level_ = (level_ + 1) % Air::kLevels; break;                         // applies at the next flight
+    case 9: dirIdx_ = (dirIdx_ + 1) % 9; applyWind(); break;
+    case 10: spdIdx_ = (spdIdx_ + 1) % (kWindSpeeds + 1); applyWind(); break;
+    case 11: startFlight(); break;
     default: if (nav()) nav()->openLauncher(); break;
   }
 }
@@ -278,6 +279,7 @@ void SimApp::drawFlight(Bitmap1& bm) {
     // Chase camera behind and above the glider; with tilt steering the horizon counter-rotates by the box roll (see ChaseCam).
     const Camera cam = chase_.camera(g, world_.cache());
     voxel_.render(bm, world_.cache(), cam);
+    sky_.draw(bm, voxel_, world_.air(), g, cam, world_.time(), assist_, style_);     // clouds always; thermals with the assist
     chase_.drawGlider(bm, g, world_.cache(), cam);
   } else {
     top_.blit(bm, g.x, g.y);
@@ -336,16 +338,17 @@ void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
     snprintf(gRows[0], sizeof gRows[0], "Resume");
     snprintf(gRows[1], sizeof gRows[1], "View: %s", view_ == View::TOP ? "map" : "3D");
     snprintf(gRows[2], sizeof gRows[2], "Assist: %s", assist_ ? "on" : "off");
-    snprintf(gRows[3], sizeof gRows[3], "Site: %s%s", kTakeoffs[site_].name, site_ != flownSite_ ? "*" : "");
-    snprintf(gRows[4], sizeof gRows[4], "Controls: %s", ctl_ == Control::TILT ? "tilt" : "buttons");
-    snprintf(gRows[5], sizeof gRows[5], "Zero tilt");
-    snprintf(gRows[6], sizeof gRows[6], "Speed: x%d", scale_);
-    snprintf(gRows[7], sizeof gRows[7], "Thermals: %s%s", Air::levelName(level_), level_ != flownLevel_ ? "*" : "");
-    snprintf(gRows[8], sizeof gRows[8], "Wind from: %s", dirName(dirIdx_));
-    if (spdIdx_ == 0) snprintf(gRows[9], sizeof gRows[9], "Wind: usual");
-    else snprintf(gRows[9], sizeof gRows[9], "Wind: %.0f km/h", (double)kWindKmh[spdIdx_ - 1]);
-    snprintf(gRows[10], sizeof gRows[10], "New flight");
-    snprintf(gRows[11], sizeof gRows[11], "Home");
+    snprintf(gRows[3], sizeof gRows[3], "Thermals view: %s", SkyFx::styleName(style_));
+    snprintf(gRows[4], sizeof gRows[4], "Site: %s%s", kTakeoffs[site_].name, site_ != flownSite_ ? "*" : "");
+    snprintf(gRows[5], sizeof gRows[5], "Controls: %s", ctl_ == Control::TILT ? "tilt" : "buttons");
+    snprintf(gRows[6], sizeof gRows[6], "Zero tilt");
+    snprintf(gRows[7], sizeof gRows[7], "Speed: x%d", scale_);
+    snprintf(gRows[8], sizeof gRows[8], "Thermals: %s%s", Air::levelName(level_), level_ != flownLevel_ ? "*" : "");
+    snprintf(gRows[9], sizeof gRows[9], "Wind from: %s", dirName(dirIdx_));
+    if (spdIdx_ == 0) snprintf(gRows[10], sizeof gRows[10], "Wind: usual");
+    else snprintf(gRows[10], sizeof gRows[10], "Wind: %.0f km/h", (double)kWindKmh[spdIdx_ - 1]);
+    snprintf(gRows[11], sizeof gRows[11], "New flight");
+    snprintf(gRows[12], sizeof gRows[12], "Home");
     const char* rows[kMenuRows];
     for (int i = 0; i < kMenuRows; i++) rows[i] = gRows[i];
     hud_.menu(bm, "PAUSED", rows, kMenuRows, menuSel_);

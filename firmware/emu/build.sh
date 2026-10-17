@@ -29,7 +29,7 @@ S=../src/apps/settings
 TERRAIN="$P/terrain/crc32.cpp $P/terrain/tile_codec.cpp $P/terrain/terrain.cpp $P/terrain/relief.cpp $P/terrain/map_vectors.cpp"
 TETRIS="$T/tetris.cpp $T/tetris_view.cpp $T/tetris_app.cpp"
 M=../src/apps/games/sim
-SIM="$M/glider.cpp $M/height_cache.cpp $M/air.cpp $M/world.cpp $M/voxel.cpp $M/chase.cpp $M/topdown.cpp $M/sim_hud.cpp $M/sim_app.cpp"
+SIM="$M/glider.cpp $M/height_cache.cpp $M/air.cpp $M/world.cpp $M/voxel.cpp $M/chase.cpp $M/sky3d.cpp $M/topdown.cpp $M/sim_hud.cpp $M/sim_app.cpp"
 LAUNCHER="$L/launcher_app.cpp $L/launcher_view.cpp"
 SETTINGS="$S/settings_app.cpp $S/settings_view.cpp $P/settings/box_settings.cpp $P/settings/compass_cal.cpp $P/settings/cal_view.cpp"
 GFX="$P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $P/gfx/ui.cpp $P/gfx/icons.cpp"
@@ -40,6 +40,23 @@ if [ "$1" = "simbench" ]; then
     $SIM $GFX $VARIO $SETTINGS $TETRIS $LAUNCHER $TERRAIN out/Adafruit_GFX_host.cpp sim_bench.cpp -o out/sim_bench
   shift
   exec out/sim_bench "${1:-fixtures/sopot.pack}"
+fi
+if [ "$1" = "simtests" ]; then
+  # The flight sim tests alone, no sanitizers (fast): ./build.sh simtests [sky_fx]
+  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" \
+    $SIM $GFX $VARIO $SETTINGS $TETRIS $LAUNCHER $TERRAIN out/Adafruit_GFX_host.cpp sim_tests_main.cpp -o out/sim_tests
+  shift
+  exec out/sim_tests "$@"
+fi
+if [ "$1" = "simdemo" ]; then
+  # Sim scenario renders only (fast): ./build.sh simdemo [PACK] [OUTDIR] -> OUTDIR/sim_*.pgm and .png (2x), thermal contact sheet
+  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" \
+    $SIM $GFX $TERRAIN out/Adafruit_GFX_host.cpp sim_demo.cpp -o out/sim_demo
+  D="${3:-out/sim}"
+  mkdir -p "$D"
+  out/sim_demo "${2:-fixtures/sopot.pack}" "$D"
+  ../../.venv/bin/python sheet.py "$D"
+  exit 0
 fi
 if [ "$1" = "simreach" ]; then
   # Playability of the air from every takeoff (see sim_reach.cpp).

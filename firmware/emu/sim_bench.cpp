@@ -114,8 +114,32 @@ int main(int argc, char** argv) {
     const double cm = timeIt([&](int) { cc.update(gl, NAN, 0.06f); (void)cc.camera(gl, app.world().cache()); }, 2000, &w3);
     rows.push_back({"chase camera: smoothing + camera", cm, w3});
   }
+  // Clouds and thermal views: the approach scene of the contact sheet (4 clouds, 3 thermals in front), drawn after the terrain.
+  struct SkyRow { const char* name; double pc, worst; sim::SkyFx::Stats st; };
+  std::vector<SkyRow> skyRows;
+  double colsT = 0;
+  {
+    static sim::SimApp a2;
+    uint32_t m2 = 0;
+    if (simshots::thermalScene(a2, gTerrain, false, m2)) {
+      const sim::Glider& g2 = a2.world().glider();
+      const sim::Camera cam2 = a2.chase().camera(g2, a2.world().cache());
+      a2.voxel().render(bm, a2.world().cache(), cam2);
+      static sim::ColumnInfo ci[32];
+      colsT = timeIt([&](int) { a2.world().air().columns(cam2.x, cam2.y, a2.world().time(), 9000.0f, ci, 32); }, 400, &w3);
+      struct V { const char* name; bool assist; sim::SkyFx::Style st; } vs2[] = {
+          {"sky: clouds only (assist off)", false, sim::SkyFx::Style::BUBBLES}, {"sky: clouds + assist, columns", true, sim::SkyFx::Style::COLUMNS},
+          {"sky: clouds + assist, bubbles", true, sim::SkyFx::Style::BUBBLES}, {"sky: clouds + assist, both", true, sim::SkyFx::Style::BOTH}};
+      for (const V& v : vs2) {
+        const double t = timeIt([&](int) { a2.sky().draw(bm, a2.voxel(), a2.world().air(), g2, cam2, a2.world().time(), v.assist, v.st); }, 300, &w3);
+        skyRows.push_back({v.name, t, w3, a2.sky().stats()});
+        rows.push_back({v.name, t, w3});
+      }
+      rows.push_back({"Air::columns (clouds and thermals in view)", colsT, w3});
+    }
+  }
   app.setView(sim::SimApp::View::TOP);
-  const double top = timeIt([&](int i) { memset(fb, 0xFF, sizeof fb); app.draw(bm, gfx, 20u * i); }, 300, &w3);
+  const double top =timeIt([&](int i) { memset(fb, 0xFF, sizeof fb); app.draw(bm, gfx, 20u * i); }, 300, &w3);
   rows.push_back({"top-down frame (blit + trail + glider + HUD)", top, w3});
   // Picture re-render, 4500 px per step and whole.
   static sim::TopDownView tv;
@@ -143,5 +167,15 @@ int main(int argc, char** argv) {
   const double cyc = 110.0 * vs.bilinear + 60.0 * (vs.samples - vs.bilinear) + 40.0 * vs.spans + 1.0 * vs.bytes + 15.0 * vs.columns + 150.0 * vs.columns;
   printf("\ncycle-count estimate of the 3D renderer: %.2f M cycles = %.1f ms at 64 MHz (110 cycles per bilinear sample, 60 per nearest sample, 40 per span, 1 per byte)\n",
          cyc / 1e6, cyc / 64000.0);
+  // Clouds and thermals: the counted work (sky3d.cpp's own cycle accounting) next to the PC time scaled by the calibration factor.
+  // The 3D view in total = renderer (cycle count above) + depth buffer + HUD, present and sprite (about 4 ms, NOTES.md) + the rows here.
+  printf("\nclouds and thermal views, approach scene (cycle accounting inside SkyFx; Air::columns %.0f us on the PC = %.2f ms scaled)\n", colsT * 1000.0, colsT * factor);
+  for (const SkyRow& r : skyRows) {
+    const double cyc = (r.st.cloudCycles + r.st.assistCycles) / 64000.0;
+    const double base = 16.0 + 0.3;                                  // frame so far (NOTES.md: 15 - 16 ms) + the renderer's depth buffer
+    printf("  %-34s clouds %d (%d cols), shafts %d (%d cols), bubbles %d, level %d: counted %.2f ms, PC x factor %.2f ms; 3D frame about %.1f (counted) .. %.1f ms (scaled)\n",
+           r.name, r.st.clouds, r.st.cloudCols, r.st.shafts, r.st.shaftCols, r.st.bubbles, r.st.level, cyc, r.pc * factor,
+           base + colsT * factor + cyc, base + colsT * factor + r.pc * factor);
+  }
   return 0;
 }

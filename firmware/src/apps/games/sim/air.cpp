@@ -168,6 +168,12 @@ float Air::envelope(const Th& th, float t) const {
   return up * down;
 }
 
+float Air::cloudFactor(const Th& th, float t) {
+  const float a = t - th.t0;
+  if (a <= 0.2f * th.life || a >= 0.95f * th.life) return 0;
+  return smoothstep((a - 0.2f * th.life) / (0.2f * th.life)) * (1.0f - smoothstep((a - 0.65f * th.life) / (0.3f * th.life)));
+}
+
 void Air::columnCentre(const Th& th, float z, float t, float* cx, float* cy) const {
   const float dz = clampf(z - th.z0, 0.0f, 1500.0f);
   float wx, wy;
@@ -279,6 +285,40 @@ int Air::nearby(float x, float y, float z, float t, float range, ThermalInfo* ou
     m++;
   }
   return m;
+}
+
+}  // namespace sim
+
+namespace sim {
+
+int Air::columns(float x, float y, float t, float range, ColumnInfo* out, int cap) const {
+  Active* act = scratch_;
+  const int n = collect(x, y, cloudBase_, t, range, act, kMaxActive);
+  int m = 0;
+  float bwx, bwy;
+  wind(cloudBase_, &bwx, &bwy);
+  for (int i = 0; i < n && m < cap; i++) {
+    const Th& th = act[i].th;
+    ColumnInfo& o = out[m];
+    o.id = th.id; o.x0 = th.x0; o.y0 = th.y0; o.z0 = th.z0;
+    o.S = th.S; o.R0 = th.R; o.strength = th.S * act[i].env;
+    o.t0 = th.t0; o.life = th.life;
+    o.cloud = cloudFactor(th, t);
+    o.cx = act[i].cx; o.cy = act[i].cy;
+    const float a = t - th.t0;
+    const float drift = 0.10f * fmaxf(a - 0.2f * th.life, 0.0f);          // the cumulus leaves its column's top downwind
+    o.cloudX = o.cx + bwx * drift;
+    o.cloudY = o.cy + bwy * drift;
+    o.width = (450.0f + 140.0f * th.S) * (0.3f + 0.7f * o.cloud);
+    m++;
+  }
+  return m;
+}
+
+void Air::columnPoint(const ColumnInfo& c, float z, float t, float* x, float* y) const {
+  Th th;
+  th.x0 = c.x0; th.y0 = c.y0; th.z0 = c.z0; th.t0 = c.t0; th.life = c.life; th.S = c.S; th.R = c.R0; th.id = c.id;
+  columnCentre(th, z, t, x, y);
 }
 
 }  // namespace sim

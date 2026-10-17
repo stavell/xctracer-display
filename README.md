@@ -305,7 +305,7 @@ of the screen and the horizon tilts a third of the bank); the chase camera circl
 | up / down | speed bar (37 -> 52 km/h) / brake (down to 28 km/h; the wing stalls in a turn at that speed) |
 | X (A) | toggle map / 3D chase view |
 | F | simulation speed x1 / x3 / x5 (default x3; also the pause menu Speed row); a box under the top strip shows it |
-| Z or Esc (B / MAIN) | pause menu: Resume, View, Assist (thermals on the map), Site (8 takeoffs), Controls Buttons / Tilt, Zero tilt, Speed x1/x3/x5, Thermals, Wind from, Wind speed, New flight, Home |
+| Z or Esc (B / MAIN) | pause menu: Resume, View, Assist (thermals on the map and in 3D), Thermals view columns/bubbles/both, Site (8 takeoffs), Controls Buttons / Tilt, Zero tilt, Speed x1/x3/x5, Thermals, Wind from, Wind speed, New flight, Home |
 | T | tilt steering with the mouse: x = roll, y = pitch (top of the window = top of the box away = speed bar); T again = buttons |
 | after landing | X = new flight, Z = home |
 
@@ -341,6 +341,18 @@ high wing to centre (the "lift feel", `World::rollKick`). Ground contact is a la
 1-bit sprite from behind (canopy with cells, lines, pilot) in the lower middle of the screen, rolling with the bank and showing
 more of the canopy's top when the speed bar is pushed; a shadow appears on the ground when it is within about 60 m below. Code:
 `sim/chase.*`.
+
+**Clouds and thermals in 3D** (`sim/sky3d.*`, `Air::columns`). Cumulus clouds are always drawn, as in real flying: one over the top of
+each thermal at the cloud base, none while the thermal builds (before a fifth of its life), full from two fifths, thinning from
+65 % and gone at 95 %, drifting downwind of the column's top as they age; the size follows the thermal's strength. They are flat-based
+1-bit billboards (black outline, white top, grey body, dark base) and are hidden by ridges in front of them (the terrain renderer
+keeps a depth buffer per screen column). The nearest four are drawn. With the pause menu's **Assist** on, the 3D view also shows the
+thermals, in the style chosen by **Thermals view**: *columns* (a leaning curtain of dashed lines from the trigger to the cloud base,
+denser hatching for stronger thermals), *bubbles* (rings rising through the column at a speed proportional to the thermal's strength,
+more of them and nearer the core in stronger thermals; the thermal you are in gets larger bubbles around the glider) or *both*
+(outline of the curtain and the bubbles). Default: bubbles. The top-down map shows the same thermals as rings.
+
+![Thermal views: approaching a thermal and circling in it, assist off and the three styles](docs/screens/sim_thermal_styles.png)
 
 **Day settings.** Starting the sim shows a "TODAY" screen: Site, Thermals (weak / medium / strong / epic), Wind from (the
 site's usual or N .. NW), Wind speed (usual 18 km/h, or 0 / 10 / 15 / 20 / 25 / 30 km/h) and Start; up / down pick the row,

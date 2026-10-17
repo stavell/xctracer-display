@@ -8,7 +8,7 @@
 //   LEFT / RIGHT   bank (ramps to full over 0.4 s, back to level when released)
 //   UP             speed bar (accelerate)      DOWN   brake (slow down; with a stall warning at the end)
 //   A              toggle top-down map / 3D chase view
-//   B or MAIN      pause menu: Resume, View, Assist (thermals shown on the map), Site, Controls, Zero tilt, Speed
+//   B or MAIN      pause menu: Resume, View, Assist (thermals shown: on the map, in 3D as columns / bubbles / both), Site, Controls, Zero tilt, Speed
 //                  (x1 / x3 / x5), New flight, Home
 // Time scale: the world (glider, air, flight clock, trail) runs `scale` x faster than real time, in 20 ms substeps so the
 //   physics is exactly what x1 would compute; rendering stays 50 fps. The player's own response (button and tilt ramps)
@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include "apps/games/sim/chase.h"
 #include "apps/games/sim/sim_hud.h"
+#include "apps/games/sim/sky3d.h"
 #include "apps/games/sim/terrain_source.h"
 #include "apps/games/sim/tilt.h"
 #include "apps/games/sim/topdown.h"
@@ -38,7 +39,7 @@ class SimApp : public IApp {
   enum class View : uint8_t { TOP, CHASE };
   enum class Mode : uint8_t { NOMAP, FLYING, PAUSED, ENDED, CALIB, DAY };
   enum class Control : uint8_t { BUTTONS, TILT };
-  static constexpr int kMenuRows = 12;
+  static constexpr int kMenuRows = 13;
   static constexpr int kDayRows = 5;                   // Site, Thermals, Wind from, Wind speed, Start
   static constexpr int kWindSpeeds = 6;
   static constexpr float kWindKmh[kWindSpeeds] = {0, 10, 15, 20, 25, 30};
@@ -77,6 +78,9 @@ class SimApp : public IApp {
   void setView(View v);
   void setAssist(bool a) { assist_ = a; }
   bool assist() const { return assist_; }
+  void setThermalStyle(SkyFx::Style st) { style_ = st; }
+  SkyFx::Style thermalStyle() const { return style_; }
+  SkyFx& sky() { return sky_; }
   int site() const { return site_; }
   void setSite(int i) { site_ = (i % kTakeoffCount + kTakeoffCount) % kTakeoffCount; }
   uint32_t frames() const { return frame_; }
@@ -120,6 +124,8 @@ class SimApp : public IApp {
   TopDownView top_;
   VoxelView voxel_;
   ChaseCam chase_;
+  SkyFx sky_;
+  SkyFx::Style style_ = SkyFx::Style::BUBBLES;      // the default: cheapest and cleanest, strength shows as motion
   SimHud hud_;
   Mode mode_ = Mode::NOMAP;
   View view_ = View::TOP;

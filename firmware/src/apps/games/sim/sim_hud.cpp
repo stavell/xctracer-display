@@ -128,7 +128,7 @@ void SimHud::banner(const Bitmap1& bm, const char* title, const char* l1, const 
 
 void SimHud::menu(const Bitmap1& bm, const char* title, const char* const* rows, int n, int sel) {
   ensureFonts(bm.rotation);
-  const int x = 14, w = 212, rowH = n > 10 ? 27 : 30, h = 44 + n * rowH + 6, y = 200 - h / 2;
+  const int x = 14, w = 212, rowH = n > 12 ? 25 : (n > 10 ? 27 : 30), h = 44 + n * rowH + 6, y = 200 - h / 2;
   frame(bm, x, y, w, h);
   bm.fillRect(x, y, w, 36, DRAW_CLEAR);
   textC(bm, mid_, 120, y + 26, title, DRAW_SET);
