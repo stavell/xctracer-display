@@ -13,6 +13,7 @@
 #include "apps/games/sim/topdown.h"
 #include "apps/games/sim/voxel.h"
 #include "apps/games/sim/world.h"
+#include "sim_reach.h"
 #include "sim_shots.h"
 #include "box.h"
 #include "apps/vario/app/terrain_kit.h"
@@ -691,6 +692,174 @@ static void app_logic() {
   delete app;
 }
 
+// ---- playability of the air: reachable lift from every takeoff, a scripted pilot that climbs, the feel of a thermal's edge
+static bool openPack(const char* path, std::vector<uint8_t>& bytes, terrain::MemReader& rd, terrain::Terrain& t) {
+  FILE* f = fopen(path, "rb");
+  if (!f) return false;
+  fseek(f, 0, SEEK_END);
+  bytes.resize((size_t)ftell(f));
+  fseek(f, 0, SEEK_SET);
+  const bool ok = fread(bytes.data(), 1, bytes.size(), f) == bytes.size();
+  fclose(f);
+  if (!ok) return false;
+  rd = terrain::MemReader(bytes.data(), (uint32_t)bytes.size());
+  return t.open(&rd) == terrain::Terrain::OK;
+}
+
+// The playability numbers of NOTES.md ("Flight simulator: playable air"): the same analysis as `build.sh simreach`, a few seeds.
+//   Per run: at least 2 working thermals reachable by a straight trim glide from the launch point even when the air sinks 0.5 m/s more
+//   than it does (>= 30 m above the ground on arrival), the nearest one within 1.5 km; the scripted pilot (assist on: nearest reachable
+//   thermal, circle, soar the slope when nothing is in reach) gains >= 500 m in 10 sim minutes in at least 80 % of the runs.
+static void playable_site(terrain::Terrain& t, int site, int seeds, const float* times, int nTimes, int* runs, int* gainOk) {
+  static World w;
+  TerrainSource src(&t, kTakeoffs[site].lat, kTakeoffs[site].lon);
+  for (int ti = 0; ti < nTimes; ti++)
+    for (int seed = 1; seed <= seeds; seed++) {
+      w.begin(&src, (uint32_t)seed, kTakeoffs[site], 0.0f, times[ti]);
+      CHECK(w.air().houseCount() >= 2);
+      const simreach::Reach r = simreach::analyse(w);
+      CHECK(r.withMargin >= 2);
+      CHECK(r.nearest > 0 && r.nearest < 1500.0f);
+      const simreach::Flight f = simreach::fly(w, 600.0f);
+      (*runs)++;
+      if (f.gain >= 500.0f) (*gainOk)++;
+    }
+}
+
+static void playability() {
+  static std::vector<uint8_t> bytes;
+  static terrain::MemReader rd;
+  static terrain::Terrain t;
+  const float times[] = {180.0f, 1800.0f};
+  int runs = 0, ok = 0;
+  if (openPack("fixtures/sopot.pack", bytes, rd, t)) playable_site(t, 0, 8, times, 2, &runs, &ok);
+  CHECK(runs == 16);
+  printf("  playability, Sopot fixture: scripted pilot gained >= 500 m in 10 min in %d of %d runs\n", ok, runs);
+  CHECK(ok * 100 >= runs * 80);
+  // The real pack (not in the repository): every takeoff of the table.
+  static std::vector<uint8_t> bytes2;
+  static terrain::MemReader rd2;
+  static terrain::Terrain t2;
+  const char* big = "/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/bulgaria.pack";
+  if (openPack(big, bytes2, rd2, t2)) {
+    int r2 = 0, ok2 = 0;
+    const float tt[] = {1800.0f};
+    for (int s = 0; s < kTakeoffCount; s++) playable_site(t2, s, 4, tt, 1, &r2, &ok2);
+    printf("  playability, Bulgaria pack, all %d takeoffs: gained >= 500 m in %d of %d runs\n", kTakeoffCount, ok2, r2);
+    CHECK(ok2 * 100 >= r2 * 80);
+  }
+}
+
+// Air facts the playability rests on, on synthetic ground.
+static void air_playable() {
+  Hills hills;
+  gCache.attach(&hills);
+  gCache.fill(0, 0);
+  // House thermals: three, within about 1.5 km of the launch, and at any moment of the day at least one is mature and strong.
+  for (uint32_t seed = 1; seed <= 6; seed++) {
+    Air a(seed);
+    a.setField(&gCache);
+    a.setWind(200.0f, 5.0f, 1400.0f);
+    a.setHome(0, 0);
+    CHECK(a.houseCount() == Air::kHouses);
+    for (int i = 0; i < a.houseCount(); i++) {
+      float x, y;
+      CHECK(a.house(i, &x, &y));
+      CHECK(hypotf(x, y) < 2000.0f);
+    }
+    int weak = 0;
+    for (float tm = 0; tm < 7200.0f; tm += 60.0f) {
+      ThermalInfo th[Air::kMaxInfo];
+      const int n = a.nearby(0, 0, 1500.0f, tm, 2500.0f, th, Air::kMaxInfo);
+      float best = 0;
+      for (int i = 0; i < n; i++) best = fmaxf(best, th[i].strength);
+      if (best < 2.0f) weak++;
+    }
+    CHECK(weak == 0);
+  }
+  // Strength and widening: cores 2 - 4.6 m/s, wider higher up.
+  Air a(5);
+  a.setField(&gCache);
+  a.setWind(200.0f, 5.0f, 1400.0f);
+  ThermalInfo lo[Air::kMaxInfo], hi[Air::kMaxInfo];
+  const int nl = a.nearby(0, 0, 1400.0f, 900.0f, 3000.0f, lo, Air::kMaxInfo);
+  const int nh = a.nearby(0, 0, 2200.0f, 900.0f, 4000.0f, hi, Air::kMaxInfo);
+  float rl = 0, rh = 0;
+  int cl = 0, ch = 0;
+  for (int i = 0; i < nl; i++) { rl += lo[i].radius; cl++; }
+  for (int i = 0; i < nh; i++) { rh += hi[i].radius; ch++; }
+  CHECK(cl > 3 && ch > 3 && rh / ch > rl / cl);
+  // The ridge lift cancels the general sink on the slope; away from the slope the sink is there.
+  Ridge ridge;
+  gCache.attach(&ridge);
+  gCache.fill(0, 0);
+  Air b(3);
+  b.setField(&gCache);
+  b.setWind(270.0f, 6.0f, 1000.0f);
+  AirSample on, off;
+  b.sample(-450.0f, 0, 1000.0f + 300.0f * expf(-(450.0f * 450.0f) / (600.0f * 600.0f)) + 60.0f, 0, &on);
+  b.sample(-6000.0f, 0, 1100.0f, 0, &off);
+  CHECK(on.base > off.base * 0.6f && on.ridge > 1.2f);
+}
+
+// Wing tip lift: at the edge of a thermal the tip on the stronger side rises, the glider banks away from it (a few degrees),
+// a pilot feels it and turns toward the high wing. Zero in still air.
+static void tip_lift() {
+  Hills hills;
+  gCache.attach(&hills);
+  gCache.fill(0, 0);
+  Air a(5);
+  a.setField(&gCache);
+  a.setWind(200.0f, 0.0f, 1400.0f);
+  ThermalInfo th[Air::kMaxInfo];
+  const int n = a.nearby(0, 0, 1800.0f, 900.0f, 3000.0f, th, Air::kMaxInfo);
+  int best = 0;
+  for (int i = 1; i < n; i++) if (th[i].strength > th[best].strength) best = i;
+  CHECK(n > 0 && th[best].strength > 2.0f);
+  const float cx = th[best].x, cy = th[best].y, R = th[best].radius;
+  AirSample west, east, centre;
+  a.sample(cx - 0.8f * R, cy, 1800.0f, 900.0f, &west);       // west of the centre: the lift grows toward the east
+  a.sample(cx + 0.8f * R, cy, 1800.0f, 900.0f, &east);
+  a.sample(cx, cy, 1800.0f, 900.0f, &centre);
+  CHECK(west.gx > 0.003f && east.gx < -0.003f);
+  CHECK(fabsf(centre.gx) < fabsf(west.gx) * 0.2f);
+  // The gradient is the derivative of the thermal part.
+  AirSample w2;
+  a.sample(cx - 0.8f * R + 1.0f, cy, 1800.0f, 900.0f, &w2);
+  NEAR(w2.thermal - west.thermal, west.gx, 0.15 * fabsf(west.gx) + 1e-4);
+  // In the World: heading north, the east wing is the stronger one west of the centre: the glider rolls left, by a few degrees.
+  static World w;
+  w.beginAt(&hills, 5, 0, 0, 600.0f, 0.0f, 200.0f, 0.0f, 900.0f);
+  const int nw = w.air().nearby(0, 0, 1800.0f, 900.0f, 3000.0f, th, Air::kMaxInfo);
+  int bw = 0;
+  for (int i = 1; i < nw; i++) if (th[i].strength > th[bw].strength) bw = i;
+  CHECK(nw > 0);
+  Glider& g = w.gliderMut();
+  g.x = th[bw].x - 0.8f * th[bw].radius; g.y = th[bw].y; g.z = 1800.0f;
+  for (int i = 0; i < 25; i++) w.step(Controls(), 0.02f);
+  CHECK(w.rollKick() < -0.01f && w.rollKick() > -0.15f);
+  CHECK(w.glider().bank < -0.005f);
+}
+
+// The wind blows onto the slope of the takeoff (the way it faces) when the slope is clear.
+static void wind_onto_slope() {
+  static std::vector<uint8_t> bytes;
+  static terrain::MemReader rd;
+  static terrain::Terrain t;
+  if (!openPack("fixtures/sopot.pack", bytes, rd, t)) return;
+  TerrainSource src(&t, kTakeoffs[0].lat, kTakeoffs[0].lon);
+  static World w;
+  w.begin(&src, 3, kTakeoffs[0]);
+  float h0 = 0, a = 0, b = 0, c = 0, d = 0;
+  CHECK(src.at(0, 0, &h0) && src.at(600, 0, &a) && src.at(-600, 0, &b) && src.at(0, 600, &c) && src.at(0, -600, &d));
+  const float gx = (a - b) / 1200.0f, gy = (c - d) / 1200.0f;
+  float wx, wy;
+  w.windAt(h0 + World::kLaunchAgl, &wx, &wy);
+  if (sqrtf(gx * gx + gy * gy) > 0.12f) CHECK(wx * gx + wy * gy > 0);          // blowing uphill
+  NEAR(hypotf(wx, wy), 5.0f, 0.5);
+  NEAR(w.agl(), World::kLaunchAgl, 0.5);
+}
+
 // The sim inside the box: started from the home grid, steady 50 fps through the real host, Home through the pause menu.
 static void in_the_box() {
   static std::vector<uint8_t> bytes;
@@ -756,6 +925,10 @@ static void run() {
   game_mode();
   time_scale();
   app_logic();
+  air_playable();
+  tip_lift();
+  wind_onto_slope();
+  playability();
   in_the_box();
 }
 
