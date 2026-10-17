@@ -216,8 +216,9 @@ static void test_wind_ekf() {
   for (int i = 180; i < 420; i++) { Gnd g = groundOf(36, zigHdg(i), 20, 180); e.step(1, true, g.kmh, g.crs); }
   ekfVec(e, kmh, to);
   // the spec'd process noise (qW 0.0004) makes the filter stiff: 24 deg off after 240 s, not 15
-  // (qW large enough for 15 deg would lose the sigmaW < 0.8 confidence in steady state)
-  CHECK(e.confident()); NEAR(kmh, 20, 3.0); CHECK(angDiff(to, 180) <= 30);
+  // (qW large enough for 15 deg would lose the sigmaW < 0.8 confidence in steady state). With learning gated on a
+  // turn (30 deg in 20 s) the apex seconds of the S-turns are skipped too: 16.9 km/h after 240 s instead of 17.
+  CHECK(e.confident()); NEAR(kmh, 20, 4.0); CHECK(angDiff(to, 180) <= 30);
 
   // 5. noise: speed 0.5 m/s, course 3 deg, airspeed wandering +-2 km/h
   e.reset();
@@ -664,7 +665,7 @@ static void test_ekf_seed_from_circle_fit() {
   static FlightModel fm;
   fm.reset();
   WindFlier fl(&fm, 270, 12);
-  fl.jit = 1.2;                                           // noisy speed: the EKF converges slowly, the fit still passes
+  fl.jit = 1.6;                                           // noisy speed: the EKF is not confident yet, the fit still passes
   fl.fly(29, 7);                                          // not enough track for a fit yet
   CHECK(!fm.circleWind().valid);
   CHECK(!fm.ekfConfident());
@@ -677,8 +678,8 @@ static void test_ekf_seed_from_circle_fit() {
   cx = c.speedKmh / 3.6 * sin(c.toDeg * D2R); cy = c.speedKmh / 3.6 * cos(c.toDeg * D2R);
   NEAR(cx, -12 / 3.6, 0.3);
   // the EKF state at the tick of the first accepted fit equals the fit (plus at most one measurement)
-  NEAR(fm.ekf().wx(), cx, 0.4);
-  NEAR(fm.ekf().wy(), cy, 0.4);
+  NEAR(fm.ekf().wx(), cx, 0.8);                           // (the speed jitter of 1.6 m/s moves one measurement by up to 0.5)
+  NEAR(fm.ekf().wy(), cy, 0.8);
   CHECK(fm.ekfSigmaW() < 3.5f);                           // started from P = 4, not 25
   // a confident EKF is not overwritten by a later fresh fit: new circle in a very different wind
   fl.fly(120, 18);
@@ -694,6 +695,15 @@ static void test_ekf_seed_from_circle_fit() {
   NEAR(fm.ekf().wx(), ex, 1.0);                           // moved by a few updates at most, not set to +6
   CHECK(fabs(fm.ekf().wx() - 6) > 3.0);
   (void)ey;
+  // ... but one that keeps contradicting circle after circle is wrong: after DISAGREE_N accepted fits in a row
+  // that are more than 3 m/s away the EKF restarts from the fit (not confident again for a while, the circle fit is shown)
+  fl.fly(FlightModel::DISAGREE_N + 2, 18);
+  NEAR(fm.ekf().wx(), 6, 2.0);
+  CHECK(!fm.ekfConfident());
+  Wind sw = fm.wind();
+  CHECK(sw.valid && sw.ageS <= 5);
+  NEAR(sw.speedKmh, 6 * 3.6, 2.0);
+  CHECK(angDiff(sw.toDeg, 90) <= 15);
 }
 
 static void test_ekf_wind_age() {
@@ -1598,6 +1608,7 @@ static void test_app_anim_cadence() {
 #include "terrain_tests.h"
 #include "map_page_tests.h"
 #include "sim_tests.h"
+#include "wind_tests.h"
 
 static uint32_t fakeUs = 0;
 static uint32_t fakeClock() { return fakeUs += 7; }   // every call advances 7 us
@@ -1744,6 +1755,7 @@ int main() {
   terrain_tests::run();
   map_page_tests::run();
   sim_tests::run();
+  wind_tests::run();
   test_standalone_cadence();
   test_fuzz_parser();
   test_fuzz_app();

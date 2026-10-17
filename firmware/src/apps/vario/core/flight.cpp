@@ -29,6 +29,7 @@ void FlightModel::reset() {
   ekfStarted_ = false;
   ekfAt_ = 0;
   ekfInformedAt_ = 0;
+  disagree_ = 0;
   candValid_ = false;
   candLat_ = candLon_ = 0;
   candAlt_ = NAN;
@@ -187,12 +188,21 @@ void FlightModel::updateWind() {
   if (!windValid_ || clock_ - windAt_ > 120000) {
     wx_ = f.east; wy_ = f.north;
     // First fit (or first after a long gap): the EKF has had no circle yet, so start it from the fit
-    // instead of from zero wind. A confident EKF knows better than a single 30 s fit and is left alone.
+    // instead of from zero wind. A confident EKF knows better than a single 30 s fit and is left alone
+    // (but see the disagreement rule below).
     if (!ekf_.confident()) { ekf_.init((float)wx_, (float)wy_, 4); ekfInformedAt_ = clock_; }
+    disagree_ = 0;
   }
   else { wx_ = 0.88 * wx_ + 0.12 * f.east; wy_ = 0.88 * wy_ + 0.12 * f.north; }   // smooth over ~8 s
   windAt_ = clock_;
   windValid_ = true;
+  // A confident EKF that keeps disagreeing with the circle fit is wrong: the fit measures the wind directly
+  // from a whole turn with strict gates, the EKF is an estimate that can be pulled off by a model it cannot
+  // check (it was confident at 42 km/h in 12 km/h of wind). After DISAGREE_N accepted fits in a row that
+  // are more than DISAGREE_MS apart, restart it from the smoothed fit.
+  if (ekf_.confident() && hypot(ekf_.wx() - wx_, ekf_.wy() - wy_) > DISAGREE_MS) {
+    if (++disagree_ >= DISAGREE_N) { ekf_.init((float)wx_, (float)wy_, 4); ekfInformedAt_ = clock_; disagree_ = 0; }
+  } else disagree_ = 0;
 }
 
 bool FlightModel::windXY(double& wx, double& wy) const {

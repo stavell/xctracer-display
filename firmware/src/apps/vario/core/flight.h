@@ -14,6 +14,8 @@ class FlightModel {
   static const int HIST = 180;     // seconds of dense track kept (3 min); thermals are remembered separately
   static const int AVG_S = 20;     // vario averaging window
   static const int WIND_S = 30;    // seconds of track used for each wind fit
+  static constexpr double DISAGREE_MS = 3.0;   // EKF vs circle fit (m/s) that counts as disagreement
+  static const int DISAGREE_N = 8;             // accepted fits in a row before the EKF is restarted from the fit
 
   void reset();
   bool feed(const Sample& s);
@@ -71,6 +73,7 @@ class FlightModel {
   WindEkf ekf_;
   bool ekfStarted_ = false;
   uint32_t ekfAt_ = 0;
+  int disagree_ = 0;               // accepted fits in a row that contradict a confident EKF
   uint32_t ekfInformedAt_ = 0;     // flight clock of the last update made while the heading was changing
   bool turnedRecently() const;
   WindProfile profile_;

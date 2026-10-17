@@ -17,7 +17,9 @@ least 3 agree within 2.5 km/h of their median. "Soft" reference: that value held
 The device side is firmware/emu/out/emu windtrace (per-second CSV) run on the same flight started at each
 offset, so the start offset (EKF seeding, first fits) is part of the test. Error = length of the vector
 difference in km/h. "confident wrong" = seconds in which the shown wind is valid, not marked old (age <= 120 s)
-and more than 8 km/h from the soft reference.
+and more than 8 km/h from the hard reference, scored from 60 s after a reference run starts (a causal
+estimator needs a turn first); the 'soft' columns score the held reference (shown wind only while not marked old, age <= 300 s) and are
+indicative only: the wind really changes during a glide.
 """
 import argparse
 import math
@@ -243,8 +245,26 @@ def pct(v, p):
     return v[min(len(v) - 1, int(p / 100 * len(v)))] if v else float("nan")
 
 
+GRACE = 60   # s after a reference run starts that a causal estimator is not scored on (it needs a full turn first)
+
+
+def grace_set(ref):
+    """Seconds of the hard reference that are at least GRACE s after the start of their run (gaps > 10 s split runs)."""
+    ok, run0, last = set(), None, None
+    for t in sorted(ref):
+        if not ref[t][2]:
+            continue
+        if last is None or t - last > 10:
+            run0 = t
+        last = t
+        if t - run0 >= GRACE:
+            ok.add(t)
+    return ok
+
+
 def compare(data, ref, tmin):
     """Per estimator error statistics against the reference."""
+    settled = grace_set(ref)
     res = {}
     names = {"circle fit (smoothed)": ("cw_ok", "cw_e", "cw_n"), "EKF": None, "shown wind()": ("w_ok", "w_e", "w_n")}
     for name, keys in names.items():
@@ -264,10 +284,14 @@ def compare(data, ref, tmin):
                 e, n = d["ekf_e"], d["ekf_n"]
             re_, rn, isHard = ref[t]
             err = math.hypot(e - re_, n - rn) * 3.6
+            if isHard and t not in settled:
+                continue
+            if not isHard and name == "shown wind()" and d["w_age"] > 300:
+                continue                                  # shown as "old": the screen does not present it as current
             (hard if isHard else soft).append(err)
             if name == "shown wind()":
                 shown += 1
-                if d["w_age"] <= 120 and err > 8:
+                if isHard and d["w_age"] <= 120 and err > 8:
                     wrong += 1
         res[name] = (hard, soft, shown, wrong)
     return res
