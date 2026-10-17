@@ -34,6 +34,7 @@
 #include "apps/vario/app/app.h"
 #include "apps/vario/core/flight.h"
 #include "apps/vario/core/thermal.h"
+#include "apps/vario/core/wind.h"
 #include "apps/vario/core/xctrc.h"
 #include "mocks.h"
 #include "apps/vario/view/screens.h"
@@ -605,10 +606,43 @@ static int cmdWind(const char* file) {
   return 0;
 }
 
+// emu windtrace <lines.txt>: one CSV row per data second for host/wind_ref.py (the reference comparison):
+// time of day, raw circle fit of the newest 30 s (ok, east, north), smoothed circle wind (valid, east, north, age),
+// EKF (east, north, airspeed, sigma, confident) and the shown wind() (valid, east, north, age). Wind in m/s.
+static int cmdWindTrace(const char* file) {
+  std::vector<std::string> L = readLines(file);
+  static FlightModel fm;
+  fm.reset();
+  puts("t,fit_ok,fit_e,fit_n,cw_ok,cw_e,cw_n,cw_age,ekf_e,ekf_n,ekf_va,ekf_sig,ekf_conf,w_ok,w_e,w_n,w_age");
+  for (const std::string& l : L) {
+    Sample s;
+    if (!xctrcParse(l.c_str(), s) || !fm.feed(s)) continue;
+    WindFit f;
+    int n = fm.histCount();
+    if (n >= FlightModel::WIND_S && s.fix) {
+      static TrackPoint buf[FlightModel::WIND_S];
+      for (int i = 0; i < FlightModel::WIND_S; i++) buf[i] = fm.hist(n - FlightModel::WIND_S + i);
+      f = fitWind(buf, FlightModel::WIND_S);
+    }
+    Wind cw = fm.circleWind(), w = fm.wind();
+    auto xy = [](const Wind& v, double& e, double& nn) {
+      double r = v.toDeg * M_PI / 180; e = v.speedKmh / 3.6 * sin(r); nn = v.speedKmh / 3.6 * cos(r);
+    };
+    double ce = 0, cn = 0, we = 0, wn = 0;
+    if (cw.valid) xy(cw, ce, cn);
+    if (w.valid) xy(w, we, wn);
+    printf("%d,%d,%.3f,%.3f,%d,%.3f,%.3f,%u,%.3f,%.3f,%.3f,%.3f,%d,%d,%.3f,%.3f,%u\n", s.hh * 3600 + s.mm * 60 + s.ss, f.ok, f.east, f.north,
+           cw.valid, ce, cn, cw.ageS, fm.ekf().wx(), fm.ekf().wy(), fm.ekf().va(), fm.ekf().sigmaW(), fm.ekfConfident(),
+           w.valid, we, wn, w.ageS);
+  }
+  return 0;
+}
+
 int main(int argc, char** argv) {
   signal(SIGALRM, watchdog);
   if (argc >= 2 && !strcmp(argv[1], "soak")) return cmdSoak(argc, argv, readLines);
   if (argc >= 3 && !strcmp(argv[1], "wind")) return cmdWind(argv[2]);
+  if (argc >= 3 && !strcmp(argv[1], "windtrace")) return cmdWindTrace(argv[2]);
   if (argc >= 3 && !strcmp(argv[1], "cue")) return cmdCue(argc, argv);
   alarm(120);
   if (argc >= 3 && !strcmp(argv[1], "count")) {   // emu count <outdir> [rot]: per-section work of the live page
