@@ -5,13 +5,20 @@ namespace sim {
 namespace {
 constexpr float kSunX = -0.30f, kSunY = -0.954f;     // horizontal direction toward the sun (south, a little west)
 constexpr float kMaxTilt = 2600.0f;                  // m, the most a column leans from its trigger
-constexpr int kReach = 2;                            // cells searched around the query: 5 x 5
+constexpr int kReach = 2;
+struct LevelParams { float strength, density, cloud, sink; };
+constexpr LevelParams kLevel[Air::kLevels] = {
+    {0.80f, 0.70f, -350.0f, 0.7f},       // weak
+    {1.00f, 1.00f, 0.0f, 1.0f},          // medium: the tuned good day
+    {1.25f, 1.15f, 250.0f, 1.3f},        // strong
+    {1.50f, 1.25f, 450.0f, 1.6f},        // epic
+};                            // cells searched around the query: 5 x 5
 }  // namespace
 
 void Air::setSeed(uint32_t seed) {
   seed_ = seed;
-  cloudBase_ = 2200.0f + 600.0f * unit(hash3(seed, 0xC10D, 1));
-  baseSink_ = 0.3f + 0.3f * unit(hash3(seed, 0xBA5E, 2));
+  cloudBase_ = 2200.0f + 600.0f * unit(hash3(seed, 0xC10D, 1)) + kLevel[level_].cloud;
+  baseSink_ = (0.3f + 0.3f * unit(hash3(seed, 0xBA5E, 2))) * kLevel[level_].sink;
   nHouse_ = 0;
   clearTiles();
 }
@@ -83,12 +90,12 @@ bool Air::thermalOf(const Tile& tl, uint32_t tk, int number, Th* out) const {
   float period, offset;
   timing(tk, tl.house, &period, &offset);
   const uint32_t h = hash3(tk, (uint32_t)number, 0x7117);
-  if (!tl.house && unit(h) >= 0.35f + 0.6f * tl.score) return false;
+  if (!tl.house && unit(h) >= fminf(0.98f, (0.35f + 0.6f * tl.score) * kLevel[level_].density)) return false;
   const float u1 = unit(hash32(h ^ 1)), u2 = unit(hash32(h ^ 2)), u3 = unit(hash32(h ^ 3));
   out->x0 = tl.x; out->y0 = tl.y; out->z0 = tl.z;
   out->t0 = offset + number * period;
   out->life = (tl.house ? 1100.0f : 900.0f) + (tl.house ? 400.0f : 600.0f) * u3;     // 15 - 25 min, longer than the period: they overlap
-  out->S = tl.house ? 2.6f + 1.8f * powf(u1, 1.2f) : 2.0f + 2.6f * powf(u1, 1.2f) * (0.5f + 0.5f * tl.score);
+  out->S = kLevel[level_].strength * (tl.house ? 2.6f + 1.8f * powf(u1, 1.2f) : 2.0f + 2.6f * powf(u1, 1.2f) * (0.5f + 0.5f * tl.score));
   out->R = 80.0f + 120.0f * u2;
   out->id = h;
   return true;

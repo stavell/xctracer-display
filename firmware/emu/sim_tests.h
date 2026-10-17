@@ -629,7 +629,28 @@ static void app_logic() {
   app->setTilt(&tilt);
   uint32_t sm = 0;
   app->begin(0);
+  // The Day screen comes first: Site, Thermals, Wind from, Wind speed, Start.
+  CHECK(app->mode() == SimApp::Mode::DAY && app->dayRow() == 0);
+  CHECK(app->level() == 1 && app->windDir() == 0 && app->windSpeedIdx() == 0);
+  app->onKey(KEY_DOWN, true, 0);
+  app->onKey(KEY_RIGHT, true, 0);                          // thermals: medium -> strong
+  CHECK(app->level() == 2);
+  app->onKey(KEY_DOWN, true, 0);
+  app->onKey(KEY_RIGHT, true, 0);                          // wind from: usual -> N
+  app->onKey(KEY_DOWN, true, 0);
+  app->onKey(KEY_ACTION, true, 0);                         // wind speed: usual -> 0 km/h (A also steps forward)
+  CHECK(app->windDir() == 1 && app->windSpeedIdx() == 1);
+  app->onKey(KEY_LEFT, true, 0);
+  CHECK(app->windSpeedIdx() == 0);
+  app->onKey(KEY_DOWN, true, 0);
+  CHECK(app->dayRow() == 4);
+  app->onKey(KEY_ACTION, true, 0);                         // Start
   CHECK(app->mode() == SimApp::Mode::FLYING && app->view() == SimApp::View::TOP);
+  CHECK(app->world().level() == 2 && app->world().air().level() == 2);
+  NEAR(app->world().windFromDeg(), 0.0, 0.01);
+  app->setDay(1, 0, 0);
+  app->startFlight();
+  CHECK(app->world().level() == 1);
   CHECK(app->frameIntervalMs() == 20);
   // D-pad: holding right ramps the bank command up, releasing brings it back.
   app->onKey(KEY_RIGHT, true, 0);
@@ -646,7 +667,7 @@ static void app_logic() {
   app->onKey(KEY_UP, false, 0);
   // A toggles the view; B opens the menu and the world stops.
   app->onKey(KEY_ACTION, true, 0);
-  CHECK(app->view() == SimApp::View::FPV);
+  CHECK(app->view() == SimApp::View::CHASE);
   app->onKey(KEY_ACTION, true, 0);
   CHECK(app->view() == SimApp::View::TOP);
   app->onKey(KEY_B, true, 0);
@@ -715,7 +736,7 @@ static void playable_site(terrain::Terrain& t, int site, int seeds, const float*
   TerrainSource src(&t, kTakeoffs[site].lat, kTakeoffs[site].lon);
   for (int ti = 0; ti < nTimes; ti++)
     for (int seed = 1; seed <= seeds; seed++) {
-      w.begin(&src, (uint32_t)seed, kTakeoffs[site], 0.0f, times[ti]);
+      w.begin(&src, (uint32_t)seed, kTakeoffs[site], -1.0f, times[ti]);
       CHECK(w.air().houseCount() >= 2);
       const simreach::Reach r = simreach::analyse(w);
       CHECK(r.withMargin >= 2);
@@ -860,6 +881,96 @@ static void wind_onto_slope() {
   NEAR(w.agl(), World::kLaunchAgl, 0.5);
 }
 
+// The Day settings: how thermic, wind direction, wind speed.
+static void day_settings() {
+  Hills hills;
+  gCache.attach(&hills);
+  gCache.fill(0, 0);
+  // Levels scale strength, density, cloud base and sink together, in order.
+  float meanS[Air::kLevels], cloud[Air::kLevels], sink[Air::kLevels];
+  int count[Air::kLevels];
+  for (int l = 0; l < Air::kLevels; l++) {
+    float sum = 0, cb = 0, sk = 0;
+    int n = 0;
+    for (uint32_t seed = 1; seed <= 6; seed++) {
+      Air a;
+      a.setLevel(l);
+      a.setSeed(seed);
+      a.setField(&gCache);
+      a.setLevel(l);
+      a.setSeed(seed);
+      a.setWind(200.0f, 5.0f, 1400.0f);
+      cb += a.cloudBase(); sk += a.baseSink();
+      for (float tm = 300; tm < 3000; tm += 300) {
+        ThermalInfo th[Air::kMaxInfo];
+        const int k = a.nearby(0, 0, 1500.0f, tm, 3000.0f, th, Air::kMaxInfo);
+        for (int i = 0; i < k; i++) if (th[i].strength > 1.0f) { sum += th[i].strength; n++; }
+      }
+    }
+    meanS[l] = sum / (n ? n : 1); count[l] = n; cloud[l] = cb / 6; sink[l] = sk / 6;
+  }
+  for (int l = 1; l < Air::kLevels; l++) {
+    CHECK(meanS[l] > meanS[l - 1] && cloud[l] > cloud[l - 1] && sink[l] > sink[l - 1] && count[l] > count[l - 1]);
+  }
+  printf("  levels weak..epic: mean core %.1f %.1f %.1f %.1f m/s, cloud base %.0f %.0f %.0f %.0f m, sink %.2f %.2f %.2f %.2f, usable thermals %d %d %d %d\n",
+         (double)meanS[0], (double)meanS[1], (double)meanS[2], (double)meanS[3], (double)cloud[0], (double)cloud[1], (double)cloud[2],
+         (double)cloud[3], (double)sink[0], (double)sink[1], (double)sink[2], (double)sink[3], count[0], count[1], count[2], count[3]);
+  Air m;
+  m.setSeed(1);
+  CHECK(m.level() == 1);                                   // medium is the default (the tuned good day)
+  // Wind direction flips the ridge lift sides; no wind, no ridge lift.
+  Ridge ridge;
+  gCache.attach(&ridge);
+  gCache.fill(0, 0);
+  Air a(3);
+  a.setField(&gCache);
+  const float zw = 1000.0f + 300.0f * expf(-(500.0f * 500.0f) / (600.0f * 600.0f)) + 60.0f;
+  AirSample w1, e1, w2, e2, calm;
+  a.setWind(270.0f, 5.0f, 1000.0f);                        // from the west
+  a.sample(-500.0f, 0, zw, 0, &w1); a.sample(500.0f, 0, zw, 0, &e1);
+  a.setWind(90.0f, 5.0f, 1000.0f);                         // from the east
+  a.sample(-500.0f, 0, zw, 0, &w2); a.sample(500.0f, 0, zw, 0, &e2);
+  CHECK(w1.ridge > 1.0f && e1.ridge < -0.5f);
+  CHECK(e2.ridge > 1.0f && w2.ridge < -0.5f);
+  a.setWind(90.0f, 0.0f, 1000.0f);
+  a.sample(-500.0f, 0, zw, 0, &calm);
+  NEAR(calm.ridge, 0, 1e-4);
+  // A wind change eases in: no jump, the target after about 15 s.
+  Flat flat;
+  static World w;
+  w.beginAt(&flat, 4, 0, 0, 900.0f, 270.0f, 270.0f, 3.0f, 0.0f);
+  w.setWindTarget(90.0f, 8.3f);
+  float wx0, wy0, wx1, wy1;
+  w.windAt(1900.0f, &wx0, &wy0);
+  w.step(Controls(), 0.02f);
+  w.windAt(1900.0f, &wx1, &wy1);
+  CHECK(hypotf(wx1 - wx0, wy1 - wy0) < 0.02f);
+  for (int i = 0; i < 50 * 5; i++) w.step(Controls(), 0.02f);
+  w.windAt(1900.0f, &wx1, &wy1);
+  CHECK(fabsf(wx1) < 1.0f);                                   // 3 m/s of the 11.3 m/s change in 5 s: passing through the calm
+  for (int i = 0; i < 50 * 16; i++) w.step(Controls(), 0.02f);
+  w.windAt(1900.0f, &wx1, &wy1);
+  NEAR(wx1, -8.3f, 0.1);                                      // from the east now: blowing west at 8.3 m/s
+  // Strong days climb faster than weak ones (the scripted pilot, Sopot fixture, same seeds).
+  static std::vector<uint8_t> bytes;
+  static terrain::MemReader rd;
+  static terrain::Terrain t;
+  if (!openPack("fixtures/sopot.pack", bytes, rd, t)) return;
+  TerrainSource src(&t, kTakeoffs[0].lat, kTakeoffs[0].lon);
+  static World fw;
+  float gain[Air::kLevels] = {0, 0, 0, 0};
+  for (int l = 0; l < Air::kLevels; l++) {
+    for (int seed = 1; seed <= 6; seed++) {
+      fw.setLevel(l);
+      fw.begin(&src, (uint32_t)seed, kTakeoffs[0], -1.0f, 1800.0f);
+      gain[l] += simreach::fly(fw, 600.0f).gain / 6.0f;
+    }
+  }
+  printf("  scripted pilot, mean gain in 10 min, weak..epic: %.0f %.0f %.0f %.0f m\n", (double)gain[0], (double)gain[1], (double)gain[2], (double)gain[3]);
+  CHECK(gain[2] > gain[0] + 150.0f && gain[3] > gain[1] && gain[1] > gain[0]);
+  // Medium at the usual wind of every takeoff is the playability test above; weak days are not guaranteed.
+}
+
 // The sim inside the box: started from the home grid, steady 50 fps through the real host, Home through the pause menu.
 static void in_the_box() {
   static std::vector<uint8_t> bytes;
@@ -886,7 +997,11 @@ static void in_the_box() {
   run(300);
   simshots::dumpPanel(b.r.panel, "out", "sim_launcher");
   b.host.start(Box::APP_SIM, now);
-  run(3000);
+  run(100);
+  CHECK(b.flightSim->mode() == SimApp::Mode::DAY);
+  for (int i = 0; i < 4; i++) tap(KEY_DOWN);               // to Start
+  tap(KEY_ACTION);
+  run(2600);
   CHECK(b.host.active() == b.flightSim.get() && b.flightSim->mode() == SimApp::Mode::FLYING);
   CHECK(b.host.gameMode());
   CHECK(b.host.stats().fps >= 49 && b.host.stats().fps <= 51);
@@ -903,6 +1018,10 @@ static void in_the_box() {
   run(100);
   CHECK(b.host.active() == &b.launcher && !b.host.gameMode());
   // The way in again, and out through the 3 s hold of the switch like every other app.
+  b.host.start(Box::APP_SIM, now);
+  run(500);
+  tap(KEY_B);                                              // the Day screen: B goes home too
+  CHECK(b.host.active() == &b.launcher);
   b.host.start(Box::APP_SIM, now);
   run(500);
   b.r.input.press(now + 10, 3300);
@@ -929,6 +1048,7 @@ static void run() {
   tip_lift();
   wind_onto_slope();
   playability();
+  day_settings();
   in_the_box();
 }
 

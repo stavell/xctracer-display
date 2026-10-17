@@ -28,14 +28,23 @@ class World {
   struct TrailPt { float x, y, z; };
 
   World() : air_(1) {}
-  // Start a flight. The cache window is filled completely before returning. windSpeed 0 = the default flying wind (5 m/s,
+  // Start a flight. The cache window is filled completely before returning. windSpeed < 0 = the usual flying wind (5 m/s,
   // 18 km/h, a speed a pilot flying a 37 km/h trim can still make progress against).
-  void begin(IHeightSource* src, uint32_t seed, const Takeoff& to, float windSpeed = 0.0f, float timeOfDay = 180.0f);
+  void begin(IHeightSource* src, uint32_t seed, const Takeoff& to, float windSpeed = -1.0f, float timeOfDay = 180.0f,
+             float windFromOverride = -1.0f);
   // Same with explicit values (tests, scenarios): glider at (x, y) at altitude z flying heading deg, wind.
   void beginAt(IHeightSource* src, uint32_t seed, float x, float y, float aglStart, float headingDeg, float windFromDeg,
                float windSpeed, float timeOfDay = 0);
 
   void step(const Controls& c, float dt);
+  // The day: how thermic (Air::setLevel, applies at the next begin) and the wind. A new wind takes effect at once but
+  // eases in at 0.6 m/s per second (a 30 km/h change in about 14 s), so the air never jumps under the glider.
+  void setLevel(int l) { level_ = l; }
+  int level() const { return level_; }
+  void setWindTarget(float fromDeg, float speed);
+  float windSpeed() const { return tgtSpeed_; }
+  // The usual flying wind of a site: the way its takeoff slope faces (direction) and 5 m/s (speed).
+  static void usualWind(IHeightSource* src, const Takeoff& to, float* fromDeg, float* speed);
   // Roll feel: the wing tip on the stronger-lifting side rises, so the glider banks away from it by up to about 8 degrees; the
   // pilot turns toward the high wing. Rad of bank per m/s of lift difference across the span.
   static constexpr float kSpan = 10.0f;
@@ -73,6 +82,8 @@ class World {
   AirSample s_;
   Status status_ = Status::FLYING;
   float kick_ = 0;
+  int level_ = 1;
+  float windRef_ = 0, curE_ = 0, curN_ = 0, tgtE_ = 0, tgtN_ = 0, tgtSpeed_ = 0;
   float t_ = 0, vario_ = 0, ground_ = 0, agl_ = 0, maxAlt_ = 0, startAlt_ = 0, dist_ = 0, trailT_ = 0, windFrom_ = 0;
   TrailPt trail_[kTrailMax];
   int trailN_ = 0, trailHead_ = 0;

@@ -20,6 +20,12 @@ constexpr Takeoff kTakeoffs[] = {
     {"Vratsa", 43.1710, 23.5500, 980, 350},           // Vrachanski Balkan above Vratsa, north-facing
     {"Sliven", 42.7350, 26.3000, 850, 180},           // Sliven Balkan north of the town, south-facing
     {"Bansko", 41.8080, 23.4800, 1190, 10},           // under Pirin above Bansko, north-facing
+    // The north-east plateau sites: the launch is the steepest convex plateau-edge cell the terrain model has within 3 km of
+    // the rough position (slope >= 0.15 at 400 m, 200 m or more of drop within 1.5 km downhill, the plateau behind it), the
+    // wind the way that edge faces. Approximate like the others.
+    {"Shumen", 43.2529, 26.9272, 460, 120},           // Shumen plateau edge above the town, south-east-facing
+    {"Madara", 43.2709, 27.1188, 405, 305},           // Madara plateau cliffs near the Rider, north-west-facing
+    {"Nevsha", 43.2256, 27.4744, 330, 325},           // plateau edge east of Nevsha (Vetrino), north-west-facing
 };
 constexpr int kTakeoffCount = sizeof kTakeoffs / sizeof kTakeoffs[0];
 

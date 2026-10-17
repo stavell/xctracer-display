@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
 #ifdef OLD_AIR     // the air as it was before the playability work (same launch height and wind as now, table wind direction)
         gWorld.beginAt(&src, (uint32_t)seed, 0, 0, 150.0f, sim::kTakeoffs[s].windFromDeg, sim::kTakeoffs[s].windFromDeg, 5.0f, t0);
 #else
-        gWorld.begin(&src, (uint32_t)seed, sim::kTakeoffs[s], 0.0f, t0);
+        gWorld.begin(&src, (uint32_t)seed, sim::kTakeoffs[s], -1.0f, t0);
 #endif
         const simreach::Reach r = simreach::analyse(gWorld);
         sumW += r.working; sumR += r.reachable; sumM += r.withMargin;

@@ -18,11 +18,36 @@ float approach(float v, float target, float rateUp, float rateDown, float dt) {
 char gRows[SimApp::kMenuRows][28];
 }  // namespace
 
+constexpr float SimApp::kWindKmh[SimApp::kWindSpeeds];
+
+const char* SimApp::dirName(int idx) {
+  static const char* n[9] = {"usual", "N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+  return n[idx < 0 ? 0 : (idx > 8 ? 8 : idx)];
+}
+
+void SimApp::setDay(int level, int dirIdx, int spdIdx) {
+  level_ = level < 0 ? 0 : (level >= Air::kLevels ? Air::kLevels - 1 : level);
+  dirIdx_ = dirIdx < 0 ? 0 : (dirIdx > 8 ? 8 : dirIdx);
+  spdIdx_ = spdIdx < 0 ? 0 : (spdIdx > kWindSpeeds ? kWindSpeeds : spdIdx);
+}
+
+void SimApp::resolveWind(float* fromDeg, float* speed) const {
+  *fromDeg = dirIdx_ == 0 ? usualFrom_ : (dirIdx_ - 1) * 45.0f;
+  *speed = spdIdx_ == 0 ? usualSpeed_ : kWindKmh[spdIdx_ - 1] / 3.6f;
+}
+
+void SimApp::applyWind() {
+  float from, sp;
+  resolveWind(&from, &sp);
+  world_.setWindTarget(from, sp);
+}
+
 void SimApp::begin(uint32_t nowMs) {
   (void)nowMs;
   left_ = right_ = up_ = down_ = false;
   c_ = Controls();
   frame_ = 0;
+  if (dayScreen_ && source()) { mode_ = Mode::DAY; dayRow_ = 0; return; }
   startFlight();
 }
 
@@ -37,12 +62,20 @@ void SimApp::startFlight() {
   IHeightSource* src = source();
   const Takeoff& to = kTakeoffs[site_];
   if (!src) { mode_ = Mode::NOMAP; return; }
-  world_.begin(src, seed_ + (uint32_t)flights_ * 7919u, to);
+  float uf, us;
+  World::usualWind(src, to, &uf, &us);
+  usualFrom_ = uf; usualSpeed_ = us;
+  float from, sp;
+  resolveWind(&from, &sp);
+  world_.setLevel(level_);
+  world_.begin(src, seed_ + (uint32_t)flights_ * 7919u, to, sp, 180.0f, from);
+  flownSite_ = site_; flownLevel_ = level_;
   flights_++;
   mode_ = Mode::FLYING;
   menuSel_ = 0;
   c_ = Controls();
   top_.reset();
+  chase_.reset(world_.glider());
   setView(view_);
 }
 
@@ -50,15 +83,20 @@ void SimApp::startAt(float x, float y, float aglStart, float headingDeg, float w
                      float timeOfDay) {
   IHeightSource* src = source();
   if (!src) { mode_ = Mode::NOMAP; return; }
+  usualFrom_ = windFromDeg; usualSpeed_ = windSpeed;
+  world_.setLevel(level_);
+  flownSite_ = site_; flownLevel_ = level_;
   world_.beginAt(src, seed, x, y, aglStart, headingDeg, windFromDeg, windSpeed, timeOfDay);
   mode_ = Mode::FLYING;
   c_ = Controls();
   top_.reset();
+  chase_.reset(world_.glider());
   setView(view_);
 }
 
 void SimApp::setView(View v) {
   view_ = v;
+  if (v == View::CHASE && mode_ != Mode::NOMAP) chase_.reset(world_.glider());
   if (v == View::TOP && mode_ != Mode::NOMAP) {
     const Glider& g = world_.glider();
     top_.renderNow(world_.cache(), g.x, g.y, g.heading, kMapMPerPx);
@@ -87,27 +125,49 @@ void SimApp::zeroTilt() {
 void SimApp::menuAct() {
   switch (menuSel_) {
     case 0: mode_ = Mode::FLYING; break;
-    case 1: setView(view_ == View::TOP ? View::FPV : View::TOP); break;
+    case 1: setView(view_ == View::TOP ? View::CHASE : View::TOP); break;
     case 2: assist_ = !assist_; break;
     case 3: setSite(site_ + 1); break;
     case 4: setControl(ctl_ == Control::TILT ? Control::BUTTONS : Control::TILT); break;
     case 5: if (ctl_ == Control::TILT) mode_ = Mode::CALIB; break;
     case 6: cycleTimeScale(); break;
-    case 7: startFlight(); break;
+    case 7: level_ = (level_ + 1) % Air::kLevels; break;                         // applies at the next flight
+    case 8: dirIdx_ = (dirIdx_ + 1) % 9; applyWind(); break;
+    case 9: spdIdx_ = (spdIdx_ + 1) % (kWindSpeeds + 1); applyWind(); break;
+    case 10: startFlight(); break;
     default: if (nav()) nav()->openLauncher(); break;
+  }
+}
+
+// The Day screen: Site, Thermals, Wind from, Wind speed, Start. UP / DOWN pick a row, LEFT / RIGHT (or A) change the value, A on
+// Start launches, B goes home.
+void SimApp::dayKey(Key key) {
+  if (key == KEY_UP) dayRow_ = (dayRow_ + kDayRows - 1) % kDayRows;
+  else if (key == KEY_DOWN) dayRow_ = (dayRow_ + 1) % kDayRows;
+  else if (key == KEY_B) { if (nav()) nav()->openLauncher(); }
+  else if (key == KEY_LEFT || key == KEY_RIGHT || key == KEY_ACTION) {
+    const int d = key == KEY_LEFT ? -1 : 1;
+    switch (dayRow_) {
+      case 0: setSite(site_ + d); break;
+      case 1: level_ = (level_ + d + Air::kLevels) % Air::kLevels; break;
+      case 2: dirIdx_ = (dirIdx_ + d + 9) % 9; break;
+      case 3: spdIdx_ = (spdIdx_ + d + kWindSpeeds + 1) % (kWindSpeeds + 1); break;
+      default: if (key == KEY_ACTION) startFlight(); break;
+    }
   }
 }
 
 void SimApp::onKey(Key key, bool down, uint32_t nowMs) {
   (void)nowMs;
   switch (key) {
-    case KEY_LEFT: left_ = down; break;
-    case KEY_RIGHT: right_ = down; break;
-    case KEY_UP: up_ = down; break;
-    case KEY_DOWN: down_ = down; break;
+    case KEY_LEFT: if (mode_ != Mode::DAY) left_ = down; break;
+    case KEY_RIGHT: if (mode_ != Mode::DAY) right_ = down; break;
+    case KEY_UP: if (mode_ != Mode::DAY) up_ = down; break;
+    case KEY_DOWN: if (mode_ != Mode::DAY) down_ = down; break;
     default: break;
   }
   if (!down) return;
+  if (mode_ == Mode::DAY) { dayKey(key); return; }
   if (mode_ == Mode::PAUSED) {
     if (key == KEY_UP) menuSel_ = (menuSel_ + kMenuRows - 1) % kMenuRows;
     else if (key == KEY_DOWN) menuSel_ = (menuSel_ + 1) % kMenuRows;
@@ -121,7 +181,7 @@ void SimApp::onKey(Key key, bool down, uint32_t nowMs) {
     return;
   }
   if (mode_ == Mode::FLYING) {
-    if (key == KEY_ACTION) setView(view_ == View::TOP ? View::FPV : View::TOP);
+    if (key == KEY_ACTION) setView(view_ == View::TOP ? View::CHASE : View::TOP);
     else if (key == KEY_B) mode_ = Mode::PAUSED, menuSel_ = 0;
   } else if (mode_ == Mode::ENDED) {
     if (key == KEY_ACTION) startFlight();
@@ -156,6 +216,10 @@ void SimApp::step(uint32_t simMs, uint32_t dtMs) {
   if (world_.status() != Status::FLYING) {
     mode_ = Mode::ENDED;
     c_ = Controls();
+  }
+  if (view_ == View::CHASE) {
+    const float nan = NAN;
+    chase_.update(world_.glider(), ctl_ == Control::TILT ? boxRoll_ * kDeg2Rad : nan, dt * scale_);
   }
   if (view_ == View::TOP) {
     const Glider& g = world_.glider();
@@ -210,14 +274,11 @@ void gliderSymbol(const Bitmap1& bm, float cx, float cy, float a, DrawMode m, in
 
 void SimApp::drawFlight(Bitmap1& bm) {
   const Glider& g = world_.glider();
-  if (view_ == View::FPV) {
-    Camera cam;
-    cam.x = g.x; cam.y = g.y; cam.z = g.z + 1.0f;
-    cam.heading = g.heading;
-    // Tilt steering: the horizon stays level to the real world, so it counter-rotates by the box roll. Buttons: the glider's bank.
-    cam.roll = ctl_ == Control::TILT ? boxRoll_ * kDeg2Rad : g.bank;
-    cam.pitch = 0.05f;
+  if (view_ == View::CHASE) {
+    // Chase camera behind and above the glider; with tilt steering the horizon counter-rotates by the box roll (see ChaseCam).
+    const Camera cam = chase_.camera(g, world_.cache());
     voxel_.render(bm, world_.cache(), cam);
+    chase_.drawGlider(bm, g, world_.cache(), cam);
   } else {
     top_.blit(bm, g.x, g.y);
     const ClipBox clip(0, TopDownView::kTopY, 239, 399);
@@ -257,17 +318,32 @@ void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
     hud_.note(bm, "needs the map pack", "B: back to the home screen");
     return;
   }
+  if (mode_ == Mode::DAY) {
+    char r0[28], r1[28], r2[28], r3[28];
+    snprintf(r0, sizeof r0, "Site: %s", kTakeoffs[site_].name);
+    snprintf(r1, sizeof r1, "Thermals: %s", Air::levelName(level_));
+    snprintf(r2, sizeof r2, "Wind from: %s", dirName(dirIdx_));
+    if (spdIdx_ == 0) snprintf(r3, sizeof r3, "Wind: usual");
+    else snprintf(r3, sizeof r3, "Wind: %.0f km/h", (double)kWindKmh[spdIdx_ - 1]);
+    const char* rows[kDayRows] = {r0, r1, r2, r3, "Start"};
+    hud_.menu(bm, "TODAY", rows, kDayRows, dayRow_);
+    return;
+  }
   drawFlight(bm);
   if (mode_ == Mode::PAUSED) {
     snprintf(gRows[0], sizeof gRows[0], "Resume");
     snprintf(gRows[1], sizeof gRows[1], "View: %s", view_ == View::TOP ? "map" : "3D");
     snprintf(gRows[2], sizeof gRows[2], "Assist: %s", assist_ ? "on" : "off");
-    snprintf(gRows[3], sizeof gRows[3], "Site: %s", kTakeoffs[site_].name);
+    snprintf(gRows[3], sizeof gRows[3], "Site: %s%s", kTakeoffs[site_].name, site_ != flownSite_ ? "*" : "");
     snprintf(gRows[4], sizeof gRows[4], "Controls: %s", ctl_ == Control::TILT ? "tilt" : "buttons");
     snprintf(gRows[5], sizeof gRows[5], "Zero tilt");
     snprintf(gRows[6], sizeof gRows[6], "Speed: x%d", scale_);
-    snprintf(gRows[7], sizeof gRows[7], "New flight");
-    snprintf(gRows[8], sizeof gRows[8], "Home");
+    snprintf(gRows[7], sizeof gRows[7], "Thermals: %s%s", Air::levelName(level_), level_ != flownLevel_ ? "*" : "");
+    snprintf(gRows[8], sizeof gRows[8], "Wind from: %s", dirName(dirIdx_));
+    if (spdIdx_ == 0) snprintf(gRows[9], sizeof gRows[9], "Wind: usual");
+    else snprintf(gRows[9], sizeof gRows[9], "Wind: %.0f km/h", (double)kWindKmh[spdIdx_ - 1]);
+    snprintf(gRows[10], sizeof gRows[10], "New flight");
+    snprintf(gRows[11], sizeof gRows[11], "Home");
     const char* rows[kMenuRows];
     for (int i = 0; i < kMenuRows; i++) rows[i] = gRows[i];
     hud_.menu(bm, "PAUSED", rows, kMenuRows, menuSel_);

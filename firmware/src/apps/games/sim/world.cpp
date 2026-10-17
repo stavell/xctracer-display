@@ -23,34 +23,63 @@ void World::beginAt(IHeightSource* src, uint32_t seed, float x, float y, float a
   cache_.fill(x, y);
   float gh = 0;
   cache_.height(x, y, &gh);
+  air_.setLevel(level_);
   air_.setSeed(seed);
   air_.setField(&cache_);
   air_.setWind(windFromDeg, windSpeed, gh + aglStart);
   air_.setHome(x, y);
   windFrom_ = windFromDeg;
+  windRef_ = gh + aglStart;
+  {
+    const float to = (windFromDeg + 180.0f) * kDeg2Rad, sp = windSpeed < 0 ? 0 : windSpeed;
+    curE_ = tgtE_ = sinf(to) * sp;
+    curN_ = tgtN_ = cosf(to) * sp;
+    tgtSpeed_ = sp;
+  }
   t_ = timeOfDay;
   place(x, y, aglStart, headingDeg);
   air_.sample(g_.x, g_.y, g_.z, t_, &s_);
 }
 
-void World::begin(IHeightSource* src, uint32_t seed, const Takeoff& to, float windSpeed, float timeOfDay) {
-  // The takeoff is the origin of the local frame; fly into the wind, 3 minutes into the sim day so thermals
-  // are already working. The wind blows onto the slope the takeoff is on: the direction comes from the terrain model
-  // (the way the slope faces, 600 m scale) when it is clear, else from the table.
+void World::usualWind(IHeightSource* src, const Takeoff& to, float* fromDeg, float* speed) {
+  // The wind blows onto the slope the takeoff is on: the direction comes from the terrain model (the way the slope faces,
+  // 600 m scale) when it is clear, else from the table.
   float from = to.windFromDeg;
   float h0, a, b, c, d;
   if (src->at(0, 0, &h0) && src->at(600, 0, &a) && src->at(-600, 0, &b) && src->at(0, 600, &c) && src->at(0, -600, &d)) {
     const float gx = (a - b) / 1200.0f, gy = (c - d) / 1200.0f;
-    const float slope = sqrtf(gx * gx + gy * gy);
-    if (slope > 0.12f) from = atan2f(-gx, -gy) * kRad2Deg;     // downhill side: the wind comes up the slope
+    if (sqrtf(gx * gx + gy * gy) > 0.12f) from = atan2f(-gx, -gy) * kRad2Deg;     // downhill side: the wind comes up the slope
     if (from < 0) from += 360.0f;
   }
-  if (windSpeed <= 0) windSpeed = 5.0f;
-  beginAt(src, seed, 0.0f, 0.0f, kLaunchAgl, from, from, windSpeed, timeOfDay);
+  *fromDeg = from;
+  *speed = 5.0f;
+}
+
+void World::begin(IHeightSource* src, uint32_t seed, const Takeoff& to, float windSpeed, float timeOfDay, float windFromOverride) {
+  // The takeoff is the origin of the local frame; fly into the wind, 3 minutes into the sim day so thermals are already working.
+  float from, speed;
+  usualWind(src, to, &from, &speed);
+  if (windFromOverride >= 0) from = windFromOverride;
+  if (windSpeed >= 0) speed = windSpeed;                  // explicit (0 = calm); negative = the site's usual
+  beginAt(src, seed, 0.0f, 0.0f, kLaunchAgl, from, from, speed, timeOfDay);
+}
+
+void World::setWindTarget(float fromDeg, float speed) {
+  const float to = (fromDeg + 180.0f) * kDeg2Rad, sp = speed < 0 ? 0 : speed;
+  tgtE_ = sinf(to) * sp;
+  tgtN_ = cosf(to) * sp;
+  tgtSpeed_ = sp;
+  windFrom_ = fromDeg;
 }
 
 void World::step(const Controls& c, float dt) {
   if (status_ != Status::FLYING || !(dt > 0)) return;
+  if (curE_ != tgtE_ || curN_ != tgtN_) {                // ease the wind toward its target
+    const float dx = tgtE_ - curE_, dy = tgtN_ - curN_, d = sqrtf(dx * dx + dy * dy), st = 0.6f * dt;
+    if (d <= st) { curE_ = tgtE_; curN_ = tgtN_; }
+    else { curE_ += dx / d * st; curN_ += dy / d * st; }
+    air_.setWind(atan2f(-curE_, -curN_) * kRad2Deg, sqrtf(curE_ * curE_ + curN_ * curN_), windRef_);
+  }
   cache_.setCentre(g_.x, g_.y);
   cache_.refresh(48);
   air_.sample(g_.x, g_.y, g_.z, t_, &s_);

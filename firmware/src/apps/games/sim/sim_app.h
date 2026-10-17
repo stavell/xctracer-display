@@ -7,7 +7,7 @@
 // Keys (PC player / the console's D-pad and A / B):
 //   LEFT / RIGHT   bank (ramps to full over 0.4 s, back to level when released)
 //   UP             speed bar (accelerate)      DOWN   brake (slow down; with a stall warning at the end)
-//   A              toggle top-down map / first-person 3D
+//   A              toggle top-down map / 3D chase view
 //   B or MAIN      pause menu: Resume, View, Assist (thermals shown on the map), Site, Controls, Zero tilt, Speed
 //                  (x1 / x3 / x5), New flight, Home
 // Time scale: the world (glider, air, flight clock, trail) runs `scale` x faster than real time, in 20 ms substeps so the
@@ -21,6 +21,7 @@
 //            to the real world (a window into the sky).
 //   Buttons: as above (D-pad). The tilt source is an ITilt: the AHRS on the device, the mouse in the PC player (T).
 #include <stdint.h>
+#include "apps/games/sim/chase.h"
 #include "apps/games/sim/sim_hud.h"
 #include "apps/games/sim/terrain_source.h"
 #include "apps/games/sim/tilt.h"
@@ -34,10 +35,13 @@ namespace sim {
 class SimApp : public IApp {
  public:
   static constexpr uint32_t kFrameMs = 20;
-  enum class View : uint8_t { TOP, FPV };
-  enum class Mode : uint8_t { NOMAP, FLYING, PAUSED, ENDED, CALIB };
+  enum class View : uint8_t { TOP, CHASE };
+  enum class Mode : uint8_t { NOMAP, FLYING, PAUSED, ENDED, CALIB, DAY };
   enum class Control : uint8_t { BUTTONS, TILT };
-  static constexpr int kMenuRows = 9;
+  static constexpr int kMenuRows = 12;
+  static constexpr int kDayRows = 5;                   // Site, Thermals, Wind from, Wind speed, Start
+  static constexpr int kWindSpeeds = 6;
+  static constexpr float kWindKmh[kWindSpeeds] = {0, 10, 15, 20, 25, 30};
 
   SimApp() {}
   // The map pack (platform Terrain); without it the app shows a message instead of flying.
@@ -67,6 +71,7 @@ class SimApp : public IApp {
   const World& world() const { return world_; }
   TopDownView& top() { return top_; }
   VoxelView& voxel() { return voxel_; }
+  const ChaseCam& chase() const { return chase_; }
   Mode mode() const { return mode_; }
   View view() const { return view_; }
   void setView(View v);
@@ -83,12 +88,25 @@ class SimApp : public IApp {
                float timeOfDay);
   void setSource(IHeightSource* s) { source_ = s; }   // tests: a synthetic surface instead of the pack
   uint32_t seed() const { return seed_; }
+  // The day: how thermic (0 weak .. 3 epic, 1 = medium, the tuned good day), wind direction (0 = the site's usual, 1..8 = N, NE, ..
+  // NW) and wind speed (0 = usual, 1..6 = 0 / 10 / 15 / 20 / 25 / 30 km/h). Site and thermals apply when a flight starts; the wind
+  // applies at once (the air eases into it over about 15 s) when changed in the pause menu.
+  int level() const { return level_; }
+  int windDir() const { return dirIdx_; }
+  int windSpeedIdx() const { return spdIdx_; }
+  void setDay(int level, int dirIdx, int spdIdx);
+  void showDayScreen(bool on) { dayScreen_ = on; }       // begin() opens the Day screen (default) or flies at once
+  int dayRow() const { return dayRow_; }
+  static const char* dirName(int idx);
   void setSeed(uint32_t s) { seed_ = s; }
 
  private:
   IHeightSource* source();
   void applyKeys(float dt);
   void menuAct();
+  void dayKey(Key key);
+  void applyWind();
+  void resolveWind(float* fromDeg, float* speed) const;     // -1 = the site's usual
   void drawFlight(Bitmap1& bm);
   HudData hud() const;
 
@@ -101,10 +119,14 @@ class SimApp : public IApp {
   World world_;
   TopDownView top_;
   VoxelView voxel_;
+  ChaseCam chase_;
   SimHud hud_;
   Mode mode_ = Mode::NOMAP;
   View view_ = View::TOP;
   bool assist_ = false;
+  bool dayScreen_ = true;
+  int level_ = 1, dirIdx_ = 0, spdIdx_ = 0, dayRow_ = 0, flownSite_ = 0, flownLevel_ = 1;
+  float usualFrom_ = 0, usualSpeed_ = 5.0f;
   int scale_ = 3;
   int site_ = 0, menuSel_ = 0, flights_ = 0;
   uint32_t seed_ = 7;

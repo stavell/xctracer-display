@@ -58,6 +58,13 @@ class Air {
   void setField(const HeightCache* f) { field_ = f; nHouse_ = 0; clearTiles(); }
   // Wind from fromDeg (meteorological), speed m/s at refAlt (m).
   void setWind(float fromDeg, float speed, float refAlt);
+  // "How thermic the day is": 0 weak, 1 medium (the tuned good day), 2 strong, 3 epic. Scales the core strength, the share of
+  // trigger cells that fire, the cloud base and the general sink together (more lift up means more sink in between).
+  // Call before setSeed() / setHome(): they use it.
+  static constexpr int kLevels = 4;
+  void setLevel(int l) { level_ = l < 0 ? 0 : (l >= kLevels ? kLevels - 1 : l); nHouse_ = 0; clearTiles(); }
+  int level() const { return level_; }
+  static const char* levelName(int l) { static const char* n[kLevels] = {"weak", "medium", "strong", "epic"}; return n[l < 0 ? 0 : (l >= kLevels ? kLevels - 1 : l)]; }
   float cloudBase() const { return cloudBase_; }
   float baseSink() const { return baseSink_; }
 
@@ -103,6 +110,7 @@ class Air {
   float ridgeLift(float x, float y, float z) const;
 
   uint32_t seed_ = 1;
+  int level_ = 1;
   const HeightCache* field_ = nullptr;
   float windToX_ = 0, windToY_ = 1, windSpeed_ = 0, windRefAlt_ = 0;
   float cloudBase_ = 2400, baseSink_ = 0.7f;

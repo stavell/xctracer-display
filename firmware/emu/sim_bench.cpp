@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
 
   struct Row { const char* name; double pc, worst; };
   std::vector<Row> rows;
-  app.setView(sim::SimApp::View::FPV);
+  app.setView(sim::SimApp::View::CHASE);
   for (int i = 0; i < 20; i++) { memset(fb, 0xFF, sizeof fb); app.draw(bm, gfx, 20 * i); }
   double w3;
   const double fpv = timeIt([&](int i) { memset(fb, 0xFF, sizeof fb); app.draw(bm, gfx, 20u * i); }, 300, &w3);
@@ -113,7 +113,7 @@ int main(int argc, char** argv) {
   rows.push_back({"top-down picture, full render (spread over ~20 frames)", rn, w3});
   const double step = timeIt([&](int) { simMs += 20; app.step(simMs, 20); }, 500, &w3);
   rows.push_back({"sim step (physics + air + cache refresh + top-down budget)", step, w3});
-  app.setView(sim::SimApp::View::FPV);
+  app.setView(sim::SimApp::View::CHASE);
   const double step3 = timeIt([&](int) { simMs += 20; app.step(simMs, 20); }, 500, &w3);
   rows.push_back({"sim step in the 3D view (physics + air + cache refresh)", step3, w3});
   // Air alone.

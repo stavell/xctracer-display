@@ -81,21 +81,45 @@ static void shots(const char* dir, terrain::Terrain& t) {
   app.setView(SimApp::View::TOP);
   run(app, 200, sm);
   dump(app, dir, "sim_top_ridge", 3);
-  app.setView(SimApp::View::FPV);
-  dump(app, dir, "sim_fpv_ridge", 3);
+  app.setView(SimApp::View::CHASE);
+  run(app, 5, sm);
+  dump(app, dir, "sim_chase_ridge", 3);
+  // The chase camera in a right turn: the glider swings to the left of the screen, the horizon tilts a fraction of the bank.
+  app.onKey(KEY_RIGHT, true, 0);
+  run(app, 120, sm);
+  dump(app, dir, "sim_chase_turn", 3);
+  app.onKey(KEY_RIGHT, false, 0);
+  app.onKey(KEY_UP, true, 0);                                // speed bar: the canopy shows more of its top
+  run(app, 100, sm);
+  dump(app, dir, "sim_chase_bar", 3);
 
   SimApp app2;
   sm = 0;
   if (thermal(app2, t, sm)) {
     app2.setAssist(true);
     app2.setView(SimApp::View::TOP);
-    // circle right: bank held
-    app2.onKey(KEY_RIGHT, true, 0);
+    app2.onKey(KEY_RIGHT, true, 0);                          // circle right: bank held
     run(app2, 750, sm);
     dump(app2, dir, "sim_top_thermal", 3);
-    app2.setView(SimApp::View::FPV);
-    dump(app2, dir, "sim_fpv_thermal", 3);
+    app2.setView(SimApp::View::CHASE);
+    run(app2, 10, sm);
+    dump(app2, dir, "sim_chase_thermal", 3);
   }
+
+  // At launch with the assist on: the thermals a pilot can reach.
+  SimApp app3;
+  app3.setTerrain(&t);
+  app3.setSite(0);
+  app3.setSeed(7);
+  app3.begin(0);
+  app3.setAssist(true);
+  app3.setView(SimApp::View::TOP);
+  uint32_t sm3 = 0;
+  run(app3, 30, sm3);
+  dump(app3, dir, "sim_top_launch_assist", 3);
+  app3.setView(SimApp::View::CHASE);
+  run(app3, 5, sm3);
+  dump(app3, dir, "sim_chase_launch", 3);
 }
 
 // The standard renders from the Sopot fixture pack (run by emu_main shots).
