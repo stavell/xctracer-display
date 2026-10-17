@@ -149,6 +149,13 @@ The circle fit needs a full turn. The extended Kalman filter (EKF) learns from o
   floored at $10^{-6}$ on the diagonal.
 * **Observability**: with constant airspeed this is only informative once the heading has changed. In
   straight flight the covariance stays large and the filter reports not confident.
+* **Learning gate**: the update is applied only in a turn: the course must have moved by at least 30 degrees within the
+  last 20 usable seconds (a ring of the last 20 courses of seconds with a fix and speed >= 3 m/s;
+  $\max_i|c_{now}-c_i|\ge 30^\circ$). Otherwise the step only grows the covariance. Why: in a near-straight glide
+  the airspeed is not constant (speed bar, turbulence) and the course wanders, so there is no wind information, yet
+  the filter explained the speed scatter with a large wind and a tiny airspeed while its covariance shrank (the
+  model says $V_a$ is constant) and it reported confident. The constant-$V_a$ assumption fails exactly where
+  the wind is unobservable.
 
 | Constant | Value |
 |---|---|
@@ -158,7 +165,8 @@ The circle fit needs a full turn. The extended Kalman filter (EKF) learns from o
 | Initial state | wind 0, 0 and $V_a$ = 10 m/s |
 | Initial covariance | diag(25, 25, 9) |
 | Step skipped if | no fix, non-finite input, speed < 3 m/s, or $r<0.5$ m/s |
-| Outlier gate | skip the update if $y^2 > 9S$ (3 sigma) |
+| Outlier gate | skip the update if $y^2 > 9S$ (3 sigma). Outlier balance $k$: +1 per outlier, -1 per accepted update; $k = 5$ sets $P_{22}=9$ and the wind-airspeed covariances to 0; $k \ge 10$ sets $P=\mathrm{diag}(25,25,9)$ and $k=0$ |
+| Learning gate | course spread $\ge 30^\circ$ within the last 20 usable seconds |
 | Clamps | $V_a$ in 5..25 m/s, wind magnitude at most 25 m/s |
 | Time step | $\Delta t$ clamped to 1..5 s |
 
@@ -181,7 +189,14 @@ its own age.
 **Seeding.** The EKF starts at zero wind with $P=25$. The first accepted circle fit (and the first after a
 gap of more than 120 s) re-initialises it to the fit wind with $P=\mathrm{diag}(4,4,9)$ and $V_a=10$,
 but only while the EKF is not confident; a confident EKF is left alone, since it has averaged much
-more data than one 30 s fit. The seed happens before that tick's EKF step, so the sample still counts. The wind profile (next section) deliberately uses the circle fit only, because the EKF adapts over
+more data than one 30 s fit. The seed happens before that tick's EKF step, so the sample still counts.
+
+**Restart on contradiction.** While the EKF is confident and the smoothed circle-fit wind is more than 3 m/s away from
+it, a counter of accepted fits in a row grows (it resets when they agree); at 8 the EKF is re-initialised from the smoothed fit
+with $P=4$ (not confident, so the circle fit is shown meanwhile). The fit measures the wind directly from a whole turn
+with strict gates; the EKF can be pulled off by a model assumption it cannot check, and its small covariance then
+rejects the correct data at the 3 sigma gate. Without this a wrong confident EKF lasted about 1000 s
+(NOTES.md, "Wind EKF locked high"). The wind profile (next section) deliberately uses the circle fit only, because the EKF adapts over
 minutes on purpose and would smear how the wind changes with height.
 
 ## 5. Wind and temperature by altitude

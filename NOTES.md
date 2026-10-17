@@ -563,7 +563,7 @@ It needs two full turns (about 50 s): after one turn the cue is too often a circ
 * The wind estimate decides everything about the lean. A wind error of dw adds 100 dw / climb m per 100 m. On the SVE climb with the right
   wind (10-14 km/h toward 275-300) the core leans 16-33 m per 100 m toward NW-NNW with rms 25 m of the core points; started at 4000 s instead the
   wind estimator locked on 42 km/h (wrong by 30 km/h: the airspeed in the circles came out 1-19 m/s) and the lean read 200-300 m/100 m. The page
-  shows no lean above 60 m/100 m. That wrong start-up wind is an existing estimator problem, not fixed here.
+  shows no lean above 60 m/100 m. That wrong start-up wind was an estimator problem, fixed 2026-10-17 ("Wind EKF locked high" below).
 * Sopot: lean 6-26 m/100 m, no stable direction; the lift-weighted core wanders about 20-30 m from circle to circle.
 * Strength by height followed the climb: SVE climb 4.0 m/s at 1700 m, 2.0 at 1800 m, 0.3 at the top at 1872 m; the trend read BUILDING, FADING, TOP in that order.
 * The air-frame heading is useless for finding circles when the wind estimate is off (above); the ground course is robust. Circle periods
@@ -614,3 +614,77 @@ tests that count presses were updated.
   shorter. Slowing the ramps by the scale would make a button tap unusable; scaling the wing lag would make the glider lazier
   than physics. So the physics is the physics and the hands stay real.
 - **Cost**: 5 physics substeps per frame, about 0.005 ms on the PC; negligible next to the render.
+
+## Wind EKF locked high (2026-10-17)
+
+**Symptom.** Replay of `2026-08-16-XCT-SVE-09.igc` from 4000 s: the shown wind was 42-46 km/h from 205 s on and stayed above 30 km/h for
+about 1000 s (truth 8-16 km/h toward 260-300). The sopot flight from 1500 s did the same (27 km/h shown, truth about 7).
+
+**Reference** (`host/wind_ref.py`, shares no code with the firmware). Geometric (not algebraic) robust circle fit of the ground-velocity vectors
+over 36 s windows in which the glider turned the same way by at least 300 degrees; gates: radius 25-50 km/h, residual 6 % of the radius,
+at least 80 % of the points kept. The reference at a second is the median of the accepted windows within +-45 s, needing 3 that agree within
+2.5 km/h (SVE: 3144 s with a reference, 549 windows; sopot: 1062 s, 318 windows). `build.sh windtrace lines.txt` writes the per-second
+device state (raw fit, smoothed fit, EKF, shown wind, ages) and the script scores it at several start offsets, from 60 s after a reference run
+starts (a causal estimator needs a turn first). Thermal drift of the circle centres is a sanity check only (`--table`).
+
+**Cause** (traced second by second; minimal reproduction `wind_tests::test_glide_scatter_teaches_nothing`):
+1. The EKF applied its pseudo-measurement `|g - w| = Va` every second, also in a straight glide. There the airspeed is not constant (the
+   ground speed swings 29-50 km/h, the pilot is on and off the bar) and the course wanders +-15 degrees. With almost no heading change the wind is
+   not observable, and the filter explained the speed scatter with a large wind along the track and an airspeed that sank to its 5 m/s floor
+   (wind 45 km/h, Va 5.0 m/s).
+2. Its covariance shrank anyway (the model says Va is constant, R = 1 per sample), so sigma went below 0.8 m/s and the filter was
+   *confident* at 205 s, before any circle. wind() prefers a confident EKF.
+3. The seeding rule added with the circle-fit seed ("only while the EKF is not confident") then made it permanent: the first circle fit
+   (340 s) found the EKF confident and left it alone. A wrong state with a small covariance also rejects every correct measurement at the
+   3 sigma outlier gate, so it could not recover; it crept back only through the process noise (about 1000 s).
+4. A second face of the same lock-out, found while testing: with speed noise above about 1.6 m/s the old filter froze at a wrong wind even during
+   circles (all measurements outliers, state never changing).
+Not the cause: units, latency of course/speed (the IGC-derived lines are consistent), the circle fit (it was right in that episode: 10.8 km/h
+toward 278), the seed value. Raising the airspeed floor to 7-8 m/s made it worse (66-82 km/h): the wind is the dumping ground.
+
+**Fix** (`windekf.*`, `flight.*`; the circle fit is unchanged):
+- *Learn only in a turn.* A measurement is applied only when the course has moved by at least 30 degrees within the last 20 usable
+  seconds; otherwise only the covariance grows (wind sigma +0.0004 per second as before, so the wind stays "confident but old" through a long
+  glide exactly as before). The course history is a 20-float ring in the filter. Tried 10/15/20 s windows and 15/25/30/45 degrees: all remove
+  the lock; 30 degrees in 20 s keeps the S-turn tests (the apex seconds of a 100 degree S-turn still count).
+- *Outlier balance.* Outliers in turning flight count +1, accepted updates -1. At 5 only the airspeed variance is reopened (the usual
+  cause is a new speed regime on entering a thermal; the wind is kept), at 10 the whole covariance (P = diag(25, 25, 9)): the wind is then not
+  confident and not shown from the EKF until the next turns pull it back (a change to 30 km/h after a settled 12 km/h estimate is followed
+  within about 35 s of circling; before: never).
+- *Restart from a persistent contradiction.* If the EKF is confident and 8 accepted circle fits in a row are more than 3 m/s (11 km/h) away
+  from it, it is restarted from the smoothed fit (P = 4, not confident), so a wrong confident EKF cannot outlast the first circles. The first
+  fit after a gap still leaves a confident EKF alone for those 8 s (an EKF that is right is not thrown away by one 30 s fit). On the two flights
+  this rule never fired (the learning gate alone fixes them); it is the safety net for the failures the gate cannot see.
+- Honesty: a restarted or inflated EKF is not confident, so `wind()` falls back to the circle fit (with its own age) or to
+  invalid (`--`). The age rules are unchanged.
+
+**Result** (km/h vector error of the shown wind against the reference, hard reference seconds only; "wrong" = shown with age <= 120 s and more
+than 8 km/h off). Full tables: `host/wind_ref.py <igc> --starts ...`.
+
+| flight | start | before: median / p90 / max | wrong | after: median / p90 / max | wrong |
+|---|---|---|---|---|---|
+| SVE | 0 | 2.2 / 3.5 / 12.6 | 64 s | 2.2 / 3.4 / 8.2 | 36 s (8.0-8.2) |
+| SVE | 1500 | 2.2 / 3.6 / 12.6 | 64 s | 2.2 / 3.4 / 8.2 | 36 s |
+| SVE | 4000 | 2.6 / **35.5 / 38.9** | **316 s** | 2.1 / 3.4 / 6.0 | 0 |
+| SVE | 4185 | 2.2 / 3.5 / 6.4 | 0 | 2.1 / 3.4 / 5.8 | 0 |
+| SVE | 6000 | 2.1 / 3.1 / 5.1 | 0 | 2.1 / 3.1 / 5.1 | 0 |
+| sopot | 0 | 1.8 / 3.5 / 8.6 | 2 s | 1.6 / 3.5 / 6.4 | 0 |
+| sopot | 1000 | 1.9 / 4.0 / 6.5 | 0 | 1.6 / 4.1 / 6.7 | 0 |
+| sopot | 1500 | 13.1 / **32.7 / 33.5** | **254 s** | 1.4 / 2.5 / 3.2 | 0 |
+| sopot | 2000 | 20.8 / **25.9 / 29.2** | **217 s** | 1.5 / 2.6 / 3.2 | 0 |
+| sopot | 3000 | 2.1 / 2.6 / 3.2 | 0 | 2.1 / 2.5 / 3.2 | 0 |
+
+All 15 SVE offsets (0-6500 s) and 11 sopot offsets (0-4000 s) were run. After the fix the worst error of the shown wind over all of them is
+8.8 km/h (SVE, start 3000: the stretch where the wind changed by about 14 km/h between two thermals and the stiff EKF, Q_W = 0.0004, needs
+about 60 s of circling to follow; the circle fit follows in about 30 s) and the median 1.4-2.3 km/h. The reference itself is good to about
+2-3 km/h (spread between its windows), so differences below that are not meaningful.
+
+**Cost.** A 20-float ring and a 20-step max loop (one `fmodf` each) once per data second in the EKF; 4 bytes in `FlightModel`; RAM about
++100 bytes. The EKF update itself runs less often (only in turns).
+
+**Tests.** `wind_tests.h`: the glide-scatter reproduction (old code: confident at 50 km/h; new: never confident), recovery after a wrong
+confident state (change to 30 km/h; old: stuck at 11 km/h), and replays of the SVE (from 4000 s) and sopot (from 1500 s) excerpts
+(`wind_fixtures.h`, generated by `host/make_wind_fixture.py`): no confident EKF before the first circle, never more than 8 km/h
+from the reference once a wind is shown. They fail on the old code (8 failures). `test_ekf_seed_from_circle_fit` also covers the restart from a
+persistent contradiction. Whole flights: `host/wind_ref.py <igc>` (manual), `build.sh wind lines.txt` as before.
+

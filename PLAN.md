@@ -178,7 +178,7 @@ redraw only on position/heading change; (4) box player integration (pack file in
 
 Done: `core/thermal3d.*`, the centring page, cue measurement (NOTES.md). Next: fly it (replay on the device with `ctl.py page center`), tune the
 25 / 50 m rings and the 8 m no-arrow threshold with a pilot; make the cue available earlier than two turns (a better first-turn
-estimate); fix the start-up wind estimate that locked on 42 km/h (SVE from 4000 s); try the two buttons (A/B) for zoom.
+estimate); (done 2026-10-17: the start-up wind estimate that locked on 42 km/h, NOTES.md "Wind EKF locked high"); try the two buttons (A/B) for zoom.
 
 ## Clock in sleep (idea 2026-10-16)
 
