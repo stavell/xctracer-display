@@ -26,6 +26,7 @@ P=../src/platform
 T=../src/apps/games/tetris
 L=../src/apps/launcher
 S=../src/apps/settings
+STORAGE="$P/storage/pack_header.cpp $P/storage/pack_proto.cpp $P/storage/pack_loader.cpp"
 TERRAIN="$P/terrain/crc32.cpp $P/terrain/tile_codec.cpp $P/terrain/terrain.cpp $P/terrain/relief.cpp $P/terrain/map_vectors.cpp"
 TETRIS="$T/tetris.cpp $T/tetris_view.cpp $T/tetris_app.cpp"
 M=../src/apps/games/sim
@@ -73,7 +74,7 @@ if [ "$1" = "play" ] || [ "$1" = "smoke" ]; then
   shift
   exec out/play "$@"
 fi
-SRC="$VARIO $GFX $TETRIS $SIM $LAUNCHER $SETTINGS $TERRAIN out/Adafruit_GFX_host.cpp"
+SRC="$VARIO $GFX $TETRIS $SIM $LAUNCHER $SETTINGS $TERRAIN $STORAGE out/Adafruit_GFX_host.cpp"
 FLAGS="-std=c++17 -g -O1 -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I.
        -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all"
 c++ $FLAGS -I"$G" $SRC emu_main.cpp -o out/emu

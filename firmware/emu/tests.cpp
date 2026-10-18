@@ -1606,6 +1606,7 @@ static void test_app_anim_cadence() {
 #include "sharp_frame_tests.h"
 #include "box_tests.h"
 #include "terrain_tests.h"
+#include "storage_tests.h"
 #include "map_page_tests.h"
 #include "sim_tests.h"
 #include "wind_tests.h"
@@ -1753,6 +1754,7 @@ int main() {
   tt::test_tetris();
   bx::test_box();
   terrain_tests::run();
+  storage_tests::run();
   map_page_tests::run();
   sim_tests::run();
   wind_tests::run();
