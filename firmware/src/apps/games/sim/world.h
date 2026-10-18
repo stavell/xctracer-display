@@ -25,7 +25,7 @@ class World {
   static constexpr float kTouchSpeed = 4.5f;        // m/s, hardest survivable landing
   static constexpr float kMaxLandSlope = 0.70f;     // rise / run
 
-  struct TrailPt { float x, y, z; };
+  struct TrailPt { float x, y; };                // the map draws the track; the height is not needed
 
   World() : air_(1) {}
   // Start a flight. The cache window is filled completely before returning. windSpeed < 0 = the usual flying wind (5 m/s,
@@ -36,7 +36,9 @@ class World {
   void beginAt(IHeightSource* src, uint32_t seed, float x, float y, float aglStart, float headingDeg, float windFromDeg,
                float windSpeed, float timeOfDay = 0);
 
-  void step(const Controls& c, float dt);
+  // cacheBudget: cells of the height cache to load in this step (a run of substeps shares one budget, see SimApp::step).
+  void step(const Controls& c, float dt, int cacheBudget = kCacheBudget);
+  static constexpr int kCacheBudget = 48;
   // The day: how thermic (Air::setLevel, applies at the next begin) and the wind. A new wind takes effect at once but
   // eases in at 0.6 m/s per second (a 30 km/h change in about 14 s), so the air never jumps under the glider.
   void setLevel(int l) { level_ = l; }

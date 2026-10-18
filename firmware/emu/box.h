@@ -3,7 +3,7 @@
 // wiring mirrors firmware/src/main_box.cpp (that one over the real hardware, this one over mocks). Used by
 // the tests and by the player (`build.sh play box`).
 #include <memory>
-#include "apps/games/sim/sim_app.h"
+#include "apps/games/sim/sim_box.h"
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/settings/settings_app.h"
@@ -31,12 +31,12 @@ struct Box {
   App varioCore;
   VarioApp vario;
   // Like main_box.cpp: the tool, Tetris and the sim share one arena and exist only while they are the active app.
-  static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimApp), maxSize(sizeof(CompassTool), sizeof(TetrisApp)));
+  static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimBox), maxSize(sizeof(TerrainKit), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
   AppArenaStore<kArenaBytes> arena;
   uint32_t seed;
   LazyApp<CompassTool> compassTool;
   LazyApp<TetrisApp> tetris;
-  LazyApp<sim::SimApp> flightSim;
+  LazyApp<sim::SimBox> flightSim;
   LauncherApp launcher;
   SettingsApp settings;
   MockTilt tilt;
@@ -62,11 +62,11 @@ struct Box {
     t->setScoreStore(&b.scores);
     return t;
   }
-  static sim::SimApp* makeSim(void* mem, void* ctx) {
+  // Like main_box.cpp: the sim opens the pack by itself (SimBox, a 2-tile cache), from the reader the vario's kit was opened on.
+  static sim::SimBox* makeSim(void* mem, void* ctx) {
     Box& b = *static_cast<Box*>(ctx);
-    sim::SimApp* s = new (mem) sim::SimApp();
+    sim::SimBox* s = new (mem) sim::SimBox(b.kit ? b.kit->terrain.reader() : nullptr);
     s->setTilt(&b.tilt);
-    if (b.kit) s->setTerrain(&b.kit->terrain);
     return s;
   }
 
@@ -76,7 +76,7 @@ struct Box {
     return c;
   }
 
-  explicit Box(uint32_t seed = 1, bool withSim = false)
+  explicit Box(uint32_t seed = 1)
       : varioCore(r.panel, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power, cfg(false)),
         vario(varioCore), seed(seed),
         compassTool(arena, "compass", makeCompass, this), tetris(arena, "tetris", makeTetris, this),
@@ -88,7 +88,7 @@ struct Box {
     host.add(compassTool);
     host.add(settings);
     host.add(launcher);
-    if (withSim) host.add(flightSim);                      // the Sim joins the home grid only when asked: the other tests count tiles
+    host.add(flightSim);
     host.setLauncher(APP_LAUNCHER);
     host.setProbe(&probe);
     varioCore.setClock(&clock);
@@ -96,12 +96,12 @@ struct Box {
     registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
     registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
     registry.add("Settings", "setup", "compass, mounting, time, about", APP_SETTINGS, ICON_SETTINGS, false);
-    if (withSim) registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
+    registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
   }
 
   // A map pack for the vario (the kit must outlive the box); the compass tool has no terrain.
   void setTerrain(TerrainKit* k) {
-    kit = k;                                                // the sim gets it when it is opened
+    kit = k;                                                // the sim opens the same pack when it is started
     varioCore.setTerrain(k);
     launcher.setPack(k);
     settings.setPack(k);

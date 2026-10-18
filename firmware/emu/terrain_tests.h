@@ -161,7 +161,7 @@ static void test_pack_reference() {
   if (bytes.empty() || ref.e.empty()) return;
   static MemReader rd;
   rd = MemReader(bytes.data(), (uint32_t)bytes.size());
-  static Terrain t;
+  static FullTerrain t;
   CHECK(t.open(&rd) == Terrain::OK);
   CHECK(t.isOpen());
   CHECK(t.info().fileSize == bytes.size());
@@ -205,7 +205,7 @@ static void test_pack_reference() {
       if (loadFile(big, bb)) {
         static MemReader br(bb.data(), (uint32_t)bb.size());
         br = MemReader(bb.data(), (uint32_t)bb.size());
-        static Terrain bt;
+        static FullTerrain bt;
         Terrain::Status s = bt.open(&br);
         printf("  full pack %s: open status %d, %u bytes\n", big, (int)s, (unsigned)bb.size());
         CHECK(s == Terrain::OK);
@@ -389,7 +389,7 @@ static void test_corruption() {
   static std::vector<uint8_t> good, bad;
   buildCone(good);
   static MemReader rd;
-  static Terrain t;
+  static FullTerrain t;
   rd = MemReader(good.data(), (uint32_t)good.size());
   CHECK(t.open(&rd) == Terrain::OK);
   CHECK(t.verifyAll());
@@ -450,7 +450,7 @@ static void test_relief_cone() {
   buildCone(bytes);
   static MemReader rd(bytes.data(), (uint32_t)bytes.size());
   rd = MemReader(bytes.data(), (uint32_t)bytes.size());
-  static Terrain t;
+  static FullTerrain t;
   CHECK(t.open(&rd) == Terrain::OK);
   CHECK(contourIntervalFor(5) == 20 && contourIntervalFor(20) == 50 && contourIntervalFor(35) == 100 &&
         contourIntervalFor(100) == 200 && contourIntervalFor(150) == 500 && contourIntervalFor(400) == 1000 &&

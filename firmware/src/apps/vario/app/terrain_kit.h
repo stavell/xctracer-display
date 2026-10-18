@@ -12,7 +12,7 @@
 #include "platform/terrain/terrain.h"
 
 struct TerrainKit : terrain::IPackStatus {
-  terrain::Terrain terrain;
+  terrain::FullTerrain terrain;
   terrain::MapVectors vec;
   TerrainMap map;
   bool ok = false;

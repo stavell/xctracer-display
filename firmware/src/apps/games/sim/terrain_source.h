@@ -18,6 +18,7 @@ class TerrainSource : public IHeightSource {
     if (!t_ || !t_->isOpen()) return false;
     return t_->elevation(lat0_ + y / 111195.0, lon0_ + x / mPerLon_, h);
   }
+  uint32_t cost() const override { return t_ ? t_->tileDecodes() : 0; }
   double lat0() const { return lat0_; }
   double lon0() const { return lon0_; }
   terrain::Terrain* terrain() const { return t_; }

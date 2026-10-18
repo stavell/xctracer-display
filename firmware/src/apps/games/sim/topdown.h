@@ -60,8 +60,8 @@ class TopDownView {
   bool shownValid_ = false, busy_ = false;
   int col_ = 0;
   int ox_ = 0, oy_ = 0;                                  // screen offset of the shown picture's origin
-  int16_t prevBand_[kH];
-  int16_t band_[kH];
+  int8_t prevBand_[kH];                                  // contour band (height / 200 m) of the previous column, per row
+  int8_t band_[kH];
   uint8_t pix_[kH];
   uint32_t renders_ = 0, pixels_ = 0;
 };

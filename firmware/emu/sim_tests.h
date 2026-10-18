@@ -896,7 +896,7 @@ static void playable_site(terrain::Terrain& t, int site, int seeds, const float*
 static void playability() {
   static std::vector<uint8_t> bytes;
   static terrain::MemReader rd;
-  static terrain::Terrain t;
+  static terrain::FullTerrain t;
   const float times[] = {180.0f, 1800.0f};
   int runs = 0, ok = 0;
   if (openPack("fixtures/sopot.pack", bytes, rd, t)) playable_site(t, 0, 8, times, 2, &runs, &ok);
@@ -906,7 +906,7 @@ static void playability() {
   // The real pack (not in the repository): every takeoff of the table.
   static std::vector<uint8_t> bytes2;
   static terrain::MemReader rd2;
-  static terrain::Terrain t2;
+  static terrain::FullTerrain t2;
   const char* big = "/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/bulgaria.pack";
   if (openPack(big, bytes2, rd2, t2)) {
     int r2 = 0, ok2 = 0;
@@ -1012,7 +1012,7 @@ static void tip_lift() {
 static void wind_onto_slope() {
   static std::vector<uint8_t> bytes;
   static terrain::MemReader rd;
-  static terrain::Terrain t;
+  static terrain::FullTerrain t;
   if (!openPack("fixtures/sopot.pack", bytes, rd, t)) return;
   TerrainSource src(&t, kTakeoffs[0].lat, kTakeoffs[0].lon);
   static World w;
@@ -1100,7 +1100,7 @@ static void day_settings() {
   // Strong days climb faster than weak ones (the scripted pilot, Sopot fixture, same seeds).
   static std::vector<uint8_t> bytes;
   static terrain::MemReader rd;
-  static terrain::Terrain t;
+  static terrain::FullTerrain t;
   if (!openPack("fixtures/sopot.pack", bytes, rd, t)) return;
   TerrainSource src(&t, kTakeoffs[0].lat, kTakeoffs[0].lon);
   static World fw;
@@ -1132,7 +1132,64 @@ static void in_the_box() {
   fclose(f);
   rd = terrain::MemReader(bytes.data(), (uint32_t)bytes.size());
   CHECK(kit.open(&rd));
-  static Box b(1, true);
+  // The box gives the sim a Terrain with a cache of two tiles and no relief scratch. It must read the same heights as the vario's
+  // full one, and fill the whole height cache without decoding a tile again and again.
+  {
+    static terrain::TerrainWith<SimBox::kTiles, false> small;
+    CHECK(small.open(&rd) == terrain::Terrain::OK);
+    static HeightCache hcSmall, hcFull;
+    TerrainSource ssmall(&small, kTakeoffs[0].lat, kTakeoffs[0].lon), sfull(&kit.terrain, kTakeoffs[0].lat, kTakeoffs[0].lon);
+    hcSmall.attach(&ssmall);
+    hcFull.attach(&sfull);
+    kit.terrain.flush();
+    kit.terrain.resetStats();
+    small.resetStats();
+    CHECK(hcSmall.fill(0, 0) == HeightCache::N * HeightCache::N && hcFull.fill(0, 0) == HeightCache::N * HeightCache::N);
+    CHECK(memcmp(hcSmall.heights(), hcFull.heights(), sizeof(int16_t) * HeightCache::N * HeightCache::N) == 0);
+    CHECK(memcmp(hcSmall.shades(), hcFull.shades(), HeightCache::N * HeightCache::N) == 0);
+    printf("  height cache fill from the pack: %u tile decodes with %d tiles, %u with %d\n", (unsigned)small.tileDecodes(), SimBox::kTiles,
+           (unsigned)kit.terrain.tileDecodes(), terrain::kCacheTiles);
+    // A row or column of the window crosses 5 tiles, and two tiles cannot hold them: each line decodes them again (about 5 per
+    // line, 0.7 s at the start of a flight on the device). Flying then costs the same per line, at most one decode per frame.
+    CHECK(small.tileDecodes() < 1000 && small.crcErrors() == 0 && small.readErrors() == 0);
+    float g[3 * 240];
+    terrain::Window win;
+    win.lat = kTakeoffs[0].lat; win.lon = kTakeoffs[0].lon; win.w = 240; win.h = 3;
+    CHECK(small.hillshade(win, terrain::ReliefStyle(), 0, 3, (uint8_t*)g) == 0);   // no relief scratch: nothing drawn, nothing overrun
+  }
+  // The sim in the box opens the pack by itself and starts a flight from it; with no pack it stays on its message.
+  {
+    sim::SimBox with(&rd), without(nullptr);
+    CHECK(with.terrain().isOpen() && !without.terrain().isOpen());
+    with.begin(0);
+    without.begin(0);
+    CHECK(with.mode() == SimApp::Mode::DAY && without.mode() == SimApp::Mode::NOMAP);
+    with.showDayScreen(false);
+    with.startFlight();
+    CHECK(with.mode() == SimApp::Mode::FLYING && with.world().cache().complete() && with.world().agl() > 100.0f);
+    without.startFlight();
+    CHECK(without.mode() == SimApp::Mode::NOMAP);
+    // Flying at x5 for 5 minutes of sim time over the pack: a frame loads cells only up to the first decode (a line of the window
+    // takes about 5 frames), so no frame decodes more than the tiles of one cell: 4 at most, where four tiles meet.
+    with.setTimeScale(5);
+    with.startAt(0, 0, 1500.0f, 0.0f, 180.0f, 0.0f, 1, 0.0f);     // heading north: a new row of the window every 200 m
+    with.onKey(KEY_UP, true, 0);                                  // speed bar
+    const uint32_t decodes0 = with.terrain().tileDecodes();
+    uint32_t worst = 0, simMs = 0;
+    int incomplete = 0;
+    for (int f = 0; f < 3000 && with.mode() == SimApp::Mode::FLYING; f++) {
+      const uint32_t d0 = with.terrain().tileDecodes();
+      with.step(simMs, 20);
+      simMs += 20;
+      const uint32_t d = with.terrain().tileDecodes() - d0;
+      if (d > worst) worst = d;
+      if (f > 100 && !with.world().cache().complete()) incomplete++;
+    }
+    printf("  flown over the pack at x5: %.1f s, %.0f m, worst frame %u tile decodes, window incomplete in %d frames, %u decodes flying\n",
+           (double)with.world().time(), (double)with.world().distanceFlown(), (unsigned)worst, incomplete, (unsigned)(with.terrain().tileDecodes() - decodes0));
+    CHECK(worst <= 4 && with.world().distanceFlown() > 2000.0f);
+  }
+  static Box b(1);
   b.setTerrain(&kit);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) b.tick(now); };

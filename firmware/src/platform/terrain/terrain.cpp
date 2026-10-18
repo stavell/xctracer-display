@@ -37,7 +37,7 @@ bool parseLayer(IBlockReader* rd, const Section& s, int kind, Layer* L) {
 }  // namespace
 
 void Terrain::flush() {
-  for (int i = 0; i < kCacheTiles; i++) { key_[i] = kEmptyKey; stamp_[i] = 0; ok_[i] = false; }
+  for (int i = 0; i < nTiles_; i++) { key_[i] = kEmptyKey; stamp_[i] = 0; ok_[i] = false; }
   mruKey_ = kEmptyKey;
   mruTile_ = nullptr;
 }
@@ -125,7 +125,7 @@ const int16_t* Terrain::tile(int layer, uint32_t ti) {
   const uint32_t key = ((uint32_t)layer << 24) | ti;
   if (key == mruKey_) return mruTile_;
   int victim = 0;
-  for (int i = 0; i < kCacheTiles; i++) {
+  for (int i = 0; i < nTiles_; i++) {
     if (key_[i] == key) {
       stamp_[i] = ++clock_;
       mruKey_ = key;

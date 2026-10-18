@@ -190,7 +190,7 @@ static void testLoader() {
     FlashBlockReader rd(fl);
     rd.attach(fh.packLen);
     terrain::MemReader mem(pack.data(), (uint32_t)pack.size());
-    terrain::Terrain ta, tb;
+    terrain::FullTerrain ta, tb;
     CHECK(ta.open(&mem) == terrain::Terrain::OK);
     CHECK(tb.open(&rd) == terrain::Terrain::OK);
     CHECK(tb.verifyAll());

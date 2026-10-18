@@ -215,7 +215,7 @@ static void shots(const char* dir, terrain::Terrain& t) {
 static void fixtureShots(const char* dir) {
   static std::vector<uint8_t> bytes;
   static terrain::MemReader rd;
-  static terrain::Terrain t;
+  static terrain::FullTerrain t;
   FILE* f = fopen("fixtures/sopot.pack", "rb");
   if (!f) return;
   fseek(f, 0, SEEK_END);

@@ -7,7 +7,7 @@
 #include <chrono>
 #include "sim_shots.h"
 
-static terrain::Terrain gTerrain;
+static terrain::FullTerrain gTerrain;
 
 int main(int argc, char** argv) {
   if (argc < 3) { fprintf(stderr, "usage: sim_demo PACK OUTDIR [bench]\n"); return 2; }

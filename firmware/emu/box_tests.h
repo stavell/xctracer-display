@@ -234,8 +234,8 @@ static void box_flow() {
   CHECK(b.host.active() == &b.launcher);
   CHECK(!b.r.power.off);
   CHECK(b.launcher.selected() == 1);
-  // Select the vario again: next, next, next (wraps through the Start-up row), long.
-  u.shortp(); u.shortp(); u.shortp();
+  // Select the vario again: next x4 (Compass, Flight sim, Settings, wraps to the Vario), long.
+  u.shortp(); u.shortp(); u.shortp(); u.shortp();
   CHECK(b.launcher.selected() == 0);
   u.longp();
   CHECK(b.host.active() == &b.vario);
@@ -316,7 +316,9 @@ static void box_gestures() {
     auto tap = [&](Key k) { b.r.input.setKey(k, true, u.now); u.run(50); b.r.input.setKey(k, false, u.now); u.run(50); };
     CHECK(b.launcher.selected() == 0);
     tap(KEY_DOWN);  CHECK(b.launcher.selected() == 2);
-    tap(KEY_DOWN);  CHECK(b.launcher.selected() == 2);          // no third row with four apps
+    tap(KEY_DOWN);  CHECK(b.launcher.selected() == 4);
+    tap(KEY_DOWN);  CHECK(b.launcher.selected() == 4);          // no fourth row with five apps
+    tap(KEY_UP);    CHECK(b.launcher.selected() == 2);
     tap(KEY_RIGHT); CHECK(b.launcher.selected() == 3);
     tap(KEY_LEFT);  CHECK(b.launcher.selected() == 2);
     tap(KEY_UP);    CHECK(b.launcher.selected() == 0);
@@ -345,6 +347,8 @@ static void box_gestures() {
     CHECK(b.host.active() == &b.settings);
     u.longp();
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_COMPASS);
+    u.longp();
+    CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_SIM);
     u.longp(); u.longp();                           // Settings is skipped: vario, then Tetris
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_TETRIS);
     // A new power-on starts that app, and the vario's radios stay quiet until it is opened.
@@ -688,7 +692,7 @@ static void lazy_app_slots() {
 // In the box the arena holds the sim, Tetris and the compass tool in turn; the high score survives the app.
 static void box_lazy_apps() {
   puts("box: sim, Tetris and the compass tool share one arena, the best score is kept");
-  Box b(1, true);
+  Box b(1);
   BoxRun u(b);
   b.keys.set(SLOT_TETRIS_BEST, 4321);
   b.boot(0);

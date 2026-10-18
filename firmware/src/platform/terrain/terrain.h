@@ -4,7 +4,9 @@
 // IBlockReader (QSPI on the device). It never invents a value: outside the stored area, on a tile that is
 // not stored, on a read error or on a tile whose CRC fails, the query returns false.
 //
-//   static Terrain terrain;                       // ~20 kB of tile cache: a global, never a local
+//   static FullTerrain terrain;                   // ~20 kB of tile cache: a global, never a local
+//   static TerrainWith<4> small;                  // the same reader with a cache of 4 tiles (8 kB): for callers that read
+//                                                 // heights in short runs (the flight sim), not the relief renderer
 //   MemReader flash(bytes, size);
 //   if (terrain.open(&flash) != Terrain::OK) ...  // header, section table, small sections checked
 //   float m;
@@ -24,7 +26,7 @@
 
 namespace terrain {
 
-constexpr int kCacheTiles = 9;                 // 3 x 3 tiles of 32 x 32 cells: 18 kB
+constexpr int kCacheTiles = 9;                 // 3 x 3 tiles of 32 x 32 cells: 18 kB (the vario's map page; see TerrainWith)
 constexpr int kMaxStrip = 64;                  // relief renders columns in strips of at most this many pixels
 
 // A map window: what the relief renderer paints into a w x h pixel grid.
@@ -67,7 +69,6 @@ class Terrain {
  public:
   enum Status : uint8_t { OK, ERR_READ, ERR_MAGIC, ERR_VERSION, ERR_HEADER_CRC, ERR_LAYOUT, ERR_SECTION_CRC, ERR_NO_DEM };
 
-  Terrain() { flush(); }
 
   // Validate and attach to a pack. The reader must outlive the Terrain.
   Status open(IBlockReader* reader);
@@ -108,6 +109,13 @@ class Terrain {
   void resetStats() { decodes_ = crcErrors_ = readErrors_ = 0; }
   void flush();                                // forget every cached tile
 
+ protected:
+  // The tile cache is the owner's storage (TerrainWith<N> below): N tiles, their keys, ages and "decoded fine" flags. Callers
+  // use FullTerrain or TerrainWith<N>; the derived constructor calls flush() once its arrays exist.
+  // rows is the relief renderer's scratch (3 height rows of a strip); null = no relief, relief() then returns 0.
+  Terrain(int n, int16_t (*tiles)[kMaxTileCells], uint32_t* key, uint32_t* stamp, bool* ok, float (*rows)[kMaxStrip + 2])
+      : nTiles_(n), key_(key), stamp_(stamp), ok_(ok), tiles_(tiles), rows_(rows) {}
+
  private:
   const int16_t* tile(int layer, uint32_t ti);
   bool cell(int layer, int r, int c, int* v);
@@ -116,16 +124,40 @@ class Terrain {
 
   IBlockReader* reader_ = nullptr;
   PackInfo info_;
-  uint32_t key_[kCacheTiles];
-  uint32_t stamp_[kCacheTiles];
-  bool ok_[kCacheTiles];
+  int nTiles_;
+  uint32_t* key_;
+  uint32_t* stamp_;
+  bool* ok_;
+  int16_t (*tiles_)[kMaxTileCells];
   uint32_t clock_ = 0;
   uint32_t mruKey_ = 0xFFFFFFFFu;
   const int16_t* mruTile_ = nullptr;
   uint32_t decodes_ = 0, crcErrors_ = 0, readErrors_ = 0;
-  int16_t tiles_[kCacheTiles][kMaxTileCells];
   uint8_t coded_[kMaxTileBytes];               // flash read buffer for one coded tile
-  float rows_[3][kMaxStrip + 2];               // relief: height rows of the strip being shaded
+  float (*rows_)[kMaxStrip + 2];               // relief: height rows of the strip being shaded
 };
+
+// A Terrain with its own cache of N tiles (2 kB each). N >= 4 keeps the 2 x 2 neighbourhood of a bilinear sample resident.
+template <bool R> struct ReliefScratch { float rows[3][kMaxStrip + 2]; };
+template <> struct ReliefScratch<false> {};
+inline float (*reliefRows(ReliefScratch<true>& s))[kMaxStrip + 2] { return s.rows; }
+inline float (*reliefRows(ReliefScratch<false>&))[kMaxStrip + 2] { return nullptr; }
+
+// kRelief = false leaves out the relief renderer's 0.8 kB of scratch (elevation and ceiling queries only).
+template <int N, bool kRelief = true>
+class TerrainWith : public Terrain {
+ public:
+  TerrainWith() : Terrain(N, tileStore_, keyStore_, stampStore_, okStore_, reliefRows(scratch_)) { flush(); }
+  TerrainWith(const TerrainWith&) = delete;            // the base points into this object's arrays
+  TerrainWith& operator=(const TerrainWith&) = delete;
+
+ private:
+  int16_t tileStore_[N][kMaxTileCells];
+  uint32_t keyStore_[N];
+  uint32_t stampStore_[N];
+  bool okStore_[N];
+  ReliefScratch<kRelief> scratch_;
+};
+typedef TerrainWith<kCacheTiles> FullTerrain;
 
 }  // namespace terrain

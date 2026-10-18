@@ -20,6 +20,7 @@
 //            you will fly and press A. In the 3D view the horizon counter-rotates by the box roll, so it stays level
 //            to the real world (a window into the sky).
 //   Buttons: as above (D-pad). The tilt source is an ITilt: the AHRS on the device, the mouse in the PC player (T).
+#include <new>
 #include <stdint.h>
 #include "apps/games/sim/chase.h"
 #include "apps/games/sim/sim_hud.h"
@@ -45,6 +46,9 @@ class SimApp : public IApp {
   static constexpr float kWindKmh[kWindSpeeds] = {0, 10, 15, 20, 25, 30};
 
   SimApp() {}
+  ~SimApp() { dropViews(); }
+  SimApp(const SimApp&) = delete;
+  SimApp& operator=(const SimApp&) = delete;
   // The map pack (platform Terrain); without it the app shows a message instead of flying.
   void setTerrain(terrain::Terrain* t) { terrain_ = t; }
   void setTilt(ITilt* t) { tilt_ = t; }
@@ -70,8 +74,10 @@ class SimApp : public IApp {
   // For the tests, the shots and the player.
   World& world() { return world_; }
   const World& world() const { return world_; }
-  TopDownView& top() { return top_; }
-  VoxelView& voxel() { return voxel_; }
+  // The two views share one block of RAM (only one is drawn at a time): asking for the one that is not alive builds it and
+  // destroys the other. The map picture is rebuilt on every switch to the map anyway (setView), the 3D view keeps no state.
+  TopDownView& top();
+  VoxelView& voxel();
   const ChaseCam& chase() const { return chase_; }
   Mode mode() const { return mode_; }
   View view() const { return view_; }
@@ -80,7 +86,7 @@ class SimApp : public IApp {
   bool assist() const { return assist_; }
   void setThermalStyle(SkyFx::Style st) { style_ = st; }
   SkyFx::Style thermalStyle() const { return style_; }
-  SkyFx& sky() { return sky_; }
+  SkyFx& sky();
   int site() const { return site_; }
   void setSite(int i) { site_ = (i % kTakeoffCount + kTakeoffCount) % kTakeoffCount; }
   uint32_t frames() const { return frame_; }
@@ -121,10 +127,14 @@ class SimApp : public IApp {
   Control ctl_ = Control::BUTTONS;
   float zeroRoll_ = 0, zeroPitch_ = 0, boxRoll_ = 0, rawRoll_ = 0, rawPitch_ = 0;
   World world_;
-  TopDownView top_;
-  VoxelView voxel_;
+  struct ChaseViews { VoxelView voxel; SkyFx sky; };
+  static constexpr size_t kViewBytes = sizeof(TopDownView) > sizeof(ChaseViews) ? sizeof(TopDownView) : sizeof(ChaseViews);
+  void dropViews();
+  ChaseViews& chaseViews();
+  alignas(8) unsigned char views_[kViewBytes];
+  TopDownView* topV_ = nullptr;
+  ChaseViews* chaseV_ = nullptr;
   ChaseCam chase_;
-  SkyFx sky_;
   SkyFx::Style style_ = SkyFx::Style::BUBBLES;      // the default: cheapest and cleanest, strength shows as motion
   SimHud hud_;
   Mode mode_ = Mode::NOMAP;

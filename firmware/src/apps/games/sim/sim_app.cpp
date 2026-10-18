@@ -58,6 +58,32 @@ IHeightSource* SimApp::source() {
   return &tsrc_;
 }
 
+void SimApp::dropViews() {
+  if (topV_) topV_->~TopDownView();
+  if (chaseV_) chaseV_->~ChaseViews();
+  topV_ = nullptr;
+  chaseV_ = nullptr;
+}
+
+TopDownView& SimApp::top() {
+  if (!topV_) {
+    dropViews();
+    topV_ = new (views_) TopDownView();
+  }
+  return *topV_;
+}
+
+SimApp::ChaseViews& SimApp::chaseViews() {
+  if (!chaseV_) {
+    dropViews();
+    chaseV_ = new (views_) ChaseViews();
+  }
+  return *chaseV_;
+}
+
+VoxelView& SimApp::voxel() { return chaseViews().voxel; }
+SkyFx& SimApp::sky() { return chaseViews().sky; }
+
 void SimApp::startFlight() {
   IHeightSource* src = source();
   const Takeoff& to = kTakeoffs[site_];
@@ -74,7 +100,7 @@ void SimApp::startFlight() {
   mode_ = Mode::FLYING;
   menuSel_ = 0;
   c_ = Controls();
-  top_.reset();
+  if (topV_) topV_->reset();
   chase_.reset(world_.glider());
   setView(view_);
 }
@@ -89,7 +115,7 @@ void SimApp::startAt(float x, float y, float aglStart, float headingDeg, float w
   world_.beginAt(src, seed, x, y, aglStart, headingDeg, windFromDeg, windSpeed, timeOfDay);
   mode_ = Mode::FLYING;
   c_ = Controls();
-  top_.reset();
+  if (topV_) topV_->reset();
   chase_.reset(world_.glider());
   setView(view_);
 }
@@ -99,7 +125,7 @@ void SimApp::setView(View v) {
   if (v == View::CHASE && mode_ != Mode::NOMAP) chase_.reset(world_.glider());
   if (v == View::TOP && mode_ != Mode::NOMAP) {
     const Glider& g = world_.glider();
-    top_.renderNow(world_.cache(), g.x, g.y, g.heading, kMapMPerPx);
+    top().renderNow(world_.cache(), g.x, g.y, g.heading, kMapMPerPx);
   }
 }
 
@@ -213,7 +239,9 @@ void SimApp::step(uint32_t simMs, uint32_t dtMs) {
   const float dt = dtMs * 0.001f;
   applyKeys(dt);                                      // the pilot's hands: real time
   // The world: scale_ substeps of one frame's dt each (never one big step), so x5 is 5 x the x1 steps and stable.
-  for (int i = 0; i < scale_ && world_.status() == Status::FLYING; i++) world_.step(c_, dt);
+  // The height cache loads its cells (a frame's worth: kCacheBudget per substep) in the first substep, where it stops after the
+  // first tile decode of the map pack: a frame never pays for several.
+  for (int i = 0; i < scale_ && world_.status() == Status::FLYING; i++) world_.step(c_, dt, i == 0 ? World::kCacheBudget * scale_ : 0);
   if (world_.status() != Status::FLYING) {
     mode_ = Mode::ENDED;
     c_ = Controls();
@@ -224,7 +252,7 @@ void SimApp::step(uint32_t simMs, uint32_t dtMs) {
   }
   if (view_ == View::TOP) {
     const Glider& g = world_.glider();
-    top_.update(world_.cache(), g.x, g.y, g.heading, kMapMPerPx, kRenderBudgetPx);
+    top().update(world_.cache(), g.x, g.y, g.heading, kMapMPerPx, kRenderBudgetPx);
   }
 }
 
@@ -278,21 +306,21 @@ void SimApp::drawFlight(Bitmap1& bm) {
   if (view_ == View::CHASE) {
     // Chase camera behind and above the glider; with tilt steering the horizon counter-rotates by the box roll (see ChaseCam).
     const Camera cam = chase_.camera(g, world_.cache());
-    voxel_.render(bm, world_.cache(), cam);
-    sky_.draw(bm, voxel_, world_.air(), g, cam, world_.time(), assist_, style_);     // clouds always; thermals with the assist
+    voxel().render(bm, world_.cache(), cam);
+    sky().draw(bm, voxel(), world_.air(), g, cam, world_.time(), assist_, style_);     // clouds always; thermals with the assist
     chase_.drawGlider(bm, g, world_.cache(), cam);
   } else {
-    top_.blit(bm, g.x, g.y);
+    top().blit(bm, g.x, g.y);
     const ClipBox clip(0, TopDownView::kTopY, 239, 399);
     float sx, sy, px, py;
-    top_.worldToScreen(g.x, g.y, &sx, &sy);
+    top().worldToScreen(g.x, g.y, &sx, &sy);
     // Thermals the pilot cannot see: only with the assist on, as soft dithered rings.
     if (assist_) {
       static ThermalInfo th[Air::kMaxInfo];                 // static: the loop task has 4 KB of stack
       const int n = world_.air().nearby(g.x, g.y, g.z, world_.time(), 4500.0f, th, Air::kMaxInfo);
       for (int i = 0; i < n; i++) {
         if (th[i].strength < 1.2f) continue;                 // still building up or dying: not worth a ring
-        top_.worldToScreen(th[i].x, th[i].y, &px, &py);
+        top().worldToScreen(th[i].x, th[i].y, &px, &py);
         const int r = 6 + (int)(th[i].strength * 2.5f);
         if (th[i].strength >= 2.5f) fillRing(bm, (int)lroundf(px), (int)lroundf(py), r, r - 3, DRAW_CLEAR, clip);   // strong: a black ring
         else fillRing(bm, (int)lroundf(px), (int)lroundf(py), r, r - 3, Gray(7), clip);
@@ -303,12 +331,12 @@ void SimApp::drawFlight(Bitmap1& bm) {
     bool have = false;
     for (int i = 0; i < world_.trailCount(); i++) {
       const World::TrailPt p = world_.trailAt(i);
-      top_.worldToScreen(p.x, p.y, &px, &py);
+      top().worldToScreen(p.x, p.y, &px, &py);
       if (have) line(bm, (int)lroundf(lx), (int)lroundf(ly), (int)lroundf(px), (int)lroundf(py), DRAW_CLEAR);
       lx = px; ly = py; have = true;
     }
     if (have) line(bm, (int)lroundf(lx), (int)lroundf(ly), (int)lroundf(sx), (int)lroundf(sy), DRAW_CLEAR);
-    const float a = wrapPi(g.heading - top_.mapHeading());
+    const float a = wrapPi(g.heading - top().mapHeading());
     gliderSymbol(bm, sx, sy, a, DRAW_SET, 2);
     gliderSymbol(bm, sx, sy, a, DRAW_CLEAR, 0);
   }

@@ -64,6 +64,7 @@ int HeightCache::refresh(int budget) {
   if (vy0_ < ty0_) vy0_ = ty0_;
   if (vy1_ > ty1) vy1_ = ty1;
   int done = 0;
+  const uint32_t cost0 = src_->cost();
   if (vx0_ >= vx1_ || vy0_ >= vy1_) {                       // nothing left: seed with the middle cell
     const int mx = tx0_ + N / 2, my = ty0_ + N / 2;
     vx0_ = mx; vx1_ = mx + 1; vy0_ = my; vy1_ = my + 1;
@@ -88,6 +89,7 @@ int HeightCache::refresh(int budget) {
       if (k == COL) loadCell(idx, i); else loadCell(i, idx);
       i++;
       done++;
+      if (src_->cost() != cost0) budget = done;             // a tile was decoded: that is this call's share, the rest waits
     }
     curPos_ = i - lo;
     if (i < hi) break;                                      // budget used up inside the strip

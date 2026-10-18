@@ -59,6 +59,7 @@ int Terrain::relief(const Window& win, const ReliefStyle& st, int interval, int 
   if (grey) memset(grey, kNoShade, total);
   if (contour) memset(contour, CONTOUR_NONE, total);
   if (!grey && !contour) return 0;
+  if (!rows_) return 0;                              // a Terrain built without relief scratch
   if (interval <= 0) interval = contourIntervalFor(win.mPerPx);
 
   const Layer& L = info_.layer[0];

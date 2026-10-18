@@ -22,6 +22,9 @@ namespace sim {
 struct IHeightSource {
   virtual ~IHeightSource() {}
   virtual bool at(float x, float y, float* h) = 0;
+  // A running count of the expensive things at() did (tile decodes of the map pack). refresh() stops after the call that
+  // advanced it, so one frame never pays for a run of them. Analytic surfaces have no such cost.
+  virtual uint32_t cost() const { return 0; }
 };
 
 class HeightCache {

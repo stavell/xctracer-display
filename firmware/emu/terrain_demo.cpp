@@ -17,7 +17,7 @@
 
 using namespace terrain;
 
-static Terrain gTerrain;
+static FullTerrain gTerrain;
 static MapVectors gVec;
 static RoadIter gRoads;
 static TownIter gTowns;

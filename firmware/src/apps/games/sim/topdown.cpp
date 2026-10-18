@@ -10,6 +10,7 @@ namespace {
 constexpr float kBias = 4096.0f;
 constexpr float kContour = 200.0f;
 constexpr int kIndexEvery = 5;
+constexpr int8_t kNoBand = 127;                         // "no data" in the band rows; real bands are -2 .. 40 (heights -400 .. 8000 m)
 
 float angDiffDeg(float a, float b) {
   float d = fabsf(wrapPi(a - b)) * kRad2Deg;
@@ -43,7 +44,7 @@ void TopDownView::renderColumn(const HeightCache& hc, const Params& p, uint8_t* 
   for (int y = 0; y < kH; y++, pxk += dxk, pyk += dyk) {
     const int ix = (int)pxk, iy = (int)pyk;
     const int cx = ix - (int)kBias, cy = iy - (int)kBias;
-    if (cx < x0 || cx + 1 >= x1 || cy < y0 || cy + 1 >= y1) { pix_[y] = 1; band_[y] = 0x7fff; continue; }
+    if (cx < x0 || cx + 1 >= x1 || cy < y0 || cy + 1 >= y1) { pix_[y] = 1; band_[y] = kNoBand; continue; }
     const float tx = pxk - (float)ix, ty = pyk - (float)iy;
     const int s00 = HeightCache::slot(cx, cy), s10 = HeightCache::slot(cx + 1, cy);
     const int s01 = HeightCache::slot(cx, cy + 1), s11 = HeightCache::slot(cx + 1, cy + 1);
@@ -54,11 +55,11 @@ void TopDownView::renderColumn(const HeightCache& hc, const Params& p, uint8_t* 
     int lvl = (int)(sh + 3.0f + 0.5f);
     if (lvl > 16) lvl = 16;
     uint8_t white = bayer8(px, y) < 4 * lvl ? 1 : 0;
-    const int16_t band = (int16_t)floorf(h * (1.0f / kContour));
+    const int8_t band = (int8_t)floorf(h * (1.0f / kContour));
     band_[y] = band;
     int boundary = -99999;                                   // contour boundary index between this pixel and a neighbour
-    if (y > 0 && band_[y - 1] != 0x7fff && band_[y - 1] != band) boundary = band > band_[y - 1] ? band : band_[y - 1];
-    if (px > 0 && prevBand_[y] != 0x7fff && prevBand_[y] != band) {
+    if (y > 0 && band_[y - 1] != kNoBand && band_[y - 1] != band) boundary = band > band_[y - 1] ? band : band_[y - 1];
+    if (px > 0 && prevBand_[y] != kNoBand && prevBand_[y] != band) {
       const int bx = band > prevBand_[y] ? band : prevBand_[y];
       if (bx > boundary) boundary = bx;
     }
@@ -89,7 +90,7 @@ int TopDownView::update(const HeightCache& hc, float x, float y, float heading, 
     making_ = Params{x, y, heading, mPerPx};
     busy_ = true;
     col_ = 0;
-    for (int i = 0; i < kH; i++) prevBand_[i] = 0x7fff;
+    for (int i = 0; i < kH; i++) prevBand_[i] = kNoBand;
   }
   int used = 0;
   do {

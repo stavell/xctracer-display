@@ -32,7 +32,7 @@ static double timeIt(F f, int reps, double* worst = nullptr) {
   return sum / reps;
 }
 
-static terrain::Terrain gTerrain;
+static terrain::FullTerrain gTerrain;
 
 int main(int argc, char** argv) {
   const char* packPath = argc > 1 ? argv[1] : "fixtures/sopot.pack";

@@ -72,7 +72,7 @@ void World::setWindTarget(float fromDeg, float speed) {
   windFrom_ = fromDeg;
 }
 
-void World::step(const Controls& c, float dt) {
+void World::step(const Controls& c, float dt, int cacheBudget) {
   if (status_ != Status::FLYING || !(dt > 0)) return;
   if (curE_ != tgtE_ || curN_ != tgtN_) {                // ease the wind toward its target
     const float dx = tgtE_ - curE_, dy = tgtN_ - curN_, d = sqrtf(dx * dx + dy * dy), st = 0.6f * dt;
@@ -81,7 +81,7 @@ void World::step(const Controls& c, float dt) {
     air_.setWind(atan2f(-curE_, -curN_) * kRad2Deg, sqrtf(curE_ * curE_ + curN_ * curN_), windRef_);
   }
   cache_.setCentre(g_.x, g_.y);
-  cache_.refresh(48);
+  cache_.refresh(cacheBudget);
   air_.sample(g_.x, g_.y, g_.z, t_, &s_);
   const float px = g_.x, py = g_.y;
   // Tip lift: lift difference between the right and left wing tip along the wing, from the thermal's gradient.
@@ -115,7 +115,7 @@ void World::step(const Controls& c, float dt) {
   trailT_ += dt;
   if (trailT_ >= 1.0f) {
     trailT_ -= 1.0f;
-    trail_[trailHead_] = TrailPt{g_.x, g_.y, g_.z};
+    trail_[trailHead_] = TrailPt{g_.x, g_.y};
     trailHead_ = (trailHead_ + 1) % kTrailMax;
     if (trailN_ < kTrailMax) trailN_++;
   }

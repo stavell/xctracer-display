@@ -11,7 +11,7 @@
 #include "apps/games/sim/terrain_source.h"
 #include "platform/terrain/terrain.h"
 
-static terrain::Terrain gTerrain;
+static terrain::FullTerrain gTerrain;
 static sim::World gWorld;
 #ifdef OLD_AIR
 #define HOUSES 0

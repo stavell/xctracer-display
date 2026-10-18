@@ -4,13 +4,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <bluefruit.h>
-// The flight sim is NOT in this image by default: it is 93 kB of state (height cache 48 kB, top-down double buffer 22 kB,
-// voxel + sky), and since the map pack reader (QSPI) is not wired yet it would only say so and go home. Built in, the shared
-// app arena would be 93 kB and leave ~46 kB of heap (see NOTES.md "RAM budget"), below the 48 kB scripts/stack_check.py
-// demands. Add -DBOX_WITH_SIM once the sim has been slimmed or its pack reader needs it.
-#ifdef BOX_WITH_SIM
-#include "apps/games/sim/sim_app.h"
-#endif
+#include "apps/games/sim/sim_box.h"
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/settings/settings_app.h"
@@ -62,7 +56,7 @@ static AppConfig appConfig(bool tool) {
   return c;
 }
 // App indices in the host; the home screen lists all but itself.
-enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM };   // APP_SIM only with BOX_WITH_SIM
+enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM };
 
 static App app(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig(false));
 static VarioApp varioApp(app);
@@ -70,11 +64,7 @@ static VarioApp varioApp(app);
 // The apps that are not the start-up app share ONE RAM block (see platform/lazy_app.h): each is built when it is opened
 // and destroyed when it is left. Statically they cost 93 + 44 kB of .bss and left the image with 2 kB of heap, too little
 // for FreeRTOS to start any task (no USB, blank screen). The block is as big as the biggest of them.
-#ifdef BOX_WITH_SIM
-static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimApp), maxSize(sizeof(TerrainKit), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
-#else
-static constexpr size_t kArenaBytes = maxSize(sizeof(TerrainKit), maxSize(sizeof(CompassTool), sizeof(TetrisApp)));
-#endif
+static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimBox), maxSize(sizeof(TerrainKit), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
 static AppArenaStore<kArenaBytes> arena;
 
 // The map pack lives in the QSPI flash (platform/hw/pack_service.h). The vario's terrain kit (65 kB: tile cache, map page
@@ -145,10 +135,9 @@ static TetrisApp* makeTetris(void* mem, void*) {
   return t;
 }
 static LazyApp<TetrisApp> tetrisApp(arena, "tetris", makeTetris);
-#ifdef BOX_WITH_SIM
-static sim::SimApp* makeSim(void* mem, void*) { return new (mem) sim::SimApp(); }   // no pack reader yet: it says so and goes home
-static LazyApp<sim::SimApp> simApp(arena, "flightsim", makeSim);
-#endif
+// The flight sim opens the pack itself with a 4-tile cache (SimBox); without a pack it says so and goes home.
+static sim::SimBox* makeSim(void* mem, void*) { return new (mem) sim::SimBox(pack.reader()); }
+static LazyApp<sim::SimBox> simApp(arena, "flightsim", makeSim);
 static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);
 static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, FW_VERSION);
 
@@ -189,9 +178,7 @@ void setup() {
   host.add(compassApp);
   host.add(settingsApp);
   host.add(launcher);
-#ifdef BOX_WITH_SIM
   host.add(simApp);
-#endif
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&probe);
   host.setRotation(DISPLAY_ROTATION);
@@ -200,9 +187,7 @@ void setup() {
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
   registry.add("Settings", "setup", "compass, mounting, time, about", APP_SETTINGS, ICON_SETTINGS, false);
-#ifdef BOX_WITH_SIM
   registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
-#endif
   const int boot = registry.startupApp(keys);
   if (boot != APP_VARIO) tracer.pause();      // the vario is not the first app: do not scan until it is opened
   host.start(boot, millis());
