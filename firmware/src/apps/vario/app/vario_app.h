@@ -3,6 +3,17 @@
 #include "apps/vario/view/prof.h"
 #include "platform/app_host.h"
 
+struct TerrainKit;
+
+// Gives the vario its terrain kit while it runs. The box image keeps the 65 kB kit in the shared app arena (the vario is
+// the only app that needs it), so the kit exists from begin() to end(): acquire() builds and opens it (nullptr: no pack
+// or no room, the vario then shows no terrain), release() destroys it.
+struct ITerrainProvider {
+  virtual ~ITerrainProvider() {}
+  virtual TerrainKit* acquire() = 0;
+  virtual void release() = 0;
+};
+
 // The flight display as a platform app: forwards to App, which owns the flight model, the screen state
 // machine and the redraw cadence (its wantsFrame()); the host clears, calls draw() and presents.
 //
@@ -14,11 +25,19 @@ class VarioApp : public IApp, private ILauncherHook {
   explicit VarioApp(App& app, const char* name = "vario", bool isVario = true)
       : app_(app), name_(name), isVario_(isVario) {}
   const char* name() const override { return name_; }
+  void setTerrainProvider(ITerrainProvider* p) { terrain_ = p; }
   void begin(uint32_t nowMs) override {
     app_.setLauncher(nav() && nav()->hasLauncher() ? this : nullptr);
+    if (terrain_) app_.setTerrain(terrain_->acquire());
     app_.begin(nowMs);
   }
-  void end() override { app_.end(); }
+  void end() override {
+    app_.end();
+    if (terrain_) {                    // the kit goes away with the app; the next begin() builds it again
+      app_.setTerrain(nullptr);
+      terrain_->release();
+    }
+  }
   void tick(uint32_t nowMs) override { app_.tick(nowMs); }
   void onInput(Key key, ButtonEvent ev) override { if (key == KEY_MAIN) app_.onInput(ev); }
   void onHeld(uint32_t heldMs) override { app_.onHeld(heldMs); }
@@ -34,6 +53,7 @@ class VarioApp : public IApp, private ILauncherHook {
   App& app_;
   const char* name_;
   bool isVario_;
+  ITerrainProvider* terrain_ = nullptr;
 };
 
 // Brackets the clear and the present of a frame for the draw-time profiler (diagnostics build).

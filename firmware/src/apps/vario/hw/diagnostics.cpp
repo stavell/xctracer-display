@@ -7,6 +7,7 @@
 #include "platform/hw/compass_lis.h"
 #include "platform/hw/cyccnt.h"
 #include "platform/hw/panel_sharp.h"
+#include "platform/hw/pack_service.h"
 #include "platform/sensors/ahrs.h"
 #include "platform/sensors/compass.h"
 #include "apps/vario/core/flight.h"
@@ -21,6 +22,9 @@
 static App* gApp;
 static SharpPanel* gPanel;
 static CompassLis* gCompass;
+static PackService* gPack;
+
+void diagnosticsSetPack(PackService* pack) { gPack = pack; }
 
 void diagnosticsBegin(App& app, SharpPanel& panel, CompassLis& compass) {
   gApp = &app;
@@ -100,6 +104,7 @@ static void runFlightBench() {
 // Cost of the primitives the views are built from, timed on the real canvas. Result line: bench ...
 static char benchLine[200];
 static char fontsLine[64];
+static char packBenchLine[96];
 static bool benchPending = false;
 
 void diagnosticsBench() {
@@ -154,6 +159,13 @@ void diagnosticsBench() {
            (unsigned long)(pixelUs / 10), (unsigned long)hUs, (unsigned long)vUs,
            (unsigned long)dUs, (unsigned long)fillUs, (unsigned long)textUs, (unsigned long)ftextUs);
   Serial.print(benchLine);
+  packBenchLine[0] = 0;
+  if (gPack && gPack->hasPack()) {         // the whole pack read once in 1 kB blocks, then its CRC (flash read + CRC-32) over 256 B reads
+    PackService::Bench pb = gPack->benchWholePack();
+    snprintf(packBenchLine, sizeof packBenchLine, "packbench read_kBps=%lu crc_ms=%lu crc_ok=%d\n", (unsigned long)pb.readKBps,
+             (unsigned long)pb.crcMs, pb.crcOk ? 1 : 0);
+    Serial.print(packBenchLine);
+  }
   benchPending = true;                     // print again with the first status line: nobody listens at boot
 }
 #else
@@ -198,7 +210,7 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   Serial.printf(" lines=%d", panel.lastLines());
   Serial.print("\n");
 #ifdef DIAGNOSTICS
-  if (benchPending) { Serial.print(fontsLine); Serial.print(benchLine); benchPending = false; }
+  if (benchPending) { Serial.print(fontsLine); Serial.print(benchLine); Serial.print(packBenchLine); benchPending = false; }
   static char pl[360];   // static: the loop stack is small
   profFormat(pl, sizeof pl);
   Serial.print(pl);
@@ -211,6 +223,12 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   // 0x10000 wake from System OFF; 0 = power-on) and the loop task's smallest free stack so far, in bytes
   Serial.printf("dev %s rst=0x%lx loopstack=%lu\nraw %s\n", desc, (unsigned long)readResetReason(),
                 (unsigned long)uxTaskGetStackHighWaterMark(nullptr) * 4, app.lastRaw());
+  if (gPack) {
+    static char pk[260];
+    gPack->formatStatus(pk, sizeof pk);
+    Serial.print(pk);
+    Serial.print("\n");
+  }
   const Vec3& ca = compassHw.lastAccel();
   const Vec3& cm = compassHw.lastMag();
   const Vec3& cg = compassHw.lastGyro();

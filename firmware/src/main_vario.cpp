@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include <bluefruit.h>
 #include "apps/vario/app/app.h"
+#include "apps/vario/app/terrain_kit.h"
 #include "apps/vario/app/vario_app.h"
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
@@ -10,6 +11,7 @@
 #include "apps/vario/hw/diagnostics.h"
 #include "platform/hw/input_button.h"
 #include "platform/hw/key_store.h"
+#include "platform/hw/pack_service.h"
 #include "platform/settings/box_settings.h"
 #include "apps/vario/hw/laptop_ble.h"
 #include "platform/hw/panel_sharp.h"
@@ -41,6 +43,8 @@ static AppConfig appConfig() {
 }
 static App app(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig());
 static VarioApp varioApp(app);
+static PackService pack;                      // map pack in the QSPI flash + the USB serial loader (host/load_pack.py)
+static TerrainKit kit;                        // ~65 kB; no pack: the vario shows no terrain, AGL or map page
 static VarioProbe probe;
 static AppHost host(panel, button);
 
@@ -68,7 +72,14 @@ void setup() {
   tracer.begin();
   laptop.begin();
 
+  pack.begin();
+  if (pack.reader() && kit.open(pack.reader())) {
+    app.setTerrain(&kit);
+    pack.setTerrainOpen(true);
+  }
+
   diagnosticsBegin(app, panel, compassHw);
+  diagnosticsSetPack(&pack);
   diagnosticsBench();                         // DIAGNOSTICS only
   host.add(varioApp);
   host.setProbe(&probe);
@@ -81,10 +92,11 @@ static uint32_t worstTickUs = 0;   // slowest app.tick() since the last status l
 void loop() {
   watchdog::feed();
   uint32_t now = millis();
+  pack.service(now);
   uint32_t t0 = micros();
   host.tick(now);
   uint32_t dt = micros() - t0;
   if (dt > worstTickUs) worstTickUs = dt;
   diagnosticsTick(now, worstTickUs);
-  delay(10);
+  delay(pack.loading() ? 0 : 10);             // a load streams over USB: no sleeping between chunks
 }

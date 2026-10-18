@@ -16,6 +16,7 @@
 #include "apps/settings/settings_app.h"
 #include "apps/vario/app/app.h"
 #include "apps/vario/app/compass_tool.h"
+#include "apps/vario/app/terrain_kit.h"
 #include "apps/vario/app/vario_app.h"
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
@@ -23,6 +24,7 @@
 #include "apps/vario/hw/diagnostics.h"
 #include "platform/hw/input_button.h"
 #include "platform/hw/key_store.h"
+#include "platform/hw/pack_service.h"
 #include "apps/vario/hw/laptop_ble.h"
 #include "platform/hw/panel_sharp.h"
 #include "platform/hw/power_nrf.h"
@@ -69,11 +71,62 @@ static VarioApp varioApp(app);
 // and destroyed when it is left. Statically they cost 93 + 44 kB of .bss and left the image with 2 kB of heap, too little
 // for FreeRTOS to start any task (no USB, blank screen). The block is as big as the biggest of them.
 #ifdef BOX_WITH_SIM
-static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimApp), maxSize(sizeof(CompassTool), sizeof(TetrisApp)));
+static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimApp), maxSize(sizeof(TerrainKit), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
 #else
-static constexpr size_t kArenaBytes = maxSize(sizeof(CompassTool), sizeof(TetrisApp));
+static constexpr size_t kArenaBytes = maxSize(sizeof(TerrainKit), maxSize(sizeof(CompassTool), sizeof(TetrisApp)));
 #endif
 static AppArenaStore<kArenaBytes> arena;
+
+// The map pack lives in the QSPI flash (platform/hw/pack_service.h). The vario's terrain kit (65 kB: tile cache, map page
+// cache, vector buffers) is built in the arena when the vario is opened and destroyed when it is left, so the other apps
+// can use the same RAM. Costs: the map page's cache and ground track start afresh on each return to the vario, and the
+// vario comes back on the compass page if it was left on the map page.
+// The home screen and Settings > About ask about the pack without the vario running: the answers are copied from the
+// kit once at boot (the pack cannot change without a reboot).
+static PackService pack;
+struct BoxTerrain : ITerrainProvider, terrain::IPackStatus {
+  TerrainKit* kit = nullptr;
+  bool ok = false;
+  uint32_t bytes = 0;
+  char area[48] = "";
+  char credit[3][200] = {"", "", ""};
+
+  TerrainKit* acquire() override {
+    if (kit) return kit;
+    if (!pack.reader()) return nullptr;
+    void* mem = arena.claim(sizeof(TerrainKit), alignof(TerrainKit), this);
+    if (!mem) return nullptr;
+    kit = new (mem) TerrainKit();
+    if (!kit->open(pack.reader())) { drop(); return nullptr; }
+    pack.setTerrainOpen(true);
+    return kit;
+  }
+  void release() override { drop(); }
+  void drop() {
+    if (!kit) return;
+    kit->~TerrainKit();
+    kit = nullptr;
+    arena.release(this);
+  }
+  void cacheStatus() {
+    TerrainKit* k = acquire();
+    if (!k) return;
+    ok = true;
+    bytes = k->packBytes();
+    k->packArea(area, sizeof area);
+    for (int i = 0; i < 3; i++) k->packAttribution(i, credit[i], sizeof credit[i]);
+    drop();
+  }
+  bool packOk() const override { return ok; }
+  uint32_t packBytes() const override { return bytes; }
+  void packArea(char* dst, size_t cap) const override { snprintf(dst, cap, "%s", ok ? area : ""); }
+  bool packAttribution(int i, char* dst, size_t cap) const override {
+    if (!ok || i < 0 || i > 2 || !cap) return false;
+    snprintf(dst, cap, "%s", credit[i]);
+    return true;
+  }
+};
+static BoxTerrain boxTerrain;
 
 // The compass & weather tool: the same App without a tracer or laptop, always on the compass page.
 static CompassTool* makeCompass(void* mem, void*) {
@@ -121,6 +174,13 @@ void setup() {
   tracer.begin();
   laptop.begin();
 
+  pack.begin();
+  boxTerrain.cacheStatus();
+  varioApp.setTerrainProvider(&boxTerrain);
+  launcher.setPack(&boxTerrain);
+  settingsApp.setPack(&boxTerrain);
+  diagnosticsSetPack(&pack);
+
   diagnosticsBegin(app, panel, compassHw);
   diagnosticsBench();                         // DIAGNOSTICS only
 
@@ -153,10 +213,11 @@ static uint32_t worstTickUs = 0;   // slowest host.tick() since the last status 
 void loop() {
   watchdog::feed();
   uint32_t now = millis();
+  pack.service(now);
   uint32_t t0 = micros();
   host.tick(now);
   uint32_t dt = micros() - t0;
   if (dt > worstTickUs) worstTickUs = dt;
   diagnosticsTick(now, worstTickUs);
-  delay(host.loopDelayMs());                  // 10 ms; 1 ms while a game runs its fixed frame clock
+  delay(pack.loading() ? 0 : host.loopDelayMs());                  // 10 ms; 1 ms while a game runs its fixed frame clock
 }
