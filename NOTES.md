@@ -815,3 +815,33 @@ three styles), `sim_clouds_approach.png`, `sim_thermal_approach_bubbles.png`; `b
   with strength, drifts downwind with age and thins in the decay; deterministic rendering (same picture twice, bubbles and shafts too); behind the wall
   hidden, beyond it drawn; the three styles differ; budgets respected; bubbles move with time; the depth buffer is empty at step 0 and full at the last.
   The menu gained a row (13 rows, row height 25), existing key-sequence tests moved by one row.
+
+## RAM budget: the box image that did not boot (2026-10-18)
+
+Found on the device: `feather_sense_box` showed a blank screen and no USB at all. Static RAM (.bss + .data) is linked first and
+`.heap` is what is left of the 256 kB; FreeRTOS takes the loop task's 4 KB stack, the USB, BLE and callback tasks and the Bluefruit
+buffers from it. The box had 231544 bytes of .bss and 2376 bytes of heap, so no task could start. `arm-none-eabi-size -A
+.pio/build/<env>/firmware.elf` shows it.
+
+| image | .bss before | .heap before | .bss after | .heap after |
+|---|---|---|---|---|
+| feather_sense (vario only) | 91592 | 142356 | 91592 | 142356 |
+| feather_sense_box, as built | 231544 | 2376 | 136628 | 97316 |
+| feather_sense_box with `-DBOX_WITH_SIM` | 231544 | 2376 | 187648 | 46280 |
+
+Largest statics before: sim::SimApp 93480, vario App 43472, a second full vario App for the compass tool 43472 (36 kB of it
+the FlightModel the tool never fills), laptop 12996, panel DMA buffer gTx 12482.
+
+What changed: only one app runs at a time, so the apps other than the start-up vario share ONE arena
+(`platform/lazy_app.h`: `AppArena`, `LazyApp<T>`; the app is placement-new built in `begin()` and destroyed in `end()`). Tetris
+and the compass tool (now `apps/vario/app/compass_tool.h`: the tool's App with its null tracer and laptop as one object) sit in
+the arena; the vario `app` stays a plain static (start-up app, flight-critical). Costs: the app's state starts afresh each
+time it is opened (the Tetris best score and the settings go through the key store, so nothing is lost; a paused Tetris game
+no longer survives a trip home); a few ms to construct. The flight sim is NOT in the box image by default any more: it is
+93 kB, would make the arena that big (heap 46 kB, under the 48 kB guard) and cannot fly on the device yet (no pack reader), so
+it would only say so and go home. `-DBOX_WITH_SIM` builds it in (same arena) for when the pack reader exists and the sim has
+been slimmed; the emulator box (`emu/box.h`) always has it. Biggest sim items: HeightCache 48 kB (128x128 cells, heights + shade),
+top-down double buffer 22 kB, voxel 9 kB, sky 3 kB; top-down and voxel views are never shown together, a union would save ~9 kB.
+
+Guard: `scripts/ram_check.py` (a step of `scripts/check.sh`) prints .bss / .data / .heap of every built image and fails when
+.heap is below 48 KB. A new big object either lives in the arena or the check fails.

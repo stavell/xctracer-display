@@ -3,6 +3,7 @@
 // whole box: switching apps, what stops and restarts, and that the vario behaves as it does alone.
 // Included by tests.cpp, after CHECK and line() are defined.
 #include "box.h"
+#include "platform/lazy_app.h"
 #include "platform/input/combo_hold.h"
 #include "platform/input/key_debounce.h"
 
@@ -219,12 +220,12 @@ static void box_flow() {
   CHECK(b.launcher.selected() == 1);
   u.longp();
   CHECK(b.host.active() == &b.tetris);
-  CHECK(b.tetris.game().state() == tetris::ST_TITLE);
+  CHECK(b.tetris->game().state() == tetris::ST_TITLE);
   u.run(300);
   CHECK(blackPixels(b.r.panel) > 1500);
   // Play a moment: the switch starts the game (acted on at press).
   u.shortp();
-  CHECK(b.tetris.game().state() == tetris::ST_PLAYING);
+  CHECK(b.tetris->game().state() == tetris::ST_PLAYING);
   u.run(1500);
   CHECK(b.varioCore.linesOk() == 5 && !b.r.compass.enabled && b.r.tracer.paused);   // the vario sleeps
 
@@ -281,7 +282,7 @@ static void box_vario_matches_alone() {
   CHECK(da == db);
   CHECK(alone.linesOk() == b.varioCore.linesOk());
   // And a game that was never chosen has not run.
-  CHECK(b.tetris.game().state() == tetris::ST_TITLE && b.tetris.game().score() == 0);
+  CHECK(!b.tetris.alive());
   CHECK(b.host.active() == &b.vario);
 }
 
@@ -366,9 +367,9 @@ static void box_gestures() {
     u.run(1000);
     CHECK(b.r.compass.enabled);
     u.shortp();
-    CHECK(b.toolCore.buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);   // a short press does not change pages
+    CHECK(b.compassTool->core().buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);   // a short press does not change pages
     u.longp();
-    CHECK(b.toolCore.listOpen());
+    CHECK(b.compassTool->core().listOpen());
     u.shortp();                                      // back, Home (no calibration here: that is Settings')
     u.longp();
     CHECK(b.host.active() == &b.launcher && !b.r.compass.enabled);
@@ -614,24 +615,98 @@ static void box_tetris_home() {
   u.shortp();                                                        // start
   u.run(500);
   u.shortp();                                                        // pause
-  CHECK(b.tetris.game().state() == tetris::ST_PAUSED);
+  CHECK(b.tetris->game().state() == tetris::ST_PAUSED);
   u.longp();
   CHECK(b.host.active() == &b.launcher);
   b.host.start(Box::APP_TETRIS, u.now);
   u.run(300);
   u.shortp(); u.run(500); u.shortp();
-  CHECK(b.tetris.game().state() == tetris::ST_PAUSED);
+  CHECK(b.tetris->game().state() == tetris::ST_PAUSED);
   b.r.input.setKey(KEY_ACTION, true, u.now); u.run(50); b.r.input.setKey(KEY_ACTION, false, u.now); u.run(50);
-  CHECK(b.tetris.game().state() == tetris::ST_PLAYING && b.host.active() == &b.tetris);   // A resumes
+  CHECK(b.tetris->game().state() == tetris::ST_PLAYING && b.host.active() == &b.tetris);   // A resumes
   u.shortp();
-  CHECK(b.tetris.game().state() == tetris::ST_PAUSED);
+  CHECK(b.tetris->game().state() == tetris::ST_PAUSED);
   b.r.input.setKey(KEY_B, true, u.now); u.run(50); b.r.input.setKey(KEY_B, false, u.now); u.run(50);
   CHECK(b.host.active() == &b.launcher);                             // B goes home
   b.host.start(Box::APP_TETRIS, u.now);
   u.run(300);
   u.shortp(); u.run(500);
   u.longp();                                                         // playing: a long press still swaps the hold piece
-  CHECK(b.host.active() == &b.tetris && b.tetris.game().state() == tetris::ST_PLAYING);
+  CHECK(b.host.active() == &b.tetris && b.tetris->game().state() == tetris::ST_PLAYING);
+}
+
+// The shared app arena: an app exists only while it is the active one, and the apps take turns in one block of memory.
+struct LifeApp : IApp {
+  static int alive, begun, ended;
+  int id;
+  explicit LifeApp(int i) : id(i) { alive++; }
+  ~LifeApp() { alive--; }
+  const char* name() const override { return "life"; }
+  void begin(uint32_t) override { begun++; }
+  void end() override { ended++; }
+  void tick(uint32_t) override {}
+  bool wantsFrame(uint32_t) override { return true; }
+  bool handlesHold() const override { return id == 1; }
+};
+int LifeApp::alive = 0, LifeApp::begun = 0, LifeApp::ended = 0;
+static LifeApp* makeLife(void* mem, void* ctx) { return new (mem) LifeApp((int)(intptr_t)ctx); }
+
+static void lazy_app_slots() {
+  puts("lazy apps: built on begin, destroyed on end, two apps take turns in one arena");
+  AppArenaStore<sizeof(LifeApp)> arena;
+  LazyApp<LifeApp> a(arena, "a", makeLife, (void*)1), b(arena, "b", makeLife, (void*)2);
+  CHECK(strcmp(a.name(), "a") == 0 && !a.alive() && LifeApp::alive == 0);   // name works while not built
+  CHECK(!a.wantsFrame(0) && !a.handlesHold() && a.comboExit() && a.frameIntervalMs() == 0);
+  a.begin(0);
+  CHECK(a.alive() && LifeApp::alive == 1 && LifeApp::begun == 1 && a->id == 1 && a.handlesHold() && a.wantsFrame(0));
+  b.begin(0);                                                        // the arena is taken: b cannot start, nothing breaks
+  CHECK(!b.alive() && !b.wantsFrame(0) && LifeApp::alive == 1);
+  a.end();
+  CHECK(!a.alive() && LifeApp::alive == 0 && LifeApp::ended == 1);
+  a.end();                                                           // ending twice is harmless
+  CHECK(LifeApp::ended == 1);
+  b.begin(0);
+  CHECK(b.alive() && b->id == 2 && !b.handlesHold() && LifeApp::alive == 1);
+  b.end();
+  a.begin(0);
+  CHECK(a.alive() && a->id == 1 && LifeApp::alive == 1);
+  {
+    AppArenaStore<sizeof(LifeApp)> arena2;
+    LazyApp<LifeApp> c(arena2, "c", makeLife, (void*)3);
+    c.begin(0);
+    CHECK(LifeApp::alive == 2);
+  }                                                                  // destroying the slot destroys a live app
+  CHECK(LifeApp::alive == 1);
+  a.end();
+  CHECK(LifeApp::alive == 0);
+  AppArenaStore<4> tiny;                                             // too small: refuses instead of overrunning
+  LazyApp<LifeApp> d(tiny, "d", makeLife, (void*)4);
+  d.begin(0);
+  CHECK(!d.alive() && LifeApp::alive == 0);
+}
+
+// In the box the arena holds the sim, Tetris and the compass tool in turn; the high score survives the app.
+static void box_lazy_apps() {
+  puts("box: sim, Tetris and the compass tool share one arena, the best score is kept");
+  Box b(1, true);
+  BoxRun u(b);
+  b.keys.set(SLOT_TETRIS_BEST, 4321);
+  b.boot(0);
+  CHECK(!b.tetris.alive() && !b.compassTool.alive() && !b.flightSim.alive());
+  b.host.start(Box::APP_TETRIS, 0);
+  u.run(300);
+  CHECK(b.tetris.alive() && b.tetris->game().highScore() == 4321 && !b.compassTool.alive());
+  b.host.start(Box::APP_COMPASS, u.now);
+  u.run(300);
+  CHECK(!b.tetris.alive() && b.compassTool.alive() && b.compassTool->core().buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);
+  b.host.start(Box::APP_SIM, u.now);
+  u.run(100);
+  CHECK(!b.compassTool.alive() && b.flightSim.alive() && !b.r.compass.enabled);
+  b.host.start(Box::APP_TETRIS, u.now);
+  u.run(300);
+  CHECK(b.tetris.alive() && !b.flightSim.alive() && b.tetris->game().highScore() == 4321);
+  b.host.start(Box::APP_VARIO, u.now);
+  CHECK(!b.tetris.alive());
 }
 
 static void test_box() {
@@ -644,6 +719,8 @@ static void test_box() {
   settings_app();
   box_laptop_commands();
   box_tetris_home();
+  lazy_app_slots();
+  box_lazy_apps();
 }
 
 }  // namespace bx

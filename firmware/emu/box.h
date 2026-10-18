@@ -7,11 +7,12 @@
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/settings/settings_app.h"
-#include "apps/vario/app/null_ports.h"
+#include "apps/vario/app/compass_tool.h"
 #include "apps/vario/app/terrain_kit.h"
 #include "mocks.h"
 #include "platform/app_registry.h"
 #include "platform/clock.h"
+#include "platform/lazy_app.h"
 
 // Tilt of the box for the flight sim: the PC player drives it from the mouse, tests set it directly.
 struct MockTilt : sim::ITilt {
@@ -27,15 +28,19 @@ struct Box {
   MockKeyStore& keys = r.keys;
   WallClock clock;
   AppRegistry registry;
-  NullTracer noTracer;
-  NullLaptop noLaptop;
-  App varioCore, toolCore;
-  VarioApp vario, compassTool;
-  TetrisApp tetris;
+  App varioCore;
+  VarioApp vario;
+  // Like main_box.cpp: the tool, Tetris and the sim share one arena and exist only while they are the active app.
+  static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimApp), maxSize(sizeof(CompassTool), sizeof(TetrisApp)));
+  AppArenaStore<kArenaBytes> arena;
+  uint32_t seed;
+  LazyApp<CompassTool> compassTool;
+  LazyApp<TetrisApp> tetris;
+  LazyApp<sim::SimApp> flightSim;
   LauncherApp launcher;
   SettingsApp settings;
-  std::unique_ptr<sim::SimApp> flightSim{new sim::SimApp};   // ~90 kB: not part of the Box object
   MockTilt tilt;
+  TerrainKit* kit = nullptr;
   VarioProbe probe;
   AppHost host;
   uint32_t score = 0;
@@ -47,6 +52,24 @@ struct Box {
     void save(uint32_t v) override { k.set(SLOT_TETRIS_BEST, v); }
   } scores;
 
+  static CompassTool* makeCompass(void* mem, void* ctx) {
+    Box& b = *static_cast<Box*>(ctx);
+    return new (mem) CompassTool(b.r.panel, b.r.battery, b.r.settings, b.r.compass, b.r.thermo, b.r.power, cfg(true));
+  }
+  static TetrisApp* makeTetris(void* mem, void* ctx) {
+    Box& b = *static_cast<Box*>(ctx);
+    TetrisApp* t = new (mem) TetrisApp(b.seed);
+    t->setScoreStore(&b.scores);
+    return t;
+  }
+  static sim::SimApp* makeSim(void* mem, void* ctx) {
+    Box& b = *static_cast<Box*>(ctx);
+    sim::SimApp* s = new (mem) sim::SimApp();
+    s->setTilt(&b.tilt);
+    if (b.kit) s->setTerrain(&b.kit->terrain);
+    return s;
+  }
+
   static AppConfig cfg(bool tool) {
     AppConfig c;
     c.standalone = tool;
@@ -55,18 +78,17 @@ struct Box {
 
   explicit Box(uint32_t seed = 1, bool withSim = false)
       : varioCore(r.panel, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power, cfg(false)),
-        toolCore(r.panel, r.battery, noTracer, noLaptop, r.settings, r.compass, r.thermo, r.power, cfg(true)),
-        vario(varioCore), compassTool(toolCore, "compass", false), tetris(seed),
+        vario(varioCore), seed(seed),
+        compassTool(arena, "compass", makeCompass, this), tetris(arena, "tetris", makeTetris, this),
+        flightSim(arena, "flightsim", makeSim, this),
         launcher(r.battery, r.power, registry, r.settings, clock), settings(r.battery, r.compass, r.keys, r.settings, registry, "0.1"),
         host(r.panel, r.input), scores(r.keys) {
-    tetris.setScoreStore(&scores);
     host.add(vario);
     host.add(tetris);
     host.add(compassTool);
     host.add(settings);
     host.add(launcher);
-    flightSim->setTilt(&tilt);
-    if (withSim) host.add(*flightSim);                      // the Sim joins the home grid only when asked: the other tests count tiles
+    if (withSim) host.add(flightSim);                      // the Sim joins the home grid only when asked: the other tests count tiles
     host.setLauncher(APP_LAUNCHER);
     host.setProbe(&probe);
     varioCore.setClock(&clock);
@@ -78,11 +100,11 @@ struct Box {
   }
 
   // A map pack for the vario (the kit must outlive the box); the compass tool has no terrain.
-  void setTerrain(TerrainKit* kit) {
-    varioCore.setTerrain(kit);
-    flightSim->setTerrain(kit ? &kit->terrain : nullptr);
-    launcher.setPack(kit);
-    settings.setPack(kit);
+  void setTerrain(TerrainKit* k) {
+    kit = k;                                                // the sim gets it when it is opened
+    varioCore.setTerrain(k);
+    launcher.setPack(k);
+    settings.setPack(k);
   }
 
   // Boot like main_box.cpp: straight into the start-up app (the vario unless the launcher chose another).

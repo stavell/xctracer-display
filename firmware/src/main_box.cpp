@@ -4,12 +4,18 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <bluefruit.h>
+// The flight sim is NOT in this image by default: it is 93 kB of state (height cache 48 kB, top-down double buffer 22 kB,
+// voxel + sky), and since the map pack reader (QSPI) is not wired yet it would only say so and go home. Built in, the shared
+// app arena would be 93 kB and leave ~46 kB of heap (see NOTES.md "RAM budget"), below the 48 kB scripts/stack_check.py
+// demands. Add -DBOX_WITH_SIM once the sim has been slimmed or its pack reader needs it.
+#ifdef BOX_WITH_SIM
 #include "apps/games/sim/sim_app.h"
+#endif
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/settings/settings_app.h"
 #include "apps/vario/app/app.h"
-#include "apps/vario/app/null_ports.h"
+#include "apps/vario/app/compass_tool.h"
 #include "apps/vario/app/vario_app.h"
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
@@ -26,6 +32,7 @@
 #include "platform/hw/watchdog.h"
 #include "platform/hw/pins.h"
 #include "platform/app_registry.h"
+#include "platform/lazy_app.h"
 #include "platform/clock.h"
 #include "platform/settings/box_settings.h"
 #include "platform/version.h"
@@ -53,23 +60,42 @@ static AppConfig appConfig(bool tool) {
   return c;
 }
 // App indices in the host; the home screen lists all but itself.
-enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM };
+enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM };   // APP_SIM only with BOX_WITH_SIM
 
 static App app(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig(false));
 static VarioApp varioApp(app);
+
+// The apps that are not the start-up app share ONE RAM block (see platform/lazy_app.h): each is built when it is opened
+// and destroyed when it is left. Statically they cost 93 + 44 kB of .bss and left the image with 2 kB of heap, too little
+// for FreeRTOS to start any task (no USB, blank screen). The block is as big as the biggest of them.
+#ifdef BOX_WITH_SIM
+static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimApp), maxSize(sizeof(CompassTool), sizeof(TetrisApp)));
+#else
+static constexpr size_t kArenaBytes = maxSize(sizeof(CompassTool), sizeof(TetrisApp));
+#endif
+static AppArenaStore<kArenaBytes> arena;
+
 // The compass & weather tool: the same App without a tracer or laptop, always on the compass page.
-static NullTracer noTracer;
-static NullLaptop noLaptop;
-static App toolApp(panel, battery, noTracer, noLaptop, boxSettings, compassHw, thermo, power, appConfig(true));
-static VarioApp compassApp(toolApp, "compass", false);
+static CompassTool* makeCompass(void* mem, void*) {
+  return new (mem) CompassTool(panel, battery, boxSettings, compassHw, thermo, power, appConfig(true));
+}
+static LazyApp<CompassTool> compassApp(arena, "compass", makeCompass);
 
 struct TetrisScores : IScoreStore {
   uint32_t load() override { return keys.get(SLOT_TETRIS_BEST); }
   void save(uint32_t score) override { keys.set(SLOT_TETRIS_BEST, score); }
 };
 static TetrisScores scores;
-static TetrisApp tetrisApp;
-static sim::SimApp simApp;                  // the map pack reader (QSPI) is not wired yet: it says so and goes home
+static TetrisApp* makeTetris(void* mem, void*) {
+  TetrisApp* t = new (mem) TetrisApp();
+  t->setScoreStore(&scores);
+  return t;
+}
+static LazyApp<TetrisApp> tetrisApp(arena, "tetris", makeTetris);
+#ifdef BOX_WITH_SIM
+static sim::SimApp* makeSim(void* mem, void*) { return new (mem) sim::SimApp(); }   // no pack reader yet: it says so and goes home
+static LazyApp<sim::SimApp> simApp(arena, "flightsim", makeSim);
+#endif
 static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);
 static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, FW_VERSION);
 
@@ -98,13 +124,14 @@ void setup() {
   diagnosticsBegin(app, panel, compassHw);
   diagnosticsBench();                         // DIAGNOSTICS only
 
-  tetrisApp.setScoreStore(&scores);
   host.add(varioApp);
   host.add(tetrisApp);
   host.add(compassApp);
   host.add(settingsApp);
   host.add(launcher);
+#ifdef BOX_WITH_SIM
   host.add(simApp);
+#endif
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&probe);
   host.setRotation(DISPLAY_ROTATION);
@@ -113,7 +140,9 @@ void setup() {
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
   registry.add("Settings", "setup", "compass, mounting, time, about", APP_SETTINGS, ICON_SETTINGS, false);
+#ifdef BOX_WITH_SIM
   registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
+#endif
   const int boot = registry.startupApp(keys);
   if (boot != APP_VARIO) tracer.pause();      // the vario is not the first app: do not scan until it is opened
   host.start(boot, millis());

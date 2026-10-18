@@ -49,4 +49,11 @@ if ! "$ROOT/.venv/bin/python" "$ROOT/scripts/stack_check.py"; then
 fi
 
 echo
-echo "CHECK OK: emulator tests 0 failures, box smoke run, device builds succeeded, stack check passed"
+echo "=== RAM budget: .heap of every image (FreeRTOS tasks, USB and BLE buffers live there) ==="
+if ! "$ROOT/.venv/bin/python" "$ROOT/scripts/ram_check.py"; then
+  echo "FAIL: RAM budget (an image with too little heap does not boot)"
+  exit 1
+fi
+
+echo
+echo "CHECK OK: emulator tests 0 failures, box smoke run, device builds succeeded, stack check and RAM budget passed"

@@ -1148,7 +1148,7 @@ static void in_the_box() {
   for (int i = 0; i < 4; i++) tap(KEY_DOWN);               // to Start
   tap(KEY_ACTION);
   run(2600);
-  CHECK(b.host.active() == b.flightSim.get() && b.flightSim->mode() == SimApp::Mode::FLYING);
+  CHECK(b.host.active() == &b.flightSim && b.flightSim->mode() == SimApp::Mode::FLYING);
   CHECK(b.host.gameMode());
   CHECK(b.host.stats().fps >= 49 && b.host.stats().fps <= 51);
   CHECK(b.host.stats().steps >= 145 && b.host.stats().steps <= 151);   // 3 s at 50 Hz
