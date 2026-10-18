@@ -162,7 +162,7 @@ pack header + serial frames + loader state machine (pure, `platform/storage/`, t
 -> terrain, `pack ...` status line, USB loader), `host/load_pack.py`, wired into `feather_sense` (static kit) and `feather_sense_box` (kit
 in the app arena while the vario runs). **To do on the device:** flash, `load_pack.py bulgaria.pack`, read the `pack ...` line (flash id,
 quad, MB/s), fly the map page; measure the AGL/map-page frame times and the power draw (then enable `setIdleSleepMs`). See NOTES.md "Map pack in the QSPI flash".
-**Next (after the device test):** (5) below was the QSPI step (done); then the sim on the device (`-DBOX_WITH_SIM`, slimmed).
+**Next (after the device test):** (5) below was the QSPI step (done); then the sim on the device (done: always in the box image, see NOTES "RAM budget").
 Original list after step 2: Original list: (2) AGL cell on the vario page (`elevation`/`ceiling` under the GPS fix, margin for the 6.6 m RMS / 80 m worst mean
 error, ceiling for "terrain above me"; a stale or missing value prints `--`); (3) map page in `apps/vario/view` (relief bands into
 a grey buffer, dither, contours, `RoadIter` + `TownIter` overlay, Latin names first, Cyrillic needs the glyph atlas),

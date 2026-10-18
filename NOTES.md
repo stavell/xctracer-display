@@ -827,7 +827,8 @@ buffers from it. The box had 231544 bytes of .bss and 2376 bytes of heap, so no 
 |---|---|---|---|---|
 | feather_sense (vario only) | 91592 | 142356 | 91592 | 142356 |
 | feather_sense_box, as built | 231544 | 2376 | 136628 | 97316 |
-| feather_sense_box with `-DBOX_WITH_SIM` | 231544 | 2376 | 187648 | 46280 |
+| feather_sense_box with the sim, first try (arena 93 kB + terrain) | 231544 | 2376 | 189972 | 43288 |
+| feather_sense_box, sim slimmed (final, current) | 231544 | 2376 | 183364 | 49896 |
 
 Largest statics before: sim::SimApp 93480, vario App 43472, a second full vario App for the compass tool 43472 (36 kB of it
 the FlightModel the tool never fills), laptop 12996, panel DMA buffer gTx 12482.
@@ -837,11 +838,35 @@ What changed: only one app runs at a time, so the apps other than the start-up v
 and the compass tool (now `apps/vario/app/compass_tool.h`: the tool's App with its null tracer and laptop as one object) sit in
 the arena; the vario `app` stays a plain static (start-up app, flight-critical). Costs: the app's state starts afresh each
 time it is opened (the Tetris best score and the settings go through the key store, so nothing is lost; a paused Tetris game
-no longer survives a trip home); a few ms to construct. The flight sim is NOT in the box image by default any more: it is
-93 kB, would make the arena that big (heap 46 kB, under the 48 kB guard) and cannot fly on the device yet (no pack reader), so
-it would only say so and go home. `-DBOX_WITH_SIM` builds it in (same arena) for when the pack reader exists and the sim has
-been slimmed; the emulator box (`emu/box.h`) always has it. Biggest sim items: HeightCache 48 kB (128x128 cells, heights + shade),
-top-down double buffer 22 kB, voxel 9 kB, sky 3 kB; top-down and voxel views are never shown together, a union would save ~9 kB.
+no longer survives a trip home); a few ms to construct. The flight sim is in the box image (home screen "Flight sim"), always. Measured on the device (arm-none-eabi, sizeof):
+
+| object | before | after |
+|---|---|---|
+| SimApp | 93480 | 79792 |
+| World (glider, air 4488, trail, HeightCache 49196) | 56740 | 55780 (trail without z: 240 x 8 B) |
+| top-down view | 24500 | 23748 (band rows int8) |
+| voxel view + sky | 9012 + 2976 | share the top-down view's block (union) |
+| Terrain for the sim | (vario TerrainKit 47672) | 6484 (2 tiles, no relief scratch) |
+| arena (max of sim 86276, kit 47672, compass, Tetris) | 47664 (no sim) | 86304 |
+| heap, feather_sense_box | 89588 (no sim) | 49896 |
+| heap, feather_sense / feather_sense_diag | | 91772 / 52292 |
+
+What was shared or shrunk: the top-down view (map) and the 3D view (voxel + sky) are never drawn together, so they live in one block
+and the view that is not alive is destroyed (`SimApp::top()/voxel()/sky()` build the one asked for; the map picture was rebuilt on
+every switch to the map anyway). `terrain::Terrain` takes its tile cache from the owner (`TerrainWith<N, relief>`; `FullTerrain` =
+9 tiles for the vario); the sim gets `sim::SimBox` = SimApp + a 2-tile Terrain, built in the arena by main_box.cpp and emu/box.h
+alike. The vario's TerrainKit is NOT used by the sim. Height cache (area, resolution) untouched.
+
+Cost of the 2-tile cache: a line of the 128-cell window crosses 5 tiles, so every new line decodes them again (about 5 per line,
+~1 ms each on the device; with 9 tiles almost none). Filling the window at the start of a flight takes 693 decodes instead of 34
+(about 0.7 s blocking on the device, estimated, not measured). To keep frames steady, `HeightCache::refresh` stops after the first cell
+that made the source decode a tile (`IHeightSource::cost()`), and `SimApp::step` gives the cache its whole frame's budget in the first
+substep: a line takes ~5 frames, at most 4 decodes (four tiles meeting) in one frame, usually 1. The simdemo renders (16 scenes) are
+byte-identical to before; the change only affects how fast the cache fills while flying.
+
+Not reached: the 56 kB heap target (49896, guard 49152, margin 0.7 kB). Further options, none done: nibble-pack the shade array
+(-8 kB, about +1.1 ms per 3D frame by the sim_bench cycle model, over the 20 ms budget); a tile cache of 6 (no re-decode, +8 kB); a
+smaller window (needs a non-power-of-two cache). The 13 kB `laptop` frame buffer and 12.5 kB panel buffer are static.
 
 Guard: `scripts/ram_check.py` (a step of `scripts/check.sh`) prints .bss / .data / .heap of every built image and fails when
 .heap is below 48 KB. A new big object either lives in the arena or the check fails.

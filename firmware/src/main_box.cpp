@@ -135,7 +135,7 @@ static TetrisApp* makeTetris(void* mem, void*) {
   return t;
 }
 static LazyApp<TetrisApp> tetrisApp(arena, "tetris", makeTetris);
-// The flight sim opens the pack itself with a 4-tile cache (SimBox); without a pack it says so and goes home.
+// The flight sim opens the pack itself with a 2-tile cache (SimBox); without a pack it says so and goes home.
 static sim::SimBox* makeSim(void* mem, void*) { return new (mem) sim::SimBox(pack.reader()); }
 static LazyApp<sim::SimBox> simApp(arena, "flightsim", makeSim);
 static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);

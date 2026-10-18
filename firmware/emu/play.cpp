@@ -233,7 +233,7 @@ struct SimMachine : Machine {
 struct BoxMachine : Machine {
   Box b;
   PackHolder pack;
-  BoxMachine(uint32_t seed, const std::string& packSpec) : b(seed, true) {
+  BoxMachine(uint32_t seed, const std::string& packSpec) : b(seed) {
     if (pack.load(packSpec)) {
       b.setTerrain(pack.kit);
       printf("terrain: %s (%zu bytes)\n", pack.loaded.c_str(), pack.bytes.size());

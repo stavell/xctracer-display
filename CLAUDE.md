@@ -67,7 +67,7 @@ right is worse than no data.
   (`feather_sense`) has no launcher and none of this (no Home row; calibration only by `ctl.py cal`). `scripts/check.sh` proves the vario draws the same frames in
   the box as alone (`box_vario_matches_alone`).
 - **RAM budget.** .heap (what static RAM leaves over) feeds FreeRTOS: the box image once had 2 kB and did not boot at all.
-  Only the start-up vario is a static app; Tetris and the compass tool (and the sim, with `-DBOX_WITH_SIM`) share one
+  Only the start-up vario is a static app; Tetris, the compass tool, the flight sim (`SimBox`: SimApp + a 2-tile Terrain) and the vario's terrain kit share one
   `AppArena` through `LazyApp` (`platform/lazy_app.h`). Big new objects go there or into a port. `scripts/ram_check.py`
   (in check.sh) fails below 48 KB of heap.
 - **The loop task has a 4 KB stack.** No large locals (view model, trails, buffers): make them static or
