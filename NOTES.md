@@ -885,7 +885,10 @@ header and reads it back), STATUS (re-checks header + whole-pack CRC), EXIT (reb
 task touches the flash and the serial port (no callbacks involved); the loop keeps running during a load (display, tracer link), only
 the map is unreadable, and after the load the box restarts so terrain always starts from a flash that is a whole pack or blank.
 Expected speed on the device (not measured): 512 B per round trip, about 4-8 ms each (USB frame, program 2 pages, read back) = 60-120 kB/s,
-so 15-30 s for the pack, plus 4-8 s of erase. TODO(device): measure with `load_pack.py` (it prints kB/s and retries).
+so 15-30 s for the pack, plus 4-8 s of erase. Measured 2026-10-18 (box image, Bulgaria pack): erase 3.0 s, write 5 kB/s, 352 s in all,
+0 retries, whole-pack CRC match. About 100 ms per 512-byte round trip, 10-20x slower than expected: the loader is polled once per loop
+pass and the loop sleeps between frames, so each chunk waits a loop tick. Fix later (pump the loader in a tight loop while a load runs, or
+bigger chunks); it works, and loading is rare.
 End-to-end test without the device: `firmware/emu/build.sh loadtest [pack]` runs `load_pack.py` against the same loader code over an
 in-memory flash (clean, and with a bit error injected into every 50th frame); Bulgaria pack: 9 s through the PC pipe.
 
@@ -897,7 +900,8 @@ starting 3 s after boot, and shows as `crc=ok|BAD(ms)` in the status line. A fli
 The status line: `pack hdr=ok len=1724652 crc=ok(NNNms) jedec=c84015 quad=1 mhz=16 seq=NNNNKB/s rnd400=NNNus terrain=open loader=idle rd=N fail=N`;
 `seq` = 64 kB read as 512-byte blocks at boot, `rnd400` = mean of 64 scattered 400-byte reads (what a coded tile costs). The diagnostics
 image adds `packbench read_kBps=.. crc_ms=.. crc_ok=..` (the whole pack read in 1 kB blocks, and its CRC) to the first status block.
-TODO(device): fill in the real numbers (the PC cannot give them).
+Measured 2026-10-18 on the board: jedec=c84015 (GD25Q16), quad=1, 16 MHz, seq=6939 kB/s, rnd400=96 us, whole-pack CRC ok in 3449 ms
+(sliced over loop passes, so wall time, not CPU time), terrain=open, fail=0.
 
 **RAM and size.** `TerrainKit` is the big object (map page cache, tile cache, vector buffers). Vario image: a plain static (the vario is the
 start-up app and flight-critical). Box image: the kit lives in the shared app arena only while the vario runs (`ITerrainProvider` in
