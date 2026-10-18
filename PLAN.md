@@ -157,7 +157,13 @@ laptop peripheral keeps advertising in every app); (6) reduce the duplicated Fre
 (IBlockReader port, `Terrain` elevation/ceiling/hillshade/contours, `MapVectors` towns + roads), tests in
 `firmware/emu/terrain_tests.h` (fixture `firmware/emu/fixtures/sopot.pack`), real pack 1.72 MB, preview renders.
 **Done (step 2):** AGL in the view model and on the live pages, map page, `TerrainKit`, PC player `--pack`, tests (see NOTES.md). Device wiring waits for the reader.
-**Next:** QSPI driver and pack loading, then (5) below. Original list: (2) AGL cell on the vario page (`elevation`/`ceiling` under the GPS fix, margin for the 6.6 m RMS / 80 m worst mean
+**Done (2026-10-18, builds + emulator, not flashed): device pack storage.** QSPI driver on the core's nrfx (`platform/hw/qspi_flash`),
+pack header + serial frames + loader state machine (pure, `platform/storage/`, tested on an in-memory flash), `PackService` (boot: header
+-> terrain, `pack ...` status line, USB loader), `host/load_pack.py`, wired into `feather_sense` (static kit) and `feather_sense_box` (kit
+in the app arena while the vario runs). **To do on the device:** flash, `load_pack.py bulgaria.pack`, read the `pack ...` line (flash id,
+quad, MB/s), fly the map page; measure the AGL/map-page frame times and the power draw (then enable `setIdleSleepMs`). See NOTES.md "Map pack in the QSPI flash".
+**Next (after the device test):** (5) below was the QSPI step (done); then the sim on the device (`-DBOX_WITH_SIM`, slimmed).
+Original list after step 2: Original list: (2) AGL cell on the vario page (`elevation`/`ceiling` under the GPS fix, margin for the 6.6 m RMS / 80 m worst mean
 error, ceiling for "terrain above me"; a stale or missing value prints `--`); (3) map page in `apps/vario/view` (relief bands into
 a grey buffer, dither, contours, `RoadIter` + `TownIter` overlay, Latin names first, Cyrillic needs the glyph atlas),
 redraw only on position/heading change; (4) box player integration (pack file in the emulator via `MemReader`);

@@ -54,8 +54,20 @@ AGL comes from a model: typically +-10 m, up to 80 m at single peaks and gorges,
 model). It is not the baro altitude. The map page is north-up at 100 m/px (22 x 38 km), light hillshade, contours (every 200 m,
 every 5th bolder), main roads, towns (Latin names), the track of the last 20 minutes and the pilot arrow. For the first 10 s on
 the page it shows the attribution: Map (c) OpenStreetMap contributors (ODbL), Copernicus DEM (c) DLR / Airbus, provided under
-COPERNICUS by the EU and ESA. Without a pack nothing changes. The device has no pack reader yet (QSPI driver is the next step);
-on the PC: `firmware/emu/build.sh play box --igc f.igc --pack bulgaria.pack` (default: the study pack if present, else the Sopot test fixture).
+COPERNICUS by the EU and ESA. Without a pack nothing changes.
+
+**Loading the map into the box** (one command; the pack lives in the board's own 2 MB QSPI flash, so loading never touches the
+firmware or the saved settings). Needs an image with the loader (`feather_sense`, `feather_sense_diag`, `feather_sense_box`), the box
+connected by USB:
+
+    .venv/bin/python host/load_pack.py bulgaria.pack          # finds the box, erases, streams, checks, restarts it
+    .venv/bin/python host/load_pack.py --status               # what the box holds now (header, whole-pack CRC)
+
+The box shows no map while it loads; the header that makes the pack valid is written last, after the box has checked the CRC of
+the bytes it stored, so an interrupted load leaves "no pack", never half a pack. With a terminal attached the box prints a
+`pack ...` status line (header, length, CRC check, flash id, read speed, whether the terrain code opened it).
+On the PC: `firmware/emu/build.sh play box --igc f.igc --pack bulgaria.pack` (default: the study pack if present, else the Sopot test fixture);
+`firmware/emu/build.sh loadtest [pack]` runs the loader script against the firmware's loader code over an in-memory flash.
 
 ## Under the hood: what we are proud of
 

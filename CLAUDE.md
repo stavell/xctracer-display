@@ -21,8 +21,9 @@ right is worse than no data.
       input/     button state machine, A+B combo hold, key debounce
       settings/  BoxSettings (time zone, mounting, magnetometer calibration over the key store), CompassCal (the calibration
                  flow) and its screen: shared by the vario and the Settings app
+      storage/   map pack in a NOR flash: flash port (IFlash), flash header, USB serial frames + loader state machine, pack block reader
       util/      spsc_ring, types (Vec3, MagCal, finite-math guard)
-      hw/        generic drivers: panel, buttons (+ keymap.h for the six front buttons), battery, power, compass/thermo
+      hw/        generic drivers: QSPI flash + PackService (map pack, USB loader), panel, buttons (+ keymap.h for the six front buttons), battery, power, compass/thermo
                  sensors, key store (boot app, high scores, shared settings), watchdog, pins
       app_registry.h  the apps the home screen lists (name, text, icon) and the start-up app; clock.h  wall-clock time of day
       ports.h    ports to the generic hardware (panel, input + key edges, battery, compass, thermo, power, key store)

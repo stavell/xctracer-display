@@ -845,3 +845,71 @@ top-down double buffer 22 kB, voxel 9 kB, sky 3 kB; top-down and voxel views are
 
 Guard: `scripts/ram_check.py` (a step of `scripts/check.sh`) prints .bss / .data / .heap of every built image and fails when
 .heap is below 48 KB. A new big object either lives in the arena or the check fails.
+
+
+## Map pack in the QSPI flash (2026-10-18)
+
+The pack (1.72 MB) sits in the Feather Sense's on-board GD25Q16C (2 MB, JEDEC c8 40 15). Written without the device: nothing here
+is measured on hardware yet.
+
+**Layout.** Sector 0: 32-byte flash header (`BGFL`, version, pack base 4096, pack length, CRC-32 of the whole pack, header CRC;
+`platform/storage/pack_header.h`). The pack starts at 4096, so the reader (`FlashBlockReader`) exposes exactly the pack bytes:
+`Terrain` and `MapVectors` see offset 0 = the pack's own header. Room: 2 MB - 4 kB; the Bulgaria pack leaves 0.37 MB free.
+The header is written last by the loader, after the CRC of the stored bytes matched: an interrupted load = blank header = "no pack".
+
+**Driver choice.** The Adafruit nRF52 core ships the nrfx QSPI driver (`nrfx_qspi.c`, enabled for the 52840 in `nrfx_config.h`) and the
+variant defines `PIN_QSPI_*` (SCK 27 / P0.19, CS 28 / P0.20, IO0..3 = 29..32 = P0.17, 22, 23, 21; mapped through `g_ADigitalPinMap`).
+Using it directly adds no library and no `lib_deps` line. Adafruit_SPIFlash would bring a flash-device table, SdFat-style
+filesystem layers and a transport abstraction we do not use, for the same reads. The driver is used in blocking mode (no handler,
+no interrupt: the SoftDevice owns the low IRQ priorities, and a spin of about 10 us per transfer is nothing). nrfx wants 4-byte
+aligned word-multiple RAM transfers: reads and page programs go through a 260-byte staging buffer when the caller's buffer or
+address is not aligned (aligned ones go direct, up to 4 kB per call); programs are split at 256-byte pages and padded with 0xFF
+(programming 0xFF changes nothing). Reads: quad I/O (0xEB) once the QE bit (status register 2, bit 1) is set - the driver sets it if
+needed (WRSR 0x01 with both bytes, else 0x31) and checks that two reads (pack start, end of chip) give the same bytes in 4-wire mode
+as in single-wire mode, else falls back to plain fast read. SCK 16 MHz (32 MHz / 2); `QspiFlash::begin(div)` takes another
+divisor. Writes use single-wire page program (0x02): the chip's own 0.4-3 ms program time dominates. Erase is started and polled
+(`startErase`, `busy()`), 64 kB blocks where they fit, else 4 kB sectors. WP#/HOLD# (IO2/IO3) are held high in custom instructions.
+
+**Deep power-down** is implemented (`powerDown()`, `wake()`, `setIdleSleepMs()` + `idle()` in `PackService::service`), but OFF by
+default: the wake path has to ignore the driver's start-up timeout (the status read of a chip in power-down is not answered) and the
+effect (about 14 uA of chip standby, plus whatever the idle QSPI peripheral takes) is not measured. TODO(device): measure the battery
+current with and without, then enable it (a few ms to wake on the first map read after the idle time).
+
+**Loader.** USB serial (the `Serial` CDC the status lines already use). `host/load_pack.py` sends frames `A5 5A | cmd | len | payload |
+crc32` (zlib CRC of cmd, len, payload); the box answers `pk ok ...` / `pk err ...` lines. Commands: HELLO ("LOADPACK": enters load mode; the
+reader returns false for everything while it lasts), ERASE (pack length: the header sector first, so the old pack is gone at once), WRITE
+(offset + up to 512 bytes; the box programs, reads back and compares before it acknowledges; the same chunk twice is harmless), FINISH
+(length + CRC: the box reads the stored bytes in 4 kB slices, compares, checks the pack's own BGMP header, only then writes the flash
+header and reads it back), STATUS (re-checks header + whole-pack CRC), EXIT (reboot; also after 30 s of silence). Noise on the line
+(status text, a terminal) cannot start a load: sync bytes + length + CRC are needed, and HELLO must carry "LOADPACK". Only the loop
+task touches the flash and the serial port (no callbacks involved); the loop keeps running during a load (display, tracer link), only
+the map is unreadable, and after the load the box restarts so terrain always starts from a flash that is a whole pack or blank.
+Expected speed on the device (not measured): 512 B per round trip, about 4-8 ms each (USB frame, program 2 pages, read back) = 60-120 kB/s,
+so 15-30 s for the pack, plus 4-8 s of erase. TODO(device): measure with `load_pack.py` (it prints kB/s and retries).
+End-to-end test without the device: `firmware/emu/build.sh loadtest [pack]` runs `load_pack.py` against the same loader code over an
+in-memory flash (clean, and with a bit error injected into every 50th frame); Bulgaria pack: 9 s through the PC pipe.
+
+**Boot.** `PackService::begin()`: flash up, header read, `packHeaderConsistent` (the BGMP file size equals the header's length), reader
+attached; the vario image opens `TerrainKit` right away (header CRC and the CRC of every section up to 64 kB: towns, roads, strings; the
+DEM tiles are checked per tile on read), so a damaged pack gives no map and no AGL, never wrong values. The whole-pack CRC is NOT computed
+at boot (about 0.3 s of CRC-32 at ~12 cycles/byte plus the flash reads): while a terminal is attached it runs in 8 kB slices per loop pass,
+starting 3 s after boot, and shows as `crc=ok|BAD(ms)` in the status line. A flight with no terminal never pays for it.
+The status line: `pack hdr=ok len=1724652 crc=ok(NNNms) jedec=c84015 quad=1 mhz=16 seq=NNNNKB/s rnd400=NNNus terrain=open loader=idle rd=N fail=N`;
+`seq` = 64 kB read as 512-byte blocks at boot, `rnd400` = mean of 64 scattered 400-byte reads (what a coded tile costs). The diagnostics
+image adds `packbench read_kBps=.. crc_ms=.. crc_ok=..` (the whole pack read in 1 kB blocks, and its CRC) to the first status block.
+TODO(device): fill in the real numbers (the PC cannot give them).
+
+**RAM and size.** `TerrainKit` is the big object (map page cache, tile cache, vector buffers). Vario image: a plain static (the vario is the
+start-up app and flight-critical). Box image: the kit lives in the shared app arena only while the vario runs (`ITerrainProvider` in
+`vario_app.h`; `BoxTerrain` in `main_box.cpp`), the arena grows to the kit's size. The home screen / About read a copy of the pack's area
+and credits taken once at boot (the pack cannot change without a reboot). Costs: the map page's cache and ground track restart on each
+return to the vario, and the vario comes back on the compass page if it was left on the map page. The loader itself is about 2 kB static
+(frame buffer 520 B, read-back 512 B, CRC buffer 256 B x2, QSPI staging 260 B, reply line 128 B).
+
+| image | text before | text after | .heap before | .heap after |
+|---|---|---|---|---|
+| feather_sense | 279544 | 290760 | 142356 | 91796 |
+| feather_sense_box | 315160 | 329560 | 97316 | 89588 |
+| feather_sense_diag | 293768 | 305400 | 103996 | 52316 |
+
+Loop stack: worst static chain 2696 B (vario) / 2712 B (box) of 4096.

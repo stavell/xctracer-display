@@ -11,6 +11,7 @@
 #                                   (the whole box: home screen + vario + Tetris + compass tool + Settings). The box loads a map pack
 #                                   (--pack FILE; default the Bulgaria pack from the study if present, else the Sopot
 #                                   fixture; --pack none for a box without terrain)
+#   ./build.sh loadtest [PACK]      host/load_pack.py against the loader code over an in-memory flash (clean and with damaged frames)
 #   ./build.sh simbench [PACK]      flight sim frame timing on the PC, scaled to the device (see sim_bench.cpp)
 #   ./build.sh simreach [PACK] [seeds] [t0..]  reachability of thermals from every takeoff + scripted-pilot climb (sim_reach.cpp)
 #   ./build.sh smoke               headless run of the whole box: renders the launcher, vario pages, Tetris
@@ -35,6 +36,19 @@ LAUNCHER="$L/launcher_app.cpp $L/launcher_view.cpp"
 SETTINGS="$S/settings_app.cpp $S/settings_view.cpp $P/settings/box_settings.cpp $P/settings/compass_cal.cpp $P/settings/cal_view.cpp"
 GFX="$P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $P/gfx/ui.cpp $P/gfx/icons.cpp"
 VARIO="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $V/core/thermal3d.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/terrain_map.cpp $V/view/prof.cpp $V/app/app.cpp"
+if [ "$1" = "loadtest" ]; then
+  # End to end: host/load_pack.py against the real loader code over an in-memory flash (pipes instead of USB).
+  c++ -std=c++17 -O2 -g -Wall -I../src -I. $STORAGE $P/terrain/crc32.cpp loader_sim.cpp -o out/loader_sim
+  PACK="${2:-fixtures/sopot.pack}"
+  for mode in "" "--drop"; do
+    ../../.venv/bin/python ../../host/load_pack.py "$PACK" --port "exec:out/loader_sim $mode" > out/loadtest.log 2> out/loadtest.err || { cat out/loadtest.log out/loadtest.err; echo "LOADTEST FAIL"; exit 1; }
+    tail -3 out/loadtest.log
+    cat out/loadtest.err
+    grep -q "SIM header=ok .* crc_ok=1" out/loadtest.err || { echo "LOADTEST FAIL"; exit 1; }
+  done
+  echo "LOADTEST OK"
+  exit 0
+fi
 if [ "$1" = "simbench" ]; then
   # Frame timing of the flight sim, calibrated against vario pages of known device time (no sanitizers, -O2).
   c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" \

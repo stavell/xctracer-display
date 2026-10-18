@@ -20,6 +20,13 @@ if ! grep -q ", 0 failures$" "$OUT"; then
 fi
 
 echo
+echo "=== 1b Map loader: host/load_pack.py against the firmware's loader code over an in-memory flash ==="
+if ! "$ROOT/firmware/emu/build.sh" loadtest; then
+  echo "FAIL: map loader end-to-end test"
+  exit 1
+fi
+
+echo
 echo "=== 2/4 Box smoke run: launcher, vario with replay data, Tetris, compass tool, the way back ==="
 if command -v sdl2-config > /dev/null 2>&1; then
   "$ROOT/firmware/emu/build.sh" smoke > "$OUT" 2>&1
