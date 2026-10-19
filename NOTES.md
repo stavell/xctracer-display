@@ -1032,3 +1032,24 @@ What changed:
   quiet `build.sh simbench` / single `out/tests --only NAME` run.
 - Checked: same check count, all 69 pgm / 87 png in `emu/out` (including the smoke run's `box_*.png`) are byte for byte
   the same as before.
+
+## Sim speed pass on the device (2026-10-19, WIP, branch worktree-agent-ad3c1ea7a384b0273)
+
+Method: SIM_BENCH build, `gm` line, DWT micro-benchmark (`platform/hw/mbench.h`). Findings: the CPU runs 64 MHz and the flash cache is on, so there is
+no system-level slowdown; the cost was libm and byte loops. Cycles on the nRF52840 (newlib): expf 1300, logf 1260, powf 2540, tanf 230, atan2f 300,
+fmaxf 58, fmodf 170, sinf 80, sqrtf 17; memset 6.3 cycles/byte, memcpy 8.1 (byte loops).
+
+| Part (ms, avg) | before | after |
+| map: fps | 7-11 | 50 (tick max 16) |
+| map: step (3 substeps) | 16-31 | 1.7 |
+| map: draw | 25.7 | 13.3 (blit 7.4 -> 2.3, assist rings ~6, symbol 2.9, hud 2.5) |
+| 3D: fps | 8-9 | 31 |
+| 3D: draw | 38-40 | 22 (voxel 20 -> 11, sky 8 -> 3-4, sprite 6.7 -> 4.6, hud 3.9 -> 2.5) |
+| frame clear | 1.1-1.6 | 0.1 |
+| air sample per substep | 5 | 0.5 |
+
+Done: fexp/fpow (sim_math.h), per-cell cached thermals, fastmem word helpers (clear, pack, snapshot, diff, blit), blit by words, catch-up cap 2,
+draw overlaps the panel DMA, north-up map (no re-render on turns; 4 px stale threshold), quad-filled glider sprite, voxel 4 columns per ray / 16 bilinear
+steps, integer HUD numbers. Left: 3D still ~31 fps (voxel 11, sprite 4.6, sky 3-4, hud 2.5 need about 7 ms more), map rings (30 per frame, 6 ms),
+glider symbol 2.9 ms, HUD windBox 1 ms, `build.sh simbench` not recalibrated, BLE not stopped in the sim, scripts/check.sh not run on the final state
+(emulator build.sh passed: 137010 checks, 0 failures).
