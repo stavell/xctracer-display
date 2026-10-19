@@ -71,6 +71,9 @@ class IApp {
   // One fixed simulation step of dtMs (= frameIntervalMs()); simMs is the app's own simulation clock (starts
   // at the nowMs of the first step, advances by exactly dtMs). Physics belongs here, input handling in onKey().
   virtual void step(uint32_t simMs, uint32_t dtMs) { (void)simMs; (void)dtMs; }
+  // App-specific part of the once-a-second game status line (platform/game_probe.h): "key=value ..." appended to dst, returns the
+  // length written (0 = nothing). Called once per second, so it may reset per-second counters.
+  virtual int gameInfo(char* dst, size_t cap) { (void)dst; (void)cap; return 0; }
 
   // --- Gestures ---
   // True when the app wants the 3 s hold of the user switch itself (the vario: power off). Otherwise the
@@ -95,6 +98,8 @@ struct FrameStats {
   uint32_t steps = 0;           // simulation steps since the app started
   uint32_t frames = 0;          // frames presented since the app started
   uint32_t dropped = 0;         // intervals skipped because the host fell behind by more than kMaxCatchUp
+  uint32_t catchUp = 0;         // extra steps run for a frame that was late (slots whose picture was never drawn, but simulated)
+  uint32_t panelBusy = 0;       // host iterations where a frame was due but the previous SPI transfer was still in flight
 };
 
 // Brackets the clear and the present of a frame (the draw-time profiler hooks in here); optional.
@@ -103,6 +108,9 @@ class IFrameProbe {
   virtual ~IFrameProbe() {}
   virtual void clear(bool begin) = 0;
   virtual void present(bool begin) = 0;
+  // Game mode only: the whole catch-up loop of step() calls (one pair per step), and the app's draw().
+  virtual void step(bool begin) { (void)begin; }
+  virtual void draw(bool begin) { (void)begin; }
 };
 
 class AppHost : public IAppNav {
@@ -221,15 +229,19 @@ class AppHost : public IAppNav {
       winFrames_ = 0;
       winWorst_ = 0;
     }
-    if ((int32_t)(nowMs - nextFrame_) < 0 || !panel_.ready()) return;
+    if ((int32_t)(nowMs - nextFrame_) < 0) return;
+    if (!panel_.ready()) { stats_.panelBusy++; return; }
     int n = 0;
     while ((int32_t)(nowMs - nextFrame_) >= 0 && n < kMaxCatchUp) {
       simMs_ += fi;
+      if (probe_) probe_->step(true);
       active_->step(simMs_, fi);
+      if (probe_) probe_->step(false);
       nextFrame_ += fi;
       n++;
     }
     stats_.steps += (uint32_t)n;
+    stats_.catchUp += (uint32_t)(n - 1);
     if ((int32_t)(nowMs - nextFrame_) >= 0) {              // still behind: skip what cannot be caught up
       const uint32_t late = nowMs - nextFrame_;
       stats_.dropped += late / fi + 1;
@@ -239,7 +251,9 @@ class AppHost : public IAppNav {
     panel_.clear();
     if (probe_) probe_->clear(false);
     Bitmap1 bm = panel_.bitmap();
+    if (probe_) probe_->draw(true);
     active_->draw(bm, panel_.gfx(), nowMs);
+    if (probe_) probe_->draw(false);
     if (probe_) probe_->present(true);
     panel_.present();
     if (probe_) probe_->present(false);

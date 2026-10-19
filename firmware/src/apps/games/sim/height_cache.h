@@ -40,7 +40,8 @@ class HeightCache {
   // Where the window should be (cell index of the middle). Cheap; call every step.
   void setCentre(float x, float y);
   // Load at most budget cells toward the wanted window; returns the number of cells loaded.
-  int refresh(int budget);
+  int refresh(int budget);                       // (times itself when a clock is set)
+  int refreshWork(int budget);
   // Centre on (x, y) and load the whole window now (level start, tests). Returns cells loaded.
   int fill(float x, float y);
   bool complete() const;
@@ -63,6 +64,11 @@ class HeightCache {
   const int16_t* heights() const { return h_; }
   const uint8_t* shades() const { return s_; }
   uint32_t loaded() const { return loaded_; }     // cells loaded since attach
+  // Optional profiling (status line / bench): with a clock (microseconds) set, refresh() times itself.
+  typedef uint32_t (*ClockUs)();
+  void setClock(ClockUs c) { clock_ = c; }
+  struct RefreshStats { uint32_t calls = 0, sumUs = 0, maxUs = 0, cells = 0; };
+  RefreshStats takeRefreshStats() { RefreshStats r = rs_; rs_ = RefreshStats(); return r; }
 
  private:
   enum Kind : uint8_t { NONE, COL, ROW };
@@ -80,6 +86,8 @@ class HeightCache {
   Kind curKind_ = NONE;
   int curIdx_ = 0, curPos_ = 0;
   uint32_t loaded_ = 0;
+  ClockUs clock_ = nullptr;
+  RefreshStats rs_;
 };
 
 }  // namespace sim

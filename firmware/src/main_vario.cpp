@@ -5,6 +5,7 @@
 #include "apps/vario/app/app.h"
 #include "apps/vario/app/terrain_kit.h"
 #include "apps/vario/app/vario_app.h"
+#include "platform/hw/cyccnt.h"
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
 #include "apps/vario/hw/config_store.h"
@@ -93,9 +94,9 @@ void loop() {
   watchdog::feed();
   uint32_t now = millis();
   pack.service(now);
-  uint32_t t0 = micros();
+  uint32_t t0 = fastMicros();
   host.tick(now);
-  uint32_t dt = micros() - t0;
+  uint32_t dt = fastMicros() - t0;   // not micros(): it once gave -67 s here (a 4.2e9 us 'worst tick')
   if (dt > worstTickUs) worstTickUs = dt;
   diagnosticsTick(now, worstTickUs);
   delay(pack.loading() ? 0 : 10);             // a load streams over USB: no sleeping between chunks

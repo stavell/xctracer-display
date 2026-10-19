@@ -12,8 +12,10 @@
 #include "apps/vario/app/compass_tool.h"
 #include "apps/vario/app/terrain_kit.h"
 #include "apps/vario/app/vario_app.h"
+#include "platform/hw/cyccnt.h"
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
+#include "platform/hw/game_log.h"
 #include "apps/vario/hw/config_store.h"
 #include "apps/vario/hw/diagnostics.h"
 #include "platform/hw/input_button.h"
@@ -141,6 +143,7 @@ static LazyApp<TetrisApp> tetrisApp(arena, "tetris", makeTetris);
 // accelerometer is switched on in begin() and off in end().
 static sim::SimBox* makeSim(void* mem, void*) {
   sim::SimBox* s = new (mem) sim::SimBox(pack.reader());
+  s->setClock(fastMicros);                    // times its parts for the "gm" line (game_log.h)
   if (KEY_PIN_COUNT == 0) s->useAccel(compassHw, boxSettings);
   return s;
 }
@@ -150,6 +153,8 @@ static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, 
 
 static VarioProbe probe;
 static AppHost host(panel, button);
+static char* scratchBuf() { size_t c; return diagnosticsScratch(&c); }
+static GameLog gameLog(host, panel, fastMicros, &probe, scratchBuf(), 360);    // the "gm ..." line while a game runs; forwards clear / present to the vario probe
 
 // Boot, and the way out of the clock sleep: straight into the start-up app (its begin() restarts what it needs).
 static void startStartupApp() {
@@ -194,7 +199,7 @@ void setup() {
   host.add(launcher);
   host.add(simApp);
   host.setLauncher(APP_LAUNCHER);
-  host.setProbe(&probe);
+  host.setProbe(&gameLog);
   host.setRotation(DISPLAY_ROTATION);
   app.setClock(&wallClock);
   registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
@@ -212,11 +217,12 @@ void loop() {
   watchdog::feed();
   uint32_t now = millis();
   pack.service(now);
-  uint32_t t0 = micros();
+  uint32_t t0 = fastMicros();
   host.tick(now);
   if (power.takeResumed()) startStartupApp();   // woke from the clock sleep: no reset, the wall clock survived
-  uint32_t dt = micros() - t0;
+  uint32_t dt = fastMicros() - t0;   // not micros(): it once gave -67 s here (a 4.2e9 us 'worst tick')
   if (dt > worstTickUs) worstTickUs = dt;
+  gameLog.tick(now, dt);
   diagnosticsTick(now, worstTickUs);
   delay(pack.loading() ? 0 : host.loopDelayMs());                  // 10 ms; 1 ms while a game runs its fixed frame clock
 }

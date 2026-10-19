@@ -56,6 +56,16 @@ void HeightCache::shadeLine(Kind k, int idx) {
 }
 
 int HeightCache::refresh(int budget) {
+  if (!clock_) return refreshWork(budget);
+  const uint32_t t0 = clock_();
+  const int done = refreshWork(budget);
+  const uint32_t d = clock_() - t0;
+  rs_.calls++; rs_.sumUs += d; rs_.cells += (uint32_t)done;
+  if (d > rs_.maxUs) rs_.maxUs = d;
+  return done;
+}
+
+int HeightCache::refreshWork(int budget) {
   if (!haveTarget_ || !src_) return 0;
   const int tx1 = tx0_ + N, ty1 = ty0_ + N;
   // Keep only what is still inside the wanted window.

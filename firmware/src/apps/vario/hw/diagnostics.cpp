@@ -26,6 +26,12 @@ static PackService* gPack;
 
 void diagnosticsSetPack(PackService* pack) { gPack = pack; }
 
+static char gScratch[360];
+char* diagnosticsScratch(size_t* cap) {
+  *cap = sizeof gScratch;
+  return gScratch;
+}
+
 void diagnosticsBegin(App& app, SharpPanel& panel, CompassLis& compass) {
   gApp = &app;
   gPanel = &panel;
@@ -211,8 +217,8 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   Serial.print("\n");
 #ifdef DIAGNOSTICS
   if (benchPending) { Serial.print(fontsLine); Serial.print(benchLine); Serial.print(packBenchLine); benchPending = false; }
-  static char pl[360];   // static: the loop stack is small
-  profFormat(pl, sizeof pl);
+  char* pl = gScratch;   // static: the loop stack is small
+  profFormat(pl, sizeof gScratch);
   Serial.print(pl);
   Serial.print("\n");
   profResetMax();
@@ -224,8 +230,8 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   Serial.printf("dev %s rst=0x%lx loopstack=%lu\nraw %s\n", desc, (unsigned long)readResetReason(),
                 (unsigned long)uxTaskGetStackHighWaterMark(nullptr) * 4, app.lastRaw());
   if (gPack) {
-    static char pk[260];
-    gPack->formatStatus(pk, sizeof pk);
+    char* pk = gScratch;
+    gPack->formatStatus(pk, 260);
     Serial.print(pk);
     Serial.print("\n");
   }

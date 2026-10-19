@@ -11,6 +11,7 @@
 #include "apps/games/sim/glider.h"
 #include "apps/games/sim/height_cache.h"
 #include "apps/games/sim/sim_app.h"
+#include "platform/game_probe.h"
 #include "apps/games/sim/terrain_source.h"
 #include "apps/games/sim/tilt.h"
 #include "apps/games/sim/topdown.h"
@@ -720,6 +721,32 @@ static void game_mode() {
     h.tick(1500);
     CHECK(g.steps - before == AppHost::kMaxCatchUp);
     CHECK(h.stats().dropped > 0);
+  }
+  // The status-line counters: a late tick runs extra steps (catchUp), a busy panel is counted, GameProbe formats them.
+  {
+    BusyPanel p;
+    MockInput in;
+    AppHost h(p, in);
+    GameApp g;
+    h.add(g);
+    static uint32_t fakeUs = 0;
+    GameProbe probe([]() -> uint32_t { return fakeUs; });
+    h.setProbe(&probe);
+    h.start(0, 0);
+    probe.enable(true, 0);
+    h.tick(0);
+    p.busyNow = true;
+    h.tick(20);                                            // due, but the panel is still sending
+    CHECK(h.stats().panelBusy == 1);
+    p.busyNow = false;
+    h.tick(60);                                            // 3 slots late: 3 steps, 2 of them catch-up
+    CHECK(h.stats().catchUp == 2 && h.stats().dropped == 0);
+    char line[400];
+    probe.noteTick(1000);
+    probe.report(line, sizeof line, 1000, "t", h.stats(), "x=1");
+    CHECK(strstr(line, "gm app=t ") && strstr(line, "catchup=2 dropped=0 busy=1") && strstr(line, "x=1"));
+    probe.report(line, sizeof line, 2000, "t", h.stats(), "");
+    CHECK(strstr(line, "catchup=0 dropped=0 busy=0"));      // per-second deltas
   }
   // An app that does not ask for game mode runs exactly as before: no steps, change-driven frames, 10 ms loop.
   {

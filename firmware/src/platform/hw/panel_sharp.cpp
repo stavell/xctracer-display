@@ -89,6 +89,7 @@ void SharpPanel::waitIdle() {
     }
   }
   waitUs_ = (cycNow() - c0) / CYC_PER_US;
+  waitAccUs_ += waitUs_;
 }
 
 void SharpPanel::present() {

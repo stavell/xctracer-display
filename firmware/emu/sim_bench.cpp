@@ -12,6 +12,7 @@
 #include <Fonts/FreeSansBold12pt7b.h>
 #include "apps/games/sim/sim_app.h"
 #include "apps/vario/view/screens.h"
+#include "platform/game_probe.h"
 #include "mocks.h"
 #include "sim_shots.h"
 
@@ -33,6 +34,73 @@ static double timeIt(F f, int reps, double* worst = nullptr) {
 }
 
 static terrain::FullTerrain gTerrain;
+
+// ---- the device model: the same AppHost + GameProbe the box runs, on a virtual clock that advances by the measured PC time x the
+// calibration factor (so every part is in M4 ms) plus the loop's 1 ms delay. The panel takes a full-frame SPI/DMA transfer of
+// kSendMs (measured on the device: 12.49 ms) and is not ready() until it is over, exactly the gate AppHost::gameFrame applies.
+namespace devmodel {
+double gFactor = 1, gVirtualUs = 0;
+Clock::time_point gLast;
+uint32_t clk() {
+  const auto n = Clock::now();
+  gVirtualUs += std::chrono::duration<double, std::micro>(n - gLast).count() * gFactor;
+  gLast = n;
+  return (uint32_t)gVirtualUs;
+}
+struct Panel : MockPanel {
+  static constexpr double kSendMs = 12.5;
+  double busyUntilUs = 0;
+  bool ready() override { clk(); return gVirtualUs >= busyUntilUs; }
+  void present() override { MockPanel::present(); clk(); gVirtualUs += 1500; /* line diff + pack + DMA start, device: refresh 1.4-1.8 ms */ busyUntilUs = gVirtualUs + kSendMs * 1000.0; }
+};
+}  // namespace devmodel
+
+static void deviceModel(terrain::Terrain* terr, double factor) {
+  using namespace devmodel;
+  static Panel panel;
+  static MockInput input;
+  static sim::SimApp a;
+  gFactor = factor;
+  a.setTerrain(terr);
+  a.setSite(0);
+  a.showDayScreen(false);
+  a.setClock(clk);
+  static AppHost host(panel, input);
+  static GameProbe probe(clk);
+  host.add(a);
+  host.setProbe(&probe);
+  printf("\ndevice model (virtual M4 clock = PC time x %.0f, +1 ms loop delay, panel busy %.1f ms per frame after present):\n", factor, Panel::kSendMs);
+  const sim::SimApp::View views[2] = {sim::SimApp::View::TOP, sim::SimApp::View::CHASE};
+  for (int scale : {3, 1}) {
+    for (sim::SimApp::View v : views) {
+      gLast = Clock::now();
+      uint32_t nowMs = (uint32_t)(gVirtualUs / 1000);
+      host.start(0, nowMs);
+      a.setTimeScale(scale);
+      { char flush[400]; a.gameInfo(flush, sizeof flush); }   // forget what the previous run counted
+      a.setView(v);
+      input.setKey(KEY_RIGHT, true, nowMs);             // a steady turn: the map picture keeps re-rendering, the cache keeps loading
+      probe.enable(true, nowMs);
+      const double end = gVirtualUs + 4e6;
+      while (gVirtualUs < end) {
+        gVirtualUs += 1000;                              // the loop's delay(1)
+        gLast = Clock::now();
+        nowMs = (uint32_t)(gVirtualUs / 1000);
+        const uint32_t t0 = clk();
+        host.tick(nowMs);
+        probe.noteTick(clk() - t0);
+        if (probe.due(nowMs)) {
+          char info[400], line[800];
+          a.gameInfo(info, sizeof info);
+          probe.report(line, sizeof line, nowMs, a.name(), host.stats(), info);
+          puts(line);
+        }
+      }
+      input.setKey(KEY_RIGHT, false, nowMs);
+      probe.enable(false, nowMs);
+    }
+  }
+}
 
 int main(int argc, char** argv) {
   const char* packPath = argc > 1 ? argv[1] : "fixtures/sopot.pack";
@@ -177,5 +245,7 @@ int main(int argc, char** argv) {
            r.name, r.st.clouds, r.st.cloudCols, r.st.shafts, r.st.shaftCols, r.st.bubbles, r.st.level, cyc, r.pc * factor,
            base + colsT * factor + cyc, base + colsT * factor + r.pc * factor);
   }
+  const char* ov = getenv("SIMBENCH_FACTOR");   // e.g. 280 makes the voxel renderer match its counted cycles (12.3 ms)
+  deviceModel(&gTerrain, ov ? atof(ov) : factor);
   return 0;
 }

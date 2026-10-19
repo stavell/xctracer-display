@@ -283,18 +283,24 @@ void SimApp::step(uint32_t simMs, uint32_t dtMs) {
   // The world: scale_ substeps of one frame's dt each (never one big step), so x5 is 5 x the x1 steps and stable.
   // The height cache loads its cells (a frame's worth: kCacheBudget per substep) in the first substep, where it stops after the
   // first tile decode of the map pack: a frame never pays for several.
+  const uint32_t tw = t();
   for (int i = 0; i < scale_ && world_.status() == Status::FLYING; i++) world_.step(c_, dt, i == 0 ? World::kCacheBudget * scale_ : 0);
+  lap(P_WORLD, tw);
   if (world_.status() != Status::FLYING) {
     mode_ = Mode::ENDED;
     c_ = Controls();
   }
   if (view_ == View::CHASE) {
+    const uint32_t tc = t();
     const float nan = NAN;
     chase_.update(world_.glider(), ctl_ == Control::TILT ? boxRoll_ * kDeg2Rad : nan, dt * scale_);
+    lap(P_CHASEUPD, tc);
   }
   if (view_ == View::TOP) {
+    const uint32_t tu = t();
     const Glider& g = world_.glider();
     top().update(world_.cache(), g.x, g.y, g.heading, kMapMPerPx, kRenderBudgetPx);
+    lap(P_TOPUPD, tu);
   }
 }
 
@@ -348,11 +354,19 @@ void SimApp::drawFlight(Bitmap1& bm) {
   if (view_ == View::CHASE) {
     // Chase camera behind and above the glider; with tilt steering the horizon counter-rotates by the box roll (see ChaseCam).
     const Camera cam = chase_.camera(g, world_.cache());
+    uint32_t t0 = t();
     voxel().render(bm, world_.cache(), cam);
+    lap(P_VOXEL, t0);
+    t0 = t();
     sky().draw(bm, voxel(), world_.air(), g, cam, world_.time(), assist_, style_);     // clouds always; thermals with the assist
+    lap(P_SKY, t0);
+    t0 = t();
     chase_.drawGlider(bm, g, world_.cache(), cam);
+    lap(P_SPRITE, t0);
   } else {
+    const uint32_t tb = t();
     top().blit(bm, g.x, g.y);
+    lap(P_BLIT, tb);
     const ClipBox clip(0, TopDownView::kTopY, 239, 399);
     float sx, sy, px, py;
     top().worldToScreen(g.x, g.y, &sx, &sy);
@@ -382,7 +396,29 @@ void SimApp::drawFlight(Bitmap1& bm) {
     gliderSymbol(bm, sx, sy, a, DRAW_SET, 2);
     gliderSymbol(bm, sx, sy, a, DRAW_CLEAR, 0);
   }
+  const uint32_t th = t();
   hud_.draw(bm, hud(), frame_);
+  lap(P_HUD, th);
+}
+
+int SimApp::gameInfo(char* dst, size_t cap) {
+  const uint32_t dec = terrain_ ? terrain_->tileDecodes() : 0;
+  static const char* const modes[] = {"nomap", "flying", "paused", "ended", "calib", "day"};
+  int n = snprintf(dst, cap, "view=%s mode=%s scale=%d cache_decodes=%lu", view_ == View::TOP ? "map" : "3d", modes[(int)mode_], scale_,
+                   (unsigned long)(dec - lastDecodes_));
+  lastDecodes_ = dec;
+  if (clk_ && n > 0 && (size_t)n < cap) {
+    const HeightCache::RefreshStats rs = world_.cache().takeRefreshStats();
+    struct P { const char* name; Acc a; } ps[] = {{"world", prof_[P_WORLD]}, {"topupd", prof_[P_TOPUPD]}, {"chaseupd", prof_[P_CHASEUPD]},
+                                                  {"blit", prof_[P_BLIT]}, {"voxel", prof_[P_VOXEL]}, {"sky", prof_[P_SKY]}, {"sprite", prof_[P_SPRITE]},
+                                                  {"hud", prof_[P_HUD]}};
+    n += snprintf(dst + n, cap - n, " cache_refresh_avg/max=%.1f/%.1f cells=%lu", rs.calls ? rs.sumUs / 1000.0 / rs.calls : 0.0,
+                  rs.maxUs / 1000.0, (unsigned long)rs.cells);
+    for (const P& p : ps)
+      if (p.a.n && n > 0 && (size_t)n < cap) n += snprintf(dst + n, cap - n, " %s_avg/max=%.1f/%.1f", p.name, p.a.sum / 1000.0 / p.a.n, p.a.max / 1000.0);
+    for (Acc& a : prof_) a = Acc();
+  }
+  return n < 0 ? 0 : (n >= (int)cap ? (int)cap - 1 : n);
 }
 
 void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {

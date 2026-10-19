@@ -67,6 +67,12 @@ class SimApp : public IApp {
   void cycleTimeScale() { setTimeScale(scale_ == 1 ? 3 : (scale_ == 3 ? 5 : 1)); }
   void setControl(Control c);                         // Tilt opens the calibration page
   void zeroTilt();                                    // take the current tilt as level
+  // Profiling for the game status line (platform/game_probe.h): with a microsecond clock set, step() and draw() time their parts and
+  // gameInfo() reports them (view, scale, tile decodes, then avg/max ms of world physics, height-cache refresh, map update, 3D
+  // render, sky, glider + HUD) for the second since the last call. No clock: gameInfo() still gives view, scale and decodes.
+  typedef uint32_t (*ClockUs)();
+  void setClock(ClockUs c) { clk_ = c; world_.cache().setClock(c); }
+  int gameInfo(char* dst, size_t cap) override;
 
   const char* name() const override { return "flightsim"; }
   void begin(uint32_t nowMs) override;
@@ -159,6 +165,16 @@ class SimApp : public IApp {
   uint32_t frame_ = 0;
   bool left_ = false, right_ = false, up_ = false, down_ = false;
   Controls c_;
+  struct Acc {
+    uint32_t sum = 0, max = 0, n = 0;
+    void add(uint32_t us) { sum += us; if (us > max) max = us; n++; }
+  };
+  enum { P_WORLD, P_TOPUPD, P_CHASEUPD, P_BLIT, P_VOXEL, P_SKY, P_SPRITE, P_HUD, P_COUNT };
+  uint32_t t() const { return clk_ ? clk_() : 0; }
+  void lap(int part, uint32_t t0) { if (clk_) prof_[part].add(clk_() - t0); }
+  ClockUs clk_ = nullptr;
+  Acc prof_[P_COUNT];
+  uint32_t lastDecodes_ = 0;
 };
 
 }  // namespace sim

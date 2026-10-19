@@ -27,6 +27,7 @@ class SharpPanel : public IPanel {
   uint32_t refreshUs() const { return refreshUs_; }
   uint32_t sendUs() const;                              // start to done of the last transfer (DWT)
   uint32_t waitUs() const { return waitUs_; }           // time the last send spent waiting for the previous one
+  uint32_t takeWaitUs() { uint32_t w = waitAccUs_; waitAccUs_ = 0; return w; }   // all waiting for a transfer since the last call
   uint32_t timeouts() const { return timeouts_; }       // transfers aborted after 50 ms
 
   int lastLines() const { return lastLines_; }          // lines sent by the last refresh
@@ -43,5 +44,6 @@ class SharpPanel : public IPanel {
   bool ready_ = false;                    // SPIM2 initialised
   uint32_t refreshUs_ = 0;
   uint32_t waitUs_ = 0;
+  uint32_t waitAccUs_ = 0;
   uint32_t timeouts_ = 0;
 };
