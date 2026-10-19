@@ -233,6 +233,12 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   Serial.printf(" up=%lu heap=%d", (unsigned long)(millis() / 1000), dbgHeapUsed());
 #endif
   Serial.printf(" lines=%d", panel.lastLines());
+  {
+    uint32_t ms, mx;
+    bool mb, msun;
+    app.takeMapStats(&ms, &mx, &mb, &msun);
+    Serial.printf(" mapjob=%lu/%luus b=%d sun=%d", (unsigned long)ms, (unsigned long)mx, mb, msun);
+  }
   Serial.print("\n");
 #ifdef DIAGNOSTICS
   if (benchPending) { Serial.print(fontsLine); Serial.print(benchLine); Serial.print(packBenchLine); benchPending = false; }

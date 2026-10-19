@@ -45,6 +45,10 @@ bool xctrcParse(const char* line, Sample& out) {
   if (!intField(f[4], 0, 23, hh) || !intField(f[5], 0, 59, mm) || !intField(f[6], 0, 60, ss)) return false;
 
   Sample r;
+  long yy, mo, dd;                                   // the date only feeds the sun position: a bad one means "unknown"
+  if (intField(f[1], 2000, 2100, yy) && intField(f[2], 1, 12, mo) && intField(f[3], 1, 31, dd)) {
+    r.year = (uint16_t)yy; r.month = (uint8_t)mo; r.day = (uint8_t)dd;
+  }
   r.hh = (uint8_t)hh; r.mm = (uint8_t)mm; r.ss = (uint8_t)ss;
   // A fix needs a real position: finite and on the globe. The tracer sends 0,0 without one; anything
   // else impossible ("nan", "inf", 1e300, lat 95) is treated the same, never as a fix.

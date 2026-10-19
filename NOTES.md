@@ -1117,3 +1117,39 @@ Findings:
   those are in `core/sim.cpp` (the simulator tracer, not flight). What is left is one `atan2` (double) per sample for the wind
   direction, bearing to home and thermal headings, about 3 per second: a fast `atan2` would change the digests for no
   measurable gain.
+
+## Map page: no more 1.9 s stall, sun-lit hillshade, paper-plane pilot (2026-10-19)
+
+- **Problem (measured on the box image, `ctl.py sim on` + `page map`, `st` lines)**: a normal loop pass ~18 ms, but every 30-60 s
+  one pass took ~1.9 s: `TerrainMap::update` rendered the whole picture (hillshade + contours + roads + towns) in one call. The
+  float-maths change made no difference (18.7 -> 18.1 ms).
+- **Fix**: the render is a job. `update()` (per frame) only decides and starts it; `App::tick` calls `TerrainMap::step()`, which
+  works a time budget (5 ms, `fastMicros` set by main) per loop pass into a second 1-bit layer: one row of one relief strip per
+  work unit (`Terrain::reliefStrip`, which keeps the three height rows between calls, so a strip costs one pass, not one per
+  call; bit-identical to `relief()`, tested), then one road polyline (two passes), then one town. The old layer keeps being
+  shown, the pilot and the track keep their true position relative to it; when the job ends the layers swap. The new picture is
+  centred where the pilot was when the job started. RAM: +10.2 kB for the second layer, -10.4 kB for the old 24-row bands (a
+  strip row is 64 px now): the box image heap is unchanged (82.4 kB). A pilot more than 95 px from the window's centre (long
+  pause on another page) drops the picture (the screen says "reading the pack") instead of showing a wrong one.
+- **Measured on the device (box image, sim, map page)**: normal tick 18.1 ms (unchanged), 18.1 with the new pilot symbol.
+  Before: one tick of ~1900 ms every 30-60 s. After: worst tick while a job runs 24-25 ms (step max 9.4-9.6 ms for a 5 ms budget;
+  the overshoot is one unit: a tile decode or a road block), no tick above ~25 ms from the map in 75 s + 130 s of reading
+  (an isolated ~32 ms tick about every 50 s is not the map: it also shows with no job running). A picture takes ~330 steps, 8 s
+  of wall clock at 5 ms per pass; at 100 km/h (0.28 px/s at 100 m/px) the pilot moves ~2 px in that time, the re-render
+  threshold is 10 px and the window's half size 109 px. Heading-up while circling would still lag (a job per 5 degrees takes 8 s);
+  north up is the default. The very first tick after boot is 115 ms (not the map). With the 8 ms budget the first try had
+  ticks of 32-52 ms.
+- **Sun** (`platform/sensors/sun.*`, `ReliefStyle::setSun`): azimuth/elevation from the tracer's UTC date + time (the `XCTRC` line has
+  the date; `Sample::year/month/day`, 0 = unknown) and the position, Astronomical Almanac low-precision formulas, 0.83 ms
+  on the device, recomputed every 30 s. The light vector goes into the relief's screen axes (north up: sun in the south =
+  light from the bottom of the screen; the sun keeps its side of the world when the window turns). Sun below 2 degrees,
+  or no date: the old fixed light from the upper left (picture byte-identical to before). A new picture is built when the
+  sun moved more than 5 degrees (azimuth or elevation): about every 20 minutes. Sun shading uses a darker "darkest" level
+  (6, was 10) so the shaded side reads; at midday the effect is faint (high sun), in the evening the slopes facing away are dark
+  (see `out/map.png`, `map_evening.png` (16:40 UTC), `map_night.png` (fixed light)). The built-in sim flies on a fixed date
+  (2026-10-19) from 12:00 UTC.
+- **Railways**: the pack has only four road classes (motorway, trunk, primary, secondary); there is no rail layer. Drawing now
+  skips any class above 3 anyway. What looked like train lines may be the secondary roads (1 px core in a 3 px white casing).
+- **Pilot symbol**: bold paper plane seen from above (nose along the track, 25 px nose to 16 px tail, 36 px wide), two faces (left lit
+  grey, right shaded black) in a black outline with a 3.5 px white halo; replaces the arrow in a circle. Drawn per pixel with
+  incremental edge distances (first version with per-pixel multiplications cost ~6 ms per frame; now none measurable).

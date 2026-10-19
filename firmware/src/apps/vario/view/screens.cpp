@@ -337,6 +337,7 @@ static void drawStandalone(const ViewModel& vm, const Bitmap1* bm) {
   text(4 + 5 + tw + 10, cellY + 14, "C", F9, AL, WHT);
   cell(4 + cellW + 4, cellY, cellW, "HUMIDITY %", fnum(b, sizeof b, vm.humidityPct, "%.0f"));
 
+  if (vm.terrainOn) text(cx, H - 30, "(c) OpenStreetMap, Copernicus DEM", F9, AC);   // map credits, where nothing else is waiting
   if (vm.link == ViewModel::LINK_CONNECTED) {
     snprintf(b, sizeof b, "%lu ok, %lu bad", (unsigned long)vm.linesOk, (unsigned long)vm.linesBad);
     text(cx, H - 12, b, F9, AC);
@@ -802,6 +803,70 @@ static void mapScaleBar(int x, int y, float mPerPx) {
   text(x - len, y - 7, b, F9);
 }
 
+// The pilot on the map: a bold paper-plane arrow seen from above, nose along the track (th: radians clockwise from
+// the map's up). Two faces meet in a ridge from the nose to the notch in the tail: the left one lit (dark-mid grey), the
+// right one in shade (solid black), a black outline around both and a white halo ~3.5 px wide outside it, so it
+// reads over black contours and white plains alike. Drawn pixel by pixel; the edge distances of a pixel are
+// linear in its position, so the row loop only adds. The box clips it to the map area.
+static void pilotPlane(const Bitmap1& bm, int ax, int ay, float th, int cx0, int cy0, int cx1, int cy1) {
+  if (!isfinite(th)) return;
+  static const float V[4][2] = {{0, 25}, {-18, -16}, {0, -6}, {18, -16}};      // nose, left tip, notch, right tip (x right, y forward)
+  static const int F[2][3] = {{0, 1, 2}, {0, 2, 3}};                           // counter-clockwise (y up)
+  const float c = cosf(th), s = sinf(th);
+  // distance (pixels, inside positive) of the pixel at offset (dx, dy) from the edge k of face f: A dx + B dy - C
+  float A[2][3], B[2][3], C[2][3];
+  for (int f = 0; f < 2; f++)
+    for (int k = 0; k < 3; k++) {
+      const float* a = V[F[f][k]];
+      const float* b = V[F[f][(k + 1) % 3]];
+      const float ex = b[0] - a[0], ey = b[1] - a[1], inv = 1.0f / sqrtf(ex * ex + ey * ey);
+      const float nx = -ey * inv, ny = ex * inv;                                // inward normal in the plane's frame
+      A[f][k] = c * nx + s * ny;                                                // lx = dx c + dy s, ly = dx s - dy c
+      B[f][k] = s * nx - c * ny;
+      C[f][k] = a[0] * nx + a[1] * ny;
+    }
+  const float kHalo = 3.5f;
+  const int R = 30;
+  for (int dy = -R; dy <= R; dy++) {
+    const int y = ay + dy;
+    if (y < cy0 || y > cy1) continue;
+    float d[2][3];
+    for (int f = 0; f < 2; f++)
+      for (int k = 0; k < 3; k++) d[f][k] = -R * A[f][k] + dy * B[f][k] - C[f][k];
+    for (int dx = -R; dx <= R; dx++) {
+      float m0 = d[0][0] < d[0][1] ? d[0][0] : d[0][1];
+      if (d[0][2] < m0) m0 = d[0][2];
+      float m1 = d[1][0] < d[1][1] ? d[1][0] : d[1][1];
+      if (d[1][2] < m1) m1 = d[1][2];
+      for (int f = 0; f < 2; f++)
+        for (int k = 0; k < 3; k++) d[f][k] += A[f][k];                          // next pixel
+      const int x = ax + dx;
+      if (x < cx0 || x > cx1) continue;
+      const float in = m0 > m1 ? m0 : m1;                                       // >= 0 inside the plane
+      if (in < -kHalo) continue;
+      if (in < 0) {                                                             // near it: the true distance to the outline
+        const float lx = dx * c + dy * s, ly = dx * s - dy * c;
+        float best = 1e9f;
+        for (int k = 0; k < 4; k++) {
+          const float* a = V[k];
+          const float* b = V[(k + 1) & 3];
+          const float ex = b[0] - a[0], ey = b[1] - a[1];
+          float t = ((lx - a[0]) * ex + (ly - a[1]) * ey) / (ex * ex + ey * ey);
+          t = t < 0 ? 0 : (t > 1 ? 1 : t);
+          const float qx = lx - (a[0] + t * ex), qy = ly - (a[1] + t * ey);
+          const float dd = qx * qx + qy * qy;
+          if (dd < best) best = dd;
+        }
+        if (best <= kHalo * kHalo) bm.pixel(x, y, DRAW_SET);
+        continue;
+      }
+      if (m0 >= 1.0f) bm.pixel(x, y, bayer8(x, y) < 4 * 6 ? DRAW_SET : DRAW_CLEAR);        // lit face
+      else if (m1 >= 1.0f) bm.pixel(x, y, DRAW_CLEAR);                                    // shaded face: solid
+      else bm.pixel(x, y, DRAW_CLEAR);                                                       // outline and ridge
+    }
+  }
+}
+
 // Ground track (white casing, black core) then the pilot, in the cached window's frame. The window can be a few
 // pixels behind the pilot (it is re-rendered only after ~10 px or ~5 degrees), the arrow shows the true spot.
 static void mapTrackAndPilot(const ViewModel& vm, int mx, int my, int mw, int mh, float px, float py, float th) {
@@ -832,9 +897,7 @@ static void mapTrackAndPilot(const ViewModel& vm, int mx, int my, int mw, int mh
   }
   const int ax = mx + (int)lroundf(px), ay = my + (int)lroundf(py);
   if (ax < mx + 8 || ax > mx + mw - 8 || ay < my + 8 || ay > my + mh - 8) return;
-  fillDisc(*bm, ax, ay, 13, DRAW_SET);                            // white badge, so the arrow reads over any relief
-  circle(*bm, ax, ay, 13, DRAW_CLEAR);
-  drawArrow(ax, ay, th, 9, 7);
+  pilotPlane(*bm, ax, ay, th, mx + 1, my + 1, mx + mw - 2, my + mh - 2);
 }
 
 static void drawMapPage(const ViewModel& vm, const Bitmap1* bm) {
@@ -878,15 +941,6 @@ static void drawMapPage(const ViewModel& vm, const Bitmap1* bm) {
   mapScaleBar(mx + mw - 8, by - 8, m->mPerPx());
 
   if (m->noData()) mapNotice(mx, my, mw, mh, "OUTSIDE MAP", "no terrain data here");
-  if (vm.mapAbout) {                                               // first seconds on the page: attribution, caveat
-    const int bx = mx + 6, bw = mw - 12, ty = my + 62;
-    d->fillRect(bx, ty, bw, 84, WHT);
-    d->drawRect(bx, ty, bw, 84, BLK);
-    text(bx + 6, ty + 17, "(c) OpenStreetMap", F9);
-    text(bx + 6, ty + 34, "Copernicus DEM", F9);
-    text(bx + 6, ty + 51, "AGL: terrain model,", F9);
-    text(bx + 6, ty + 68, "+-10 m, 80 at peaks", F9);
-  }
 }
 
 // ---- CENTRING PAGE -------------------------------------------------------------

@@ -47,6 +47,12 @@ struct ReliefStyle {
   float flat = 14.0f;                          // level of level ground
   float darkest = 3.0f;                        // level of the steepest shaded face
   float lightest = 16.0f;                      // level of the steepest lit face
+  // Direction TO the light in screen axes (x right, y up, z out of the screen), unit length. The default is the
+  // upper left of the screen, 40 degrees above the horizon; sun() puts it where the real sun is.
+  float lightX = -0.54167f, lightY = 0.54167f, lightZ = 0.64279f;
+  // Light from the sun at azimuth azDeg (clockwise from north) and elevation elDeg, for a window whose top is
+  // headingDeg. The shading keeps the sun's side of the world while the window turns.
+  void setSun(float azDeg, float elDeg, float headingDeg);
   static ReliefStyle strong() { return ReliefStyle(); }
   // Toned down so black contour lines stay readable on top.
   static ReliefStyle light() {
@@ -95,6 +101,13 @@ class Terrain {
   // number of pixels that have data (0: nothing to draw). Rendering in bands (e.g. 40 rows) keeps the buffers
   // small; the result does not depend on the band split. Deterministic.
   int relief(const Window& win, const ReliefStyle& style, int interval, int y0, int y1, uint8_t* grey, uint8_t* contour);
+  // One strip of the same render for work in small steps: columns [xs, xe) (at most kMaxStrip wide) of rows [y0, y1),
+  // output stride xe - xs. The values are exactly those relief() gives. Calling it again for the next rows of the same
+  // strip (y0 = the previous y1) reuses the height rows already computed, so the strip costs one pass, not one per call.
+  int reliefStrip(const Window& win, const ReliefStyle& style, int interval, int xs, int xe, int y0, int y1, uint8_t* grey,
+                  uint8_t* contour);
+  // Columns per strip relief() and reliefStrip() callers should use for this window (about one tile wide).
+  int stripWidth(const Window& win) const;
   int hillshade(const Window& win, const ReliefStyle& style, int y0, int y1, uint8_t* grey) {
     return relief(win, style, 0, y0, y1, grey, nullptr);
   }
@@ -117,6 +130,13 @@ class Terrain {
       : nTiles_(n), key_(key), stamp_(stamp), ok_(ok), tiles_(tiles), rows_(rows) {}
 
  private:
+  struct ReliefCtx {
+    int W = 0, H = 0, interval = 0, r0 = 0, c0 = 0, sw = 0;
+    float fr0 = 0, fc0 = 0, ct = 1, sn = 0, kr = 0, kc = 0, halfW = 0, halfH = 0, inv2s = 0;
+  };
+  bool reliefSetup(const Window& win, int interval, ReliefCtx* c) const;
+  int reliefBand(const ReliefCtx& c, const ReliefStyle& st, int xs, int xe, int y0, int y1, int stride, uint8_t* grey,
+                 uint8_t* contour);
   const int16_t* tile(int layer, uint32_t ti);
   bool cell(int layer, int r, int c, int* v);
   bool bilinear(int layer, int r, int c, float fr, float fc, float* h);
@@ -134,7 +154,9 @@ class Terrain {
   const int16_t* mruTile_ = nullptr;
   uint32_t decodes_ = 0, crcErrors_ = 0, readErrors_ = 0;
   uint8_t coded_[kMaxTileBytes];               // flash read buffer for one coded tile
-  float (*rows_)[kMaxStrip + 2];               // relief: height rows of the strip being shaded
+  float (*rows_)[kMaxStrip + 2];               // relief: height rows of the strip being shaded (ring of 3, by absolute row)
+  bool resumeValid_ = false;                   // rows_ holds rows resumeY_ - 1 and resumeY_ of strip [resumeXs_, resumeXe_)
+  int resumeXs_ = 0, resumeXe_ = 0, resumeY_ = 0;
 };
 
 // A Terrain with its own cache of N tiles (2 kB each). N >= 4 keeps the 2 x 2 neighbourhood of a bilinear sample resident.
