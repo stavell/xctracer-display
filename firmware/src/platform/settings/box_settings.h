@@ -18,6 +18,10 @@ class BoxSettings {
   PowerOffMode powerOffMode() const { return s_.get(SLOT_POWER_MODE) == POWER_OFF_FULL ? POWER_OFF_FULL : POWER_OFF_CLOCK; }
   void setPowerOffMode(PowerOffMode m) { s_.set(SLOT_POWER_MODE, (uint32_t)m); }
 
+  // The start-up animation (apps/intro): on unless switched off. Stored inverted so that a fresh store means "on".
+  bool introEnabled() const { return s_.get(SLOT_INTRO_OFF) == 0; }
+  void setIntroEnabled(bool on) { s_.set(SLOT_INTRO_OFF, on ? 0 : 1); }
+
   bool loadMagCal(MagCal& out) const;              // false when none is stored
   void saveMagCal(const MagCal& cal);              // one flash write
 

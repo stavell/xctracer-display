@@ -5,6 +5,7 @@
 #include <memory>
 #include "apps/games/sim/sim_box.h"
 #include "apps/games/tetris/tetris_app.h"
+#include "apps/intro/intro_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/settings/settings_app.h"
 #include "apps/vario/app/compass_tool.h"
@@ -24,20 +25,22 @@ struct MockTilt : sim::ITilt {
 };
 
 struct Box {
-  enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM };
+  enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO };
 
   Rig r;                              // panel, switch, battery, tracer, laptop, key store + settings, compass, thermo, power
   MockKeyStore& keys = r.keys;
   WallClock clock;
   AppRegistry registry;
   // Like main_box.cpp: the vario (with its map kit), the tool, Tetris and the sim share one arena and exist only while they are the active app.
-  static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
+  static constexpr size_t kArenaBytes = maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(CompassTool), sizeof(TetrisApp)))));
   AppArenaStore<kArenaBytes> arena;
   uint32_t seed;
   LazyApp<VarioBox> vario;
   LazyApp<CompassTool> compassTool;
   LazyApp<TetrisApp> tetris;
   LazyApp<sim::SimBox> flightSim;
+  LazyApp<intro::IntroApp> introApp;
+  int introNext = APP_VARIO;         // the app the start-up animation hands over to (set by boot())
   LauncherApp launcher;
   SettingsApp settings;
   MockTilt tilt;
@@ -80,6 +83,14 @@ struct Box {
     return s;
   }
 
+  // Like main_box.cpp: the start-up animation reads the pack through the reader the vario's kit was opened on.
+  static intro::IntroApp* makeIntro(void* mem, void* ctx) {
+    Box& b = *static_cast<Box*>(ctx);
+    intro::IntroApp* i = new (mem) intro::IntroApp(b.kit ? b.kit->terrain.reader() : nullptr);
+    i->setNext(b.introNext);
+    return i;
+  }
+
   static AppConfig cfg(bool tool) {
     AppConfig c;
     c.standalone = tool;
@@ -89,7 +100,7 @@ struct Box {
   explicit Box(uint32_t seed = 1)
       : seed(seed), vario(arena, "vario", makeVario, this),
         compassTool(arena, "compass", makeCompass, this), tetris(arena, "tetris", makeTetris, this),
-        flightSim(arena, "flightsim", makeSim, this),
+        flightSim(arena, "flightsim", makeSim, this), introApp(arena, "intro", makeIntro, this),
         launcher(r.battery, r.power, registry, r.settings, clock), settings(r.battery, r.compass, r.keys, r.settings, registry, "0.1"),
         host(r.panel, r.input), scores(r.keys) {
     host.add(vario);
@@ -98,6 +109,7 @@ struct Box {
     host.add(settings);
     host.add(launcher);
     host.add(flightSim);
+    host.add(introApp);
     host.setLauncher(APP_LAUNCHER);
     host.setProbe(&probe);
     registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
@@ -115,11 +127,18 @@ struct Box {
     settings.setPack(k);
   }
 
-  // Boot like main_box.cpp: straight into the start-up app (the vario unless the launcher chose another).
-  void boot(uint32_t now) {
+  // Boot like main_box.cpp: straight into the start-up app (the vario unless the launcher chose another). withIntro = a power-on
+  // (not the way out of the clock sleep): the start-up animation plays first unless Settings turned it off. A start-up app other
+  // than the vario keeps the tracer off as before; the vario's own scan runs from the start, in parallel with the animation.
+  void boot(uint32_t now, bool withIntro = false) {
     const int first = registry.startupApp(keys);
     if (first != APP_VARIO) r.tracer.pause();
-    host.start(first, now);
+    if (withIntro && r.settings.introEnabled()) {
+      introNext = first;
+      host.start(APP_INTRO, now);
+    } else {
+      host.start(first, now);
+    }
   }
   void tick(uint32_t now) {
     if (sleep != SS_AWAKE) { sleepTick(now); return; }
