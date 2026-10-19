@@ -13,6 +13,7 @@
 #include "platform/app_registry.h"
 #include "platform/clock.h"
 #include "platform/lazy_app.h"
+#include "platform/power/clock_view.h"
 
 // Tilt of the box for the flight sim: the PC player drives it from the mouse, tests set it directly.
 struct MockTilt : sim::ITilt {
@@ -45,6 +46,7 @@ struct Box {
   AppHost host;
   uint32_t score = 0;
   bool oneButton = false;             // the device today: only the switch (main_box.cpp: KEY_PIN_COUNT == 0); the PC player has the D-pad
+  int seenRequests_ = 0;
 
   struct Scores : IScoreStore {
     MockKeyStore& k;
@@ -115,6 +117,59 @@ struct Box {
     if (first != APP_VARIO) r.tracer.pause();
     host.start(first, now);
   }
-  void tick(uint32_t now) { host.tick(now); }
+  void tick(uint32_t now) {
+    if (sleep != SS_AWAKE) { sleepTick(now); return; }
+    host.tick(now);
+    if (r.power.requests != seenRequests_) {                // the app asked to power off
+      seenRequests_ = r.power.requests;
+      if (r.settings.powerOffMode() == POWER_OFF_CLOCK) enterSleep();
+      else sleep = SS_OFF;                               // System OFF: nothing runs until the PC player restarts the box
+    }
+  }
+
+  // The clock sleep as main_box.cpp / platform/hw/power_nrf.cpp do it, over the mocks: radios and compass off, no app
+  // ticking, the clock on the panel once per minute (platform/power/clock_sleep.h decides), a 1 s hold wakes into the
+  // start-up app without a reset (the wall clock survives).
+  enum SleepState { SS_AWAKE, SS_CLOCK, SS_RELEASE, SS_OFF } sleep = SS_AWAKE;
+  ClockSleep sleeper;
+  int clockDraws = 0;                                       // clock screens drawn since the box started
+  void enterSleep() {
+    sleep = SS_CLOCK;
+    sleeper.begin();
+    r.compass.enable(false);
+    r.tracer.pause();
+  }
+  void sleepTick(uint32_t now) {
+    r.input.poll(now);                                      // keeps the mock switch running; its events are not for any app
+    const bool down = r.input.heldMs(now) > 0;
+    if (sleep == SS_OFF) return;
+    if (sleep == SS_RELEASE) {                           // the hold that woke the box must not reach the app as a press
+      if (!down) { sleep = SS_AWAKE; boot(now); }
+      return;
+    }
+    SleepIn in;
+    in.nowMs = now;
+    in.down = down;
+    in.battPct = r.battery.percent();
+    in.localMinute = clock.localMinutes(r.settings.tzMinutes(), now);
+    in.msToMinute = clock.msToNextMinute(now);
+    const SleepStep st = sleeper.step(in);
+    if (st.act == SLEEP_DRAW) {
+      r.panel.setRotation(1);
+      r.panel.clear();
+      Bitmap1 bm = r.panel.bitmap();
+      clockview::draw(bm, in.localMinute, in.battPct);
+      r.panel.invalidate();
+      r.panel.present();
+      clockDraws++;
+    } else if (st.act == SLEEP_WAKE) {
+      sleep = SS_RELEASE;
+    } else if (st.act == SLEEP_OFF) {
+      r.panel.clear();
+      r.panel.invalidate();
+      r.panel.present();
+      sleep = SS_OFF;
+    }
+  }
   const char* appName() const { return host.active() ? host.active()->name() : "-"; }
 };

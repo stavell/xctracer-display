@@ -154,6 +154,7 @@ struct Machine {
   virtual MockPanel& panel() = 0;
   virtual MockInput& input() = 0;
   virtual AppHost& host() = 0;
+  virtual void tick(uint32_t now) { host().tick(now); }   // the box adds its clock sleep
   virtual void boot(uint32_t now) = 0;
   virtual void restart(uint32_t now) = 0;
   virtual Rig* rig() { return nullptr; }              // the mock hardware, box only
@@ -242,8 +243,9 @@ struct BoxMachine : Machine {
   MockPanel& panel() override { return b.r.panel; }
   MockInput& input() override { return b.r.input; }
   AppHost& host() override { return b.host; }
+  void tick(uint32_t now) override { b.tick(now); }
   void boot(uint32_t now) override { b.boot(now); }
-  void restart(uint32_t now) override { b.boot(now); }   // R: power-cycle into the start-up app
+  void restart(uint32_t now) override { b.sleep = Box::SS_AWAKE; b.boot(now); }   // R: power-cycle into the start-up app
   Rig* rig() override { return &b.r; }
   sim::SimApp* flightSim() override { return b.flightSim.get(); }
   MockTilt* tilt() override { return &b.tilt; }
@@ -325,7 +327,7 @@ struct Runner {
   void tickOnce() {
     now += TICK_MS;
     world.tick(m.rig(), now);
-    m.host().tick(now);
+    m.tick(now);
   }
   void step(int frames = 1) {                         // frames of 30 ms
     for (int f = 0; f < frames * 3; f++) tickOnce();
@@ -506,7 +508,7 @@ static int runWindow(Machine& m, World& w, Args& a) {
       lastTick = now;
       w.tick(m.rig(), now);
       const uint64_t c0 = SDL_GetPerformanceCounter();
-      m.host().tick(now);
+      m.tick(now);
       const double ms = (SDL_GetPerformanceCounter() - c0) * 1000.0 / (double)SDL_GetPerformanceFrequency();
       if (ms > workMax) workMax = ms;
     }

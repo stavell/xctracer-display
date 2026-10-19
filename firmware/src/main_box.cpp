@@ -151,6 +151,13 @@ static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, 
 static VarioProbe probe;
 static AppHost host(panel, button);
 
+// Boot, and the way out of the clock sleep: straight into the start-up app (its begin() restarts what it needs).
+static void startStartupApp() {
+  const int boot = registry.startupApp(keys);
+  if (boot != APP_VARIO) tracer.pause();      // the vario is not the first app: do not scan until it is opened
+  host.start(boot, millis());
+}
+
 void setup() {
   PowerNrf::gateOnWake(PIN_BUTTON1, 1000);   // before anything else: a quick tap goes back to sleep
   Serial.begin(115200);
@@ -195,9 +202,8 @@ void setup() {
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
   registry.add("Settings", "setup", "compass, mounting, time, about", APP_SETTINGS, ICON_SETTINGS, false);
   registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
-  const int boot = registry.startupApp(keys);
-  if (boot != APP_VARIO) tracer.pause();      // the vario is not the first app: do not scan until it is opened
-  host.start(boot, millis());
+  power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION});
+  startStartupApp();
 }
 
 static uint32_t worstTickUs = 0;   // slowest host.tick() since the last status line
@@ -208,6 +214,7 @@ void loop() {
   pack.service(now);
   uint32_t t0 = micros();
   host.tick(now);
+  if (power.takeResumed()) startStartupApp();   // woke from the clock sleep: no reset, the wall clock survived
   uint32_t dt = micros() - t0;
   if (dt > worstTickUs) worstTickUs = dt;
   diagnosticsTick(now, worstTickUs);

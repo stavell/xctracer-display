@@ -67,9 +67,34 @@ static void shots(const char* dir) {
   dump(b, dir, "settings_cal");
   press(150);                                     // cancel
   b.r.compass.psi = b.r.compass.pitch = b.r.compass.roll = 0;
-  press(120); press(120); press(120); press(120);  // down to About
+  press(120); press(120); press(120); press(120); press(120);  // down to About
   press(900);
   dump(b, dir, "settings_about_nopack");
+
+  // Settings list with the new row, then the clock sleep: known time, a low battery, unknown time.
+  b.host.start(Box::APP_SETTINGS, now);
+  run(300);
+  press(120); press(120); press(120); press(120);  // down to Power off
+  press(900);                                     // -> Off, then back to Clock
+  dump(b, dir, "settings_power_off");
+  press(900);
+  b.r.settings.setTzMinutes(180);
+  b.clock.set(10 * 3600 + 38 * 60, now);
+  b.r.battery.pct = 76;
+  b.host.start(Box::APP_VARIO, now);
+  run(300);
+  b.r.input.press(now + 10, 3300);
+  run(4500);
+  dump(b, dir, "sleep_clock");
+  b.r.battery.pct = 8;
+  b.clock.set(7 * 3600 + 5 * 60 + 30, now);       // 10:05 local; the next minute change redraws
+  run(40000);
+  dump(b, dir, "sleep_clock_low");
+  b.clock = WallClock();                          // never set: "--:--"
+  press(150);                                     // a tap redraws
+  dump(b, dir, "sleep_clock_unknown");
+  b.r.input.press(now + 10, 1500);                // wake
+  run(3000);
 
   static std::vector<uint8_t> bytes;
   static terrain::MemReader rd;
@@ -89,7 +114,7 @@ static void shots(const char* dir) {
   dump(b, dir, "launcher_pack");
   b.host.start(Box::APP_SETTINGS, now);
   run(300);
-  for (int i = 0; i < 4; i++) press(120);
+  for (int i = 0; i < 5; i++) press(120);
   press(900);
   dump(b, dir, "settings_about");
   b.setTerrain(nullptr);
