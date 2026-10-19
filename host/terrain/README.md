@@ -3,8 +3,7 @@
 Question: the most detailed DEM of Bulgaria that fits the Feather's free 2 MB QSPI flash with random access, and
 how accurate it is. Host-only study; nothing here touches `firmware/` or `case/`. All data (downloads, grids,
 binaries, big PNGs) lives outside the repo in
-`/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/`
-(`DATA` in `tlib.py`). Python deps are in a separate venv there (numpy, scipy, rasterio, shapely, numba, pyosmium, pillow).
+`$TERRAIN_DATA` (`DATA` in `tlib.py`; default `~/terrain-data`). Python deps are in a separate venv there (numpy, scipy, rasterio, shapely, numba, pyosmium, pillow).
 
 ## Recommendation (short)
 
@@ -310,8 +309,8 @@ the 500 m MAX layer, towns/cities (Latin and Cyrillic names, population class), 
 strings, all CRC-protected. Format: `FORMAT.md`. Reader: `firmware/src/platform/terrain/` (`Terrain`, `MapVectors`).
 
     cd host/terrain
-    TV=/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain
-    $TV/venv/bin/python mkmappack.py $TV/bulgaria.pack                  # the real pack, about 1 s from the cached grids
+    TV=$TERRAIN_DATA
+    $TV/venv/bin/python mkmappack.py ../../maps/bulgaria.pack           # the real pack, about 1 s from the cached grids
     $TV/venv/bin/python mkmappack.py OUT.pack --bbox 42.35 42.85 24.40 25.10 --ref OUT.ref.txt    # a test fixture
 
 Options: `--bbox S N W E` restricts every section to a rectangle (fixtures); `--ref F` writes the reference values the C++
@@ -326,7 +325,7 @@ The emulator tests run on it; with `TERRAIN_PACK=<real pack> firmware/emu/out/te
 `firmware/emu/out/terrain_demo PACK bench` prints decode timing; `terrain_demo PACK LAT LON HEADING M_PER_PX OUT.pgm`
 renders a window (hillshade + contours + roads + towns).
 
-### The real pack (Bulgaria + 10 km, `bulgaria.pack` in the data directory)
+### The real pack (Bulgaria + 10 km, `maps/bulgaria.pack` in the repo)
 
 | | bytes |
 |---|---|

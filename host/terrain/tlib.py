@@ -11,7 +11,7 @@ import rasterio
 from rasterio.transform import Affine
 from rasterio.warp import reproject, Resampling
 
-DATA = "/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain"
+DATA = os.environ.get("TERRAIN_DATA", os.path.expanduser("~/terrain-data"))
 LAT0, LON0 = 45.0, 22.0
 LAT_S, LON_W = 41.0, 22.0
 LAT_N, LON_E = 45.0, 29.0

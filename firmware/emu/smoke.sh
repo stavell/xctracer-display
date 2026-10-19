@@ -7,9 +7,9 @@
 # Fails when a screenshot is missing or the box is not in the app the script expects.
 cd "$(dirname "$0")" || exit 1
 IGC="${SMOKE_IGC:-$HOME/Downloads/2026-08-16-XCT-SVE-09.igc}"
-# Map pack for AGL and the map page: SMOKE_PACK, else the Bulgaria pack of the terrain study, else the Sopot
+# Map pack for AGL and the map page: SMOKE_PACK, else maps/bulgaria.pack, else the Sopot
 # fixture (SMOKE_PACK=none: no terrain); none of them: the box runs without terrain and the map shot is skipped.
-STUDY=/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/bulgaria.pack
+STUDY=../../maps/bulgaria.pack
 PACK="${SMOKE_PACK:-}"
 [ -z "$PACK" ] && [ -f "$STUDY" ] && PACK="$STUDY"
 [ -z "$PACK" ] && [ -f fixtures/sopot.pack ] && PACK=fixtures/sopot.pack

@@ -3,7 +3,7 @@
 
     python host/load_pack.py <pack> [--port /dev/cu.usbmodemXXXX] [--chunk 512] [--no-reboot] [--status]
 
-    python host/load_pack.py bulgaria.pack          # the one command: finds the box, erases, streams, checks, reboots it
+    python host/load_pack.py maps/bulgaria.pack          # the one command: finds the box, erases, streams, checks, reboots it
     python host/load_pack.py --status               # ask the box about the pack it holds (header and whole-pack CRC)
 
 Needs a box image with the map loader (feather_sense, feather_sense_diag or feather_sense_box). The box keeps flying/running

@@ -1036,8 +1036,8 @@ static void playability() {
   static terrain::FullTerrain t2;
   const float times[] = {180.0f, 1800.0f};
   const bool haveSopot = openPack("fixtures/sopot.pack", bytes, rd, t);
-  // The real pack (not in the repository): every takeoff of the table.
-  const char* big = "/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/bulgaria.pack";
+  // The real pack (maps/bulgaria.pack): every takeoff of the table.
+  const char* big = "../../maps/bulgaria.pack";
   const bool haveBig = openPack(big, bytes2, rd2, t2);
   // One process per run: Sopot 2 start times x 8 seeds, then 8 takeoffs x 4 seeds of the big pack.
   const int nSopot = haveSopot ? 16 : 0, nBig = haveBig ? kTakeoffCount * 4 : 0;

@@ -492,7 +492,7 @@ static void test_map_cost_real() {
   static TerrainKit real;
   static std::vector<uint8_t> bytes;
   static MemReader rd;
-  const char* path = "/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/bulgaria.pack";
+  const char* path = "../../maps/bulgaria.pack";
   if (!terrain_tests::loadFile(path, bytes)) { puts("  (no Bulgaria pack: real-pack timing skipped)"); return; }
   rd = MemReader(bytes.data(), (uint32_t)bytes.size());
   CHECK(real.open(&rd));

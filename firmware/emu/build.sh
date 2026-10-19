@@ -12,7 +12,7 @@
 #   ./build.sh soak [lines.txt]     long session through the App, about a minute (see emu_main.cpp)
 #   ./build.sh play <app> [opts]    play an app on the PC in an SDL window (see play.cpp): tetris, or box
 #                                   (the whole box: home screen + vario + Tetris + compass tool + Settings). The box loads a map pack
-#                                   (--pack FILE; default the Bulgaria pack from the study if present, else the Sopot
+#                                   (--pack FILE; default maps/bulgaria.pack if present, else the Sopot
 #                                   fixture; --pack none for a box without terrain)
 #   ./build.sh loadtest [PACK]      host/load_pack.py against the loader code over an in-memory flash (clean and with damaged frames)
 #   ./build.sh simbench [PACK]      flight sim frame timing on the PC, scaled to the device (see sim_bench.cpp)

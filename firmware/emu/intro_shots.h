@@ -66,7 +66,7 @@ static void sheet(const std::vector<std::vector<uint8_t>>& fr, const std::string
 
 static void shots(const char* dir, const char* packArg = nullptr) {
   // The study's Bulgaria pack when it is there (the real look: the preferred site is on it), else the Sopot fixture.
-  const char* study = "/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/bulgaria.pack";
+  const char* study = "../../maps/bulgaria.pack";
   const char* packPath = packArg ? packArg : (access(study, R_OK) == 0 ? study : "fixtures/sopot.pack");
   static std::vector<uint8_t> bytes;
   static terrain::MemReader rd;

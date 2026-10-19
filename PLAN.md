@@ -160,7 +160,7 @@ laptop peripheral keeps advertising in every app); (6) reduce the duplicated Fre
 **Done (2026-10-18, builds + emulator, not flashed): device pack storage.** QSPI driver on the core's nrfx (`platform/hw/qspi_flash`),
 pack header + serial frames + loader state machine (pure, `platform/storage/`, tested on an in-memory flash), `PackService` (boot: header
 -> terrain, `pack ...` status line, USB loader), `host/load_pack.py`, wired into `feather_sense` (static kit) and `feather_sense_box` (kit
-in the app arena while the vario runs). **To do on the device:** flash, `load_pack.py bulgaria.pack`, read the `pack ...` line (flash id,
+in the app arena while the vario runs). **To do on the device:** flash, `load_pack.py maps/bulgaria.pack`, read the `pack ...` line (flash id,
 quad, MB/s), fly the map page; measure the AGL/map-page frame times and the power draw (then enable `setIdleSleepMs`). See NOTES.md "Map pack in the QSPI flash".
 **Next (after the device test):** (5) below was the QSPI step (done); then the sim on the device (done: always in the box image, see NOTES "RAM budget").
 Original list after step 2: Original list: (2) AGL cell on the vario page (`elevation`/`ceiling` under the GPS fix, margin for the 6.6 m RMS / 80 m worst mean
@@ -301,6 +301,3 @@ User additions (2026-10-19):
   `sim_playability` / `sim_day_settings` fail once in a full emulator run (check.sh passes; investigate flakiness).
   User observation (2026-10-19): the tracer's BLE vario reacts instantly on the box (a throw moves the graph at once), so the
   local BMP280 + accel vario idea is dropped; the onboard sensors are only a candidate for gyro circle phase.
-- Tests and tools read `bulgaria.pack` from a hard-coded session-scratchpad path (sim_tests.h, map_page_tests.h,
-  intro_shots.h, play.cpp, smoke.sh): move the pack to a stable git-ignored repo path (e.g. host/terrain/out/) and
-  point everything there, so results don't depend on a temp dir.

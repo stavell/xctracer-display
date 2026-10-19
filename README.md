@@ -61,13 +61,13 @@ ESA) is shown once per boot as a banner and always under Settings > About. Witho
 firmware or the saved settings). Needs an image with the loader (`feather_sense`, `feather_sense_diag`, `feather_sense_box`), the box
 connected by USB:
 
-    .venv/bin/python host/load_pack.py bulgaria.pack          # finds the box, erases, streams, checks, restarts it
+    .venv/bin/python host/load_pack.py maps/bulgaria.pack          # finds the box, erases, streams, checks, restarts it
     .venv/bin/python host/load_pack.py --status               # what the box holds now (header, whole-pack CRC)
 
 The box shows no map while it loads; the header that makes the pack valid is written last, after the box has checked the CRC of
 the bytes it stored, so an interrupted load leaves "no pack", never half a pack. With a terminal attached the box prints a
 `pack ...` status line (header, length, CRC check, flash id, read speed, whether the terrain code opened it).
-On the PC: `firmware/emu/build.sh play box --igc f.igc --pack bulgaria.pack` (default: the study pack if present, else the Sopot test fixture);
+On the PC: `firmware/emu/build.sh play box --igc f.igc --pack maps/bulgaria.pack` (default: maps/bulgaria.pack if present, else the Sopot test fixture);
 `firmware/emu/build.sh loadtest [pack]` runs the loader script against the firmware's loader code over an in-memory flash.
 
 ## Under the hood: what we are proud of
@@ -313,7 +313,7 @@ A paragliding simulator (Condor-like, adapted to a 1-bit 240 x 400 screen and a 
 map pack. Code: `firmware/src/apps/games/sim/` (pure C++, float, static buffers); step 1 runs on the PC in the box player
 and is built into the box image (on the device it says "needs the map pack" until the QSPI reader is wired).
 
-    firmware/emu/build.sh play sim          # the simulator alone (default pack: the Bulgaria pack of the study, else the Sopot fixture)
+    firmware/emu/build.sh play sim          # the simulator alone (default pack: maps/bulgaria.pack, else the Sopot fixture)
     firmware/emu/build.sh play box          # the whole box; "Flight sim" is the fifth tile of the home screen
     firmware/emu/build.sh simbench [PACK]   # frame timing on the PC, scaled to the device (see NOTES.md)
 

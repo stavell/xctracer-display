@@ -8,7 +8,7 @@
 //   build.sh play box [--igc f.igc --start S --speed N] [--lines f.txt] [--sim] [--battery P] [--temp C]
 //                                                               the whole box: launcher + vario + Tetris + compass
 //   --no-intro           the box starts straight into the start-up app (default: the start-up animation first, unless Settings turned it off)
-//   --pack FILE          map pack for the vario's AGL and map page (default: the Bulgaria pack of the terrain study if
+//   --pack FILE          map pack for the vario's AGL and map page (default: maps/bulgaria.pack if
 //                        it exists, else fixtures/sopot.pack; "none" = no terrain, the box as it was)
 //   build.sh play <app> --frames 300 --screenshot out.png --keys "main 10 left a up shot:x.png"
 //   build.sh smoke                                              scripted run of the box, writes out/box_*.png
@@ -181,7 +181,7 @@ struct TetrisMachine : Machine {
 };
 
 static const char* kStudyPack =
-    "/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/bulgaria.pack";
+    "../../maps/bulgaria.pack";
 static const char* kFixturePack = "fixtures/sopot.pack";
 
 // The pack is read into memory (1.7 MB; the device reads the QSPI flash instead, through the same IBlockReader).
