@@ -253,3 +253,29 @@ house thermals, tuned medium day, wing-tip lift feel, chase camera with glider s
 Next: look at the chase sprite on the device panel (halo cost), tune weak days (the scripted pilot only gains 500 m), a "reachable
 thermals" cue for the assist (arrows instead of rings), ridge lift from a smoother terrain scale, take the usual wind per site from
 real flying records.
+
+## Backlog (2026-10-19)
+
+Lessons from the sim speed pass (NOTES "sim speed"): on this chip libm (`expf` 1300 cycles, `powf` 2540, `logf` 1260),
+`snprintf` with floats, soft `double` and byte-wise memory loops (memset 6.3, memcpy 8.1 cycles/byte) are the cost, not
+the clock (64 MHz, cache on). Shared platform fixes (word-wise clear / pack / diff) already reach the vario.
+
+Vario, by expected gain (measure on the device first; `box_vario_matches_alone` and replay digests must not change):
+1. **Map page maths**: soft `double` in the per-pixel / per-point path (`terrain::MapVectors::makeXform`,
+   `boxForWindow`, `latLonToUnit`, `TerrainMap::update` / `windowCentre` / `project` / `feedTrack`, `Terrain::relief`,
+   `elevation` / `ceiling` for AGL). Keep `double` only for the absolute lat/lon origin, do the rest in float relative to it.
+   Biggest win: faster map redraws, smoother map page, less battery.
+2. **Number text**: `fnum()` and other `snprintf("%.Nf")` calls -> integer formatting (as the sim HUD does now).
+3. **libm in wind / thermal code** (`expf`, `powf`, `logf`, `atan2f` per sample): fast versions where precision allows.
+   Small gain (about 3 samples per second).
+
+Sim leftovers:
+- 3D at ~31 fps, needs ~7 ms more for 50 (voxel 11, sprite 4.6, sky 3-4, HUD 2.5 ms); map ~30 thermal rings ~6 ms,
+  glider symbol 2.9 ms.
+- BLE (laptop advertising / link) off while a game runs (user asked; power, not speed).
+- One 2.7 s stall on a flight restart after landing (height cache refill) seen once, not investigated.
+- Recalibrate `build.sh simbench` against the device numbers.
+- Map view edge strips (<= 4 px) can show blank until the next north-up picture swaps in.
+
+Other open items: measure the clock-sleep current (PPK2), wire the six buttons, print the case test plate, loader
+speed-up (pump the loader in a tight loop during a load), QSPI deep power-down measurement, launcher footer polish.
