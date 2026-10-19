@@ -44,6 +44,7 @@ struct Box {
   VarioProbe probe;
   AppHost host;
   uint32_t score = 0;
+  bool oneButton = false;             // the device today: only the switch (main_box.cpp: KEY_PIN_COUNT == 0); the PC player has the D-pad
 
   struct Scores : IScoreStore {
     MockKeyStore& k;
@@ -66,7 +67,8 @@ struct Box {
   static sim::SimBox* makeSim(void* mem, void* ctx) {
     Box& b = *static_cast<Box*>(ctx);
     sim::SimBox* s = new (mem) sim::SimBox(b.kit ? b.kit->terrain.reader() : nullptr);
-    s->setTilt(&b.tilt);
+    s->setTilt(&b.tilt);                                    // the device wires AccelTilt (SimBox::useAccel); tests give the angles
+    s->setOneButton(b.oneButton);
     return s;
   }
 

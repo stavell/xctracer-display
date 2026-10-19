@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
+#include "apps/games/sim/accel_tilt.h"
 #include "apps/games/sim/air.h"
 #include "apps/games/sim/glider.h"
 #include "apps/games/sim/height_cache.h"
@@ -811,6 +812,28 @@ static void time_scale() {
   c.onKey(KEY_B, true, 0);
 }
 
+// The device's tilt source: roll / pitch from gravity in the board frame through the mounting; sensors on only while enabled.
+static Vec3 V3(float x, float y, float z) { Vec3 v; v.x = x; v.y = y; v.z = z; return v; }
+static void accel_tilt() {
+  puts("sim: accelerometer tilt");
+  MockCompass c;
+  AccelTilt at;
+  at.attach(&c, nullptr);
+  float r = 0, p = 0;
+  CHECK(!at.read(&r, &p));                                   // not enabled yet: no sample
+  at.enable(true);
+  CHECK(c.enabled);
+  CHECK(AccelTilt::angles(V3(0, 9.81f, 0), &r, &p) && fabsf(r) < 0.01f && fabsf(p) < 0.01f);   // upright, facing the pilot
+  CHECK(AccelTilt::angles(V3(-9.81f * 0.5f, 9.81f * 0.866f, 0), &r, &p)); NEAR(r, 30.0, 0.05);   // right side down 30
+  CHECK(AccelTilt::angles(V3(0, 9.81f * 0.866f, 9.81f * 0.5f), &r, &p)); NEAR(p, 30.0, 0.05);    // top away 30
+  CHECK(!AccelTilt::angles(V3(0, 0.5f, 0), &r, &p));       // free fall: no direction
+  c.pitch = 90; c.roll = 0; c.psi = 0;                       // the mock's upright box
+  for (int i = 0; i < 40; i++) at.read(&r, &p);
+  CHECK(fabsf(r) < 1.0f && fabsf(p) < 1.0f);
+  at.enable(false);
+  CHECK(!c.enabled && !at.read(&r, &p));
+}
+
 static void app_logic() {
   Slope rise;                                              // a mountain side to fly in front of
   SimApp* app = new SimApp;
@@ -1287,6 +1310,80 @@ static void in_the_box() {
   b.r.input.press(now + 10, 3300);
   run(3600);
   CHECK(b.host.active() == &b.launcher);
+
+  // ---- one button: the whole flow on the switch alone (short / long), tilt from the (mock) accelerometer angles.
+  {
+    static Box ob(1);
+    ob.oneButton = true;
+    ob.setTerrain(&kit);
+    ob.boot(0);
+    uint32_t t = 0;
+    auto go = [&](uint32_t ms) { for (uint32_t e = t + ms; t < e; t += 10) ob.tick(t); };
+    auto shortp = [&]() { ob.r.input.press(t + 10, 120); go(420); };
+    auto longp = [&]() { ob.r.input.press(t + 10, 900); go(1200); };
+    ob.tilt.on = true;
+    ob.tilt.roll = 5; ob.tilt.pitch = 40;                    // how the pilot happens to hold it
+    ob.host.start(Box::APP_SIM, t);
+    go(300);
+    SimBox& sb = *ob.flightSim.get();
+    CHECK(sb.oneButton() && sb.control() == SimApp::Control::TILT && sb.mode() == SimApp::Mode::DAY);
+    simshots::dumpPanel(ob.r.panel, "out", "sim_ob_day");
+    shortp(); shortp();                                      // Site, Thermals, -> Wind from
+    CHECK(sb.dayRow() == 2);
+    longp();                                                 // act on the row: wind from usual -> N
+    CHECK(sb.windDir() == 1);
+    shortp(); shortp(); shortp();                            // Wind, Start, Home
+    CHECK(sb.dayRow() == 5);
+    simshots::dumpPanel(ob.r.panel, "out", "sim_ob_day_home");
+    shortp();                                                // wraps to Site
+    CHECK(sb.dayRow() == 0);
+    for (int i = 0; i < 4; i++) shortp();
+    CHECK(sb.dayRow() == 4);
+    longp();                                                 // Start: the calibration page comes before the first flight
+    go(2500);
+    CHECK(sb.mode() == SimApp::Mode::CALIB && ob.host.active() == &ob.flightSim);
+    simshots::dumpPanel(ob.r.panel, "out", "sim_ob_calib");
+    shortp();
+    CHECK(sb.mode() == SimApp::Mode::CALIB);                 // a short press does nothing here
+    longp();                                                 // zero here, fly
+    CHECK(sb.mode() == SimApp::Mode::FLYING);
+    go(500);
+    NEAR(sb.controls().bank, 0.0f, 1e-6);                    // held at the zero: wings level
+    NEAR(sb.controls().bar, 0.0f, 1e-6);
+    ob.tilt.roll = 5 + 38;                                   // right side down
+    go(500);
+    NEAR(sb.controls().bank, 1.0f, 1e-5);
+    go(3000);
+    CHECK(sb.world().glider().bank > 0.3f);                  // and the glider banks right
+    ob.tilt.roll = 5; ob.tilt.pitch = 40 + 20;
+    go(300);
+    NEAR(sb.controls().bar, 1.0f, 1e-5);
+    ob.tilt.pitch = 40;
+    longp();                                                 // long in flight: 3D view
+    CHECK(sb.view() == SimApp::View::CHASE && sb.mode() == SimApp::Mode::FLYING);
+    go(200);
+    simshots::dumpPanel(ob.r.panel, "out", "sim_ob_3d");
+    shortp();                                                // short in flight: the pause menu
+    CHECK(sb.mode() == SimApp::Mode::PAUSED);
+    const float t0 = sb.world().time();
+    go(300);
+    CHECK(sb.world().time() == t0);
+    simshots::dumpPanel(ob.r.panel, "out", "sim_ob_pause");
+    for (int i = 0; i < 5; i++) shortp();                    // Controls
+    longp();                                                 // stays on tilt, re-opens the calibration page
+    CHECK(sb.control() == SimApp::Control::TILT && sb.mode() == SimApp::Mode::CALIB);
+    longp();
+    CHECK(sb.mode() == SimApp::Mode::FLYING);
+    shortp();                                                // pause again: row 0, Resume
+    CHECK(sb.mode() == SimApp::Mode::PAUSED);
+    longp();
+    CHECK(sb.mode() == SimApp::Mode::FLYING);
+    shortp();
+    for (int i = 0; i < 12; i++) shortp();                   // Home is the last row
+    longp();
+    go(100);
+    CHECK(ob.host.active() == &ob.launcher);
+  }
 }
 
 static void run() {
@@ -1305,6 +1402,7 @@ static void run() {
   game_mode();
   time_scale();
   app_logic();
+  accel_tilt();
   air_playable();
   tip_lift();
   wind_onto_slope();

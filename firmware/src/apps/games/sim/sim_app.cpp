@@ -47,6 +47,9 @@ void SimApp::begin(uint32_t nowMs) {
   left_ = right_ = up_ = down_ = false;
   c_ = Controls();
   frame_ = 0;
+  if (tilt_) tilt_->enable(true);
+  if (oneButton_ && tilt_) ctl_ = Control::TILT;      // the only way to steer
+  calibrated_ = false;
   if (dayScreen_ && source()) { mode_ = Mode::DAY; dayRow_ = 0; return; }
   startFlight();
 }
@@ -103,6 +106,8 @@ void SimApp::startFlight() {
   if (topV_) topV_->reset();
   chase_.reset(world_.glider());
   setView(view_);
+  endSel_ = 0;
+  if (oneButton_ && tilt_ && ctl_ == Control::TILT && !calibrated_) mode_ = Mode::CALIB;   // hold the box as you fly, then go
 }
 
 void SimApp::startAt(float x, float y, float aglStart, float headingDeg, float windFromDeg, float windSpeed, uint32_t seed,
@@ -129,8 +134,43 @@ void SimApp::setView(View v) {
   }
 }
 
+void SimApp::oneButtonInput(ButtonEvent ev) {
+  if (ev != BTN_SHORT && ev != BTN_LONG) return;
+  const bool act = ev == BTN_LONG;
+  switch (mode_) {
+    case Mode::DAY: {
+      const int rows = kDayRows + 1;                    // + Home
+      if (!act) dayRow_ = (dayRow_ + 1) % rows;
+      else if (dayRow_ == kDayRows) { if (nav()) nav()->openLauncher(); }
+      else dayKey(KEY_ACTION);
+      break;
+    }
+    case Mode::PAUSED:
+      if (!act) menuSel_ = (menuSel_ + 1) % kMenuRows;
+      else menuAct();
+      break;
+    case Mode::CALIB:
+      if (act) { zeroTilt(); mode_ = Mode::FLYING; }
+      break;
+    case Mode::FLYING:
+      if (!act) mode_ = Mode::PAUSED, menuSel_ = 0;
+      else setView(view_ == View::TOP ? View::CHASE : View::TOP);
+      break;
+    case Mode::ENDED:
+      if (!act) endSel_ = 1 - endSel_;
+      else if (endSel_ == 0) startFlight();
+      else if (nav()) nav()->openLauncher();
+      break;
+    case Mode::NOMAP:
+      if (act && nav()) nav()->openLauncher();
+      break;
+  }
+}
+
 void SimApp::onInput(Key key, ButtonEvent ev) {
-  if (key != KEY_MAIN || ev != BTN_SHORT) return;
+  if (key != KEY_MAIN) return;
+  if (oneButton_) { oneButtonInput(ev); return; }
+  if (ev != BTN_SHORT) return;
   if (mode_ == Mode::FLYING) mode_ = Mode::PAUSED, menuSel_ = 0;
   else if (mode_ == Mode::PAUSED) mode_ = Mode::FLYING;
 }
@@ -146,6 +186,7 @@ void SimApp::setControl(Control c) {
 void SimApp::zeroTilt() {
   float r, p;
   if (tilt_ && tilt_->read(&r, &p)) { zeroRoll_ = r; zeroPitch_ = p; }
+  calibrated_ = true;
 }
 
 void SimApp::menuAct() {
@@ -155,7 +196,8 @@ void SimApp::menuAct() {
     case 2: assist_ = !assist_; break;
     case 3: style_ = (SkyFx::Style)(((int)style_ + 1) % SkyFx::kStyles); break;
     case 4: setSite(site_ + 1); break;
-    case 5: setControl(ctl_ == Control::TILT ? Control::BUTTONS : Control::TILT); break;
+    case 5: if (oneButton_) { setControl(Control::TILT); break; }        // no buttons to fall back on: re-calibrate
+            setControl(ctl_ == Control::TILT ? Control::BUTTONS : Control::TILT); break;
     case 6: if (ctl_ == Control::TILT) mode_ = Mode::CALIB; break;
     case 7: cycleTimeScale(); break;
     case 8: level_ = (level_ + 1) % Air::kLevels; break;                         // applies at the next flight
@@ -357,8 +399,8 @@ void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
     snprintf(r2, sizeof r2, "Wind from: %s", dirName(dirIdx_));
     if (spdIdx_ == 0) snprintf(r3, sizeof r3, "Wind: usual");
     else snprintf(r3, sizeof r3, "Wind: %.0f km/h", (double)kWindKmh[spdIdx_ - 1]);
-    const char* rows[kDayRows] = {r0, r1, r2, r3, "Start"};
-    hud_.menu(bm, "TODAY", rows, kDayRows, dayRow_);
+    const char* rows[kDayRows + 1] = {r0, r1, r2, r3, "Start", "Home"};
+    hud_.menu(bm, "TODAY", rows, oneButton_ ? kDayRows + 1 : kDayRows, dayRow_);
     return;
   }
   drawFlight(bm);
@@ -386,12 +428,13 @@ void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
     char l1[28], l2[28];
     snprintf(l1, sizeof l1, "roll %+.0f  pitch %+.0f", (double)r, (double)p);
     snprintf(l2, sizeof l2, "hold the box as you fly");
-    hud_.banner(bm, "ZERO TILT", l2, l1, "A: set   B: buttons");
+    hud_.banner(bm, "ZERO TILT", l2, l1, oneButton_ ? "long press: set" : "A: set   B: buttons");
   } else if (mode_ == Mode::ENDED) {
     char l1[28], l2[28];
     snprintf(l1, sizeof l1, "flew %.1f km", (double)(world_.distanceFlown() / 1000.0f));
     snprintf(l2, sizeof l2, "max %.0f m", (double)world_.maxAltitude());
-    hud_.banner(bm, world_.status() == Status::LANDED ? "LANDED" : "CRASHED", l1, l2, "A: new flight   B: home");
+    const char* t = world_.status() == Status::LANDED ? "LANDED" : "CRASHED";
+    hud_.banner(bm, t, l1, l2, !oneButton_ ? "A: new flight   B: home" : (endSel_ == 0 ? "[New flight]  Home" : "New flight  [Home]"));
   }
 }
 

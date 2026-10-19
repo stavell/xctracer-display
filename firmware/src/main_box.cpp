@@ -18,6 +18,7 @@
 #include "apps/vario/hw/diagnostics.h"
 #include "platform/hw/input_button.h"
 #include "platform/hw/key_store.h"
+#include "platform/hw/keymap.h"
 #include "platform/hw/pack_service.h"
 #include "apps/vario/hw/laptop_ble.h"
 #include "platform/hw/panel_sharp.h"
@@ -136,7 +137,13 @@ static TetrisApp* makeTetris(void* mem, void*) {
 }
 static LazyApp<TetrisApp> tetrisApp(arena, "tetris", makeTetris);
 // The flight sim opens the pack itself with a 2-tile cache (SimBox); without a pack it says so and goes home.
-static sim::SimBox* makeSim(void* mem, void*) { return new (mem) sim::SimBox(pack.reader()); }
+// With only the user switch (no front buttons) it steers by the tilt of the board and runs on short / long presses; the
+// accelerometer is switched on in begin() and off in end().
+static sim::SimBox* makeSim(void* mem, void*) {
+  sim::SimBox* s = new (mem) sim::SimBox(pack.reader());
+  if (KEY_PIN_COUNT == 0) s->useAccel(compassHw, boxSettings);
+  return s;
+}
 static LazyApp<sim::SimBox> simApp(arena, "flightsim", makeSim);
 static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);
 static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, FW_VERSION);

@@ -326,7 +326,15 @@ screen plane, like a steering wheel) is the bank: deadzone 3 degrees, expo curve
 the speed bar (top away) or the brakes (top toward you), full at 20 degrees. "Zero tilt" (also shown when Tilt is chosen)
 takes the way you hold the box as level: hold it comfortably, press A. In the 3D view the horizon counter-rotates by the box
 roll, so it stays level to the real world. The mapping is pure code (`sim/tilt.h`, `TiltMap`) behind an `ITilt` source; the device
-gives it the AHRS roll and pitch.
+gives it roll and pitch from the accelerometer (`sim/accel_tilt.h`).
+
+**One button (the box today: only the board's switch).** The sim steers by tilt (the board's accelerometer, gravity only, through
+the case mounting; on only while the sim is open) and every list works like the home screen: short press = next row (wraps),
+long press = act on the row. Day screen: Site, Thermals, Wind from, Wind speed, Start, Home. After Start the "ZERO TILT" page
+comes before the first flight: hold the box the way you fly, long press = zero and fly. Flying: tilt steers, short = pause menu,
+long = map / 3D. Pause menu: short = next row, long = act (Controls re-opens the zero page; Home is the last row). After
+landing: short switches "New flight" / "Home", long does it. Holding the switch 3 s still leaves the app. With the D-pad
+wired (`KEY_PIN_COUNT > 0`) the sim keeps the keys above instead.
 
 The window title shows frames per second, the longest gap between two frames in the last second, the slowest host tick and
 the count of late frames.

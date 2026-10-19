@@ -14,6 +14,11 @@
 //   physics is exactly what x1 would compute; rendering stays 50 fps. The player's own response (button and tilt ramps)
 //   stays in real time, the wing's lags (roll, speed, stall) are physics and run in sim time.
 //   after landing: A new flight, B Home
+// One button (setOneButton, the box without front buttons; MAIN = the board's switch): every list is a menu of the vario's kind,
+//   short press = next row (wraps), long press = act on the row (A). Day screen: Site .. Start, Home. Flying: short = pause menu,
+//   long = map / 3D. Pause menu: as above, Controls always tilt (the row re-opens the calibration). End screen: short = New flight /
+//   Home, long = do it. Calibration page: long press = zero and fly. Starts with Control::TILT and opens the calibration page
+//   before the first flight (hold the box the way you fly).
 // Controls (pause menu: Controls Buttons / Tilt; the PC player starts with Buttons):
 //   Tilt:    roll of the box = bank, pitch = speed bar (top away) / brakes (top toward you), through TiltMap
 //            (deadzone, expo, zero offset). Choosing Tilt, or "Zero tilt", opens a calibration page: hold the box the way
@@ -52,6 +57,9 @@ class SimApp : public IApp {
   // The map pack (platform Terrain); without it the app shows a message instead of flying.
   void setTerrain(terrain::Terrain* t) { terrain_ = t; }
   void setTilt(ITilt* t) { tilt_ = t; }
+  void setOneButton(bool on) { oneButton_ = on; }
+  bool oneButton() const { return oneButton_; }
+  int endRow() const { return endSel_; }
   Control control() const { return ctl_; }
   // Time acceleration x1 / x3 / x5 (default x3): each 20 ms frame runs that many 20 ms physics substeps.
   int timeScale() const { return scale_; }
@@ -62,7 +70,7 @@ class SimApp : public IApp {
 
   const char* name() const override { return "flightsim"; }
   void begin(uint32_t nowMs) override;
-  void end() override {}
+  void end() override { if (tilt_) tilt_->enable(false); }
   void tick(uint32_t nowMs) override { (void)nowMs; }
   void onKey(Key key, bool down, uint32_t nowMs) override;
   void onInput(Key key, ButtonEvent ev) override;
@@ -114,6 +122,7 @@ class SimApp : public IApp {
   IHeightSource* source();
   void applyKeys(float dt);
   void menuAct();
+  void oneButtonInput(ButtonEvent ev);
   void dayKey(Key key);
   void applyWind();
   void resolveWind(float* fromDeg, float* speed) const;     // -1 = the site's usual
@@ -140,7 +149,8 @@ class SimApp : public IApp {
   Mode mode_ = Mode::NOMAP;
   View view_ = View::TOP;
   bool assist_ = false;
-  bool dayScreen_ = true;
+  bool dayScreen_ = true, oneButton_ = false, calibrated_ = false;
+  int endSel_ = 0;
   int level_ = 1, dirIdx_ = 0, spdIdx_ = 0, dayRow_ = 0, flownSite_ = 0, flownLevel_ = 1;
   float usualFrom_ = 0, usualSpeed_ = 5.0f;
   int scale_ = 3;

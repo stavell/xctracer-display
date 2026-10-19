@@ -19,6 +19,7 @@ namespace sim {
 struct ITilt {                    // the tilt source: AHRS on the device, the mouse on the PC
   virtual ~ITilt() {}
   virtual bool read(float* rollDeg, float* pitchDeg) = 0;
+  virtual void enable(bool on) { (void)on; }   // the sim starts / stops the sensors with begin() / end()
 };
 
 struct TiltMap {

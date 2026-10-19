@@ -1784,6 +1784,7 @@ static const TestEntry kTests[] = {
   {"sim_game_mode", sim_tests::game_mode},
   {"sim_time_scale", sim_tests::time_scale},
   {"sim_app_logic", sim_tests::app_logic},
+  {"sim_accel_tilt", sim_tests::accel_tilt},
   {"sim_air_playable", sim_tests::air_playable},
   {"sim_tip_lift", sim_tests::tip_lift},
   {"sim_wind_onto_slope", sim_tests::wind_onto_slope},
