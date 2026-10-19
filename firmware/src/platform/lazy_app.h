@@ -84,6 +84,7 @@ class LazyApp : public IApp {
   void step(uint32_t simMs, uint32_t dtMs) override { if (app_) app_->step(simMs, dtMs); }
   bool handlesHold() const override { return app_ && app_->handlesHold(); }
   bool comboExit() const override { return app_ ? app_->comboExit() : true; }
+  int gameInfo(char* dst, size_t cap) override { return app_ ? app_->gameInfo(dst, cap) : 0; }
 
  private:
   void destroy() {

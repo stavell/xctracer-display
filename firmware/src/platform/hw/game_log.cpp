@@ -13,6 +13,6 @@ void GameLog::tick(uint32_t nowMs, uint32_t tickUs) {
   report(buf, cap_, nowMs, host_.active()->name(), host_.stats(), nullptr);
   Serial.print(buf);
   buf[0] = ' ';
-  host_.active()->gameInfo(buf + 1, cap_ - 1);
+  if (host_.active()->gameInfo(buf + 1, cap_ - 1) <= 0) buf[1] = 0;
   Serial.println(buf);
 }

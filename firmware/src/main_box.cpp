@@ -145,6 +145,10 @@ static sim::SimBox* makeSim(void* mem, void*) {
   sim::SimBox* s = new (mem) sim::SimBox(pack.reader());
   s->setClock(fastMicros);                    // times its parts for the "gm" line (game_log.h)
   if (KEY_PIN_COUNT == 0) s->useAccel(compassHw, boxSettings);
+#ifdef SIM_BENCH
+  s->showDayScreen(false);                    // bench build: fly at once, assist on (see the loop)
+  s->setAssist(true);
+#endif
   return s;
 }
 static LazyApp<sim::SimBox> simApp(arena, "flightsim", makeSim);
@@ -158,7 +162,11 @@ static GameLog gameLog(host, panel, fastMicros, &probe, scratchBuf(), 360);    /
 
 // Boot, and the way out of the clock sleep: straight into the start-up app (its begin() restarts what it needs).
 static void startStartupApp() {
+#ifdef SIM_BENCH
+  const int boot = APP_SIM;                   // bench build: straight into the sim, no operator needed
+#else
   const int boot = registry.startupApp(keys);
+#endif
   if (boot != APP_VARIO) tracer.pause();      // the vario is not the first app: do not scan until it is opened
   host.start(boot, millis());
 }
@@ -216,6 +224,23 @@ static uint32_t worstTickUs = 0;   // slowest host.tick() since the last status 
 void loop() {
   watchdog::feed();
   uint32_t now = millis();
+#ifdef SIM_BENCH
+  {  // bench build: the sim flies itself; level = how the board lies, the view alternates every 20 s, a landing restarts
+    static uint32_t lastSwitch = 0;
+    static bool zeroed = false;
+    if (host.active() == &simApp && simApp.alive()) {
+      sim::SimBox* s = simApp.get();
+      if (!zeroed && now > 3000) { s->onInput(KEY_MAIN, BTN_LONG); zeroed = true; }   // the zero page: as it lies = level, fly
+      if (s->mode() == sim::SimApp::Mode::ENDED) s->startFlight();
+      if (now - lastSwitch > 20000) {
+        lastSwitch = now;
+        s->zeroTilt();
+        s->setView(s->view() == sim::SimApp::View::TOP ? sim::SimApp::View::CHASE : sim::SimApp::View::TOP);
+        Serial.printf("bench view=%s\n", s->view() == sim::SimApp::View::TOP ? "map" : "3d");
+      }
+    }
+  }
+#endif
   pack.service(now);
   uint32_t t0 = fastMicros();
   host.tick(now);
