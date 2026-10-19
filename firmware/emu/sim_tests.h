@@ -649,6 +649,25 @@ static void topdown() {
       bad += bm.getPixel(sxp, syp) != p.shownPixel(x, y);
     }
   CHECK(checked > 300 && bad == 0);
+  // No blank strip at the edges while the glider is up to kMargin pixels from where the picture was made: every pixel of the map
+  // area comes from the picture (the margin is rendered), the first and last rows and columns included.
+  static TopDownView e;
+  e.reset();
+  e.renderNow(gCache, 0, 0, 0.0f, 40.0f);
+  for (int dxp = -TopDownView::kMargin; dxp <= TopDownView::kMargin; dxp += 4)
+    for (int dyp = -TopDownView::kMargin; dyp <= TopDownView::kMargin; dyp += 4) {
+      memset(fb, 0xFF, sizeof fb);
+      e.blit(bm, 40.0f * dxp, 40.0f * dyp);                  // north up: east is right, north is up
+      const int ox = e.offsetX(), oy = e.offsetY();
+      CHECK(abs(ox) <= TopDownView::kMargin && abs(oy) <= TopDownView::kMargin);
+      int diff = 0, n = 0;
+      for (int x = 0; x < 240; x++)
+        for (int y = 0; y < TopDownView::kH; y += (x == 0 || x == 239) ? 1 : 9) {
+          n++;
+          diff += bm.getPixel(x, y + TopDownView::kTopY) != e.shownPixel(x - ox, y - oy);
+        }
+      CHECK(n > 1000 && diff == 0);
+    }
 }
 
 // ---- game mode of the host
@@ -1252,12 +1271,14 @@ static void in_the_box() {
   fclose(f);
   rd = terrain::MemReader(bytes.data(), (uint32_t)bytes.size());
   CHECK(kit.open(&rd));
+  static const HeightCache* hcRefPtr = nullptr;
   // The box gives the sim a Terrain with a cache of two tiles and no relief scratch. It must read the same heights as the vario's
   // full one, and fill the whole height cache without decoding a tile again and again.
   {
     static terrain::TerrainWith<SimBox::kTiles, false> small;
     CHECK(small.open(&rd) == terrain::Terrain::OK);
     static HeightCache hcSmall, hcFull;
+    hcRefPtr = &hcSmall;
     TerrainSource ssmall(&small, kTakeoffs[0].lat, kTakeoffs[0].lon), sfull(&kit.terrain, kTakeoffs[0].lat, kTakeoffs[0].lon);
     hcSmall.attach(&ssmall);
     hcFull.attach(&sfull);
@@ -1286,7 +1307,23 @@ static void in_the_box() {
     CHECK(with.mode() == SimApp::Mode::DAY && without.mode() == SimApp::Mode::NOMAP);
     with.showDayScreen(false);
     with.startFlight();
-    CHECK(with.mode() == SimApp::Mode::FLYING && with.world().cache().complete() && with.world().agl() > 100.0f);
+    // Over the pack a start shows the 48 x 48 cells around the glider at once and loads the rest of the window in the first frames.
+    CHECK(with.mode() == SimApp::Mode::FLYING && !with.world().cache().complete() && with.world().agl() > 100.0f);
+    CHECK(with.world().cache().x1() - with.world().cache().x0() == 2 * World::kNearCells && with.world().cache().warming());
+    {
+      uint32_t t = 0;
+      int frames = 0;
+      while (frames < 600 && (with.world().cache().warming() || !with.world().cache().complete())) { with.step(t, 20); t += 20; frames++; }
+      printf("  progressive start: window complete after %d frames, %u tile decodes\n", frames, (unsigned)with.terrain().tileDecodes());
+      CHECK(with.world().cache().complete() && frames < 400);
+      // Same heights and shades as a window filled in one go (where the two windows overlap).
+      const HeightCache& hc = with.world().cache();
+      int bad = 0, n = 0;
+      for (int iy = hc.y0() + 1; iy < hc.y1() - 1; iy++)
+        for (int ix = hc.x0() + 1; ix < hc.x1() - 1; ix++)
+          if (ix >= -63 && ix < 63 && iy >= -63 && iy < 63) { n++; if (hc.cellH(ix, iy) != hcRefPtr->cellH(ix, iy) || hc.cellShade(ix, iy) != hcRefPtr->cellShade(ix, iy)) bad++; }
+      CHECK(n > 10000 && bad == 0);
+    }
     without.startFlight();
     CHECK(without.mode() == SimApp::Mode::NOMAP);
     // Flying at x5 for 5 minutes of sim time over the pack: a frame loads cells only up to the first decode (a line of the window

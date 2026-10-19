@@ -56,6 +56,16 @@ static LaptopBle laptop(panel);
 static VarioRadios radios(laptop, tracer);
 static PowerNrf power(panel, radios, PIN_BUTTON1);
 
+// Games need no laptop: off while one runs (platform/ports.h ILinkGate), advertising again on the way out.
+struct LaptopGate : ILinkGate {
+  void setLinksOn(bool on) override {
+    if (on) { laptop.startAdvertising(); return; }
+    laptop.stopAdvertising();
+    laptop.disconnect();
+  }
+};
+static LaptopGate laptopGate;
+
 static AppConfig appConfig(bool tool) {
   AppConfig c;
   c.rotation = DISPLAY_ROTATION;
@@ -215,6 +225,7 @@ void setup() {
   host.add(simApp);
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&gameLog);
+  host.setLinkGate(&laptopGate);
   host.setRotation(DISPLAY_ROTATION);
   registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
@@ -243,6 +254,13 @@ void loop() {
     if (host.active() == &simApp && simApp.alive()) {
       sim::SimBox* s = simApp.get();
       if (!zeroed && now > 3000) { s->onInput(KEY_MAIN, BTN_LONG); zeroed = true; }   // the zero page: as it lies = level, fly
+      static int rs = 0;
+      if (zeroed && rs < 2 && now > 8000u + 20000u * rs) {   // timed restarts (the landing restart stall)
+        rs++;
+        const uint32_t t0 = fastMicros(), d0 = s->terrain().tileDecodes();
+        s->startFlight();
+        Serial.printf("bench restart %lu us, %lu decodes (startFlight returns)\n", (unsigned long)(fastMicros() - t0), (unsigned long)(s->terrain().tileDecodes() - d0));
+      }
       if (s->mode() == sim::SimApp::Mode::ENDED) s->startFlight();
       if (zeroed && s->mode() == sim::SimApp::Mode::FLYING) {   // a turn pattern on the buttons: 5 s straight, 5 right, 5 straight, 5 left
         if (s->control() != sim::SimApp::Control::BUTTONS) s->setControl(sim::SimApp::Control::BUTTONS);

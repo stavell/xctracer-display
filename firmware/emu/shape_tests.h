@@ -112,6 +112,26 @@ static void testShapes() {
   CHECK(e.v == e2.v);
 }
 
+// lineGrown == line() drawn at every offset of the square, for any direction, clipped, in both draw modes.
+static void testThickLine() {
+  puts("shapes: lineGrown equals the line at every offset");
+  Rng r{4242};
+  int bad = 0;
+  for (int it = 0; it < 4000; it++) {
+    Img a(r, r.range(8, 90), r.range(8, 70), r.range(0, 2), r.range(0, 3));
+    Img b(a);
+    const int lw = a.b.width(), lh = a.b.height(), g = r.range(0, 3);
+    const DrawMode m = r.range(0, 1) ? DRAW_SET : DRAW_CLEAR;
+    const int x0 = r.range(-20, lw + 20), y0 = r.range(-20, lh + 20);
+    const int x1 = r.range(0, 4) == 0 ? x0 : r.range(-20, lw + 20), y1 = r.range(0, 4) == 0 ? y0 : r.range(-20, lh + 20);
+    lineGrown(a.b, x0, y0, x1, y1, g, m);
+    for (int oy = -g; oy <= g; oy++)
+      for (int ox = -g; ox <= g; ox++) line(b.b, x0 + ox, y0 + oy, x1 + ox, y1 + oy, m);
+    if (a.v != b.v) bad++;
+  }
+  CHECK(bad == 0);
+}
+
 // Work budget of the compass page (see `build.sh count`): the grey ring used to cost one native row and
 // eight dither evaluations per pixel in portrait, which measured 48 ms on the device. Counts, not time.
 static void testCompassWork() {

@@ -5,10 +5,12 @@ namespace sim {
 
 namespace {
 // The sun: from the south-west, 38 degrees up.
+inline int imin(int a, int b) { return a < b ? a : b; }
 constexpr float kLx = -0.5571f, kLy = -0.5571f, kLz = 0.6157f;
 }  // namespace
 
 void HeightCache::invalidateAll() {
+  warming_ = shading_ = false;
   vx0_ = vx1_ = vy0_ = vy1_ = 0;
   haveTarget_ = false;
   curKind_ = NONE;
@@ -87,11 +89,16 @@ int HeightCache::refreshWork(int budget) {
     Kind k;
     int idx;
     bool atMin = false;
-    if (vx0_ > tx0_) { k = COL; idx = vx0_ - 1; atMin = true; }
-    else if (vx1_ < tx1) { k = COL; idx = vx1_; }
-    else if (vy0_ > ty0_) { k = ROW; idx = vy0_ - 1; atMin = true; }
-    else if (vy1_ < ty1) { k = ROW; idx = vy1_; }
-    else break;
+    // Grow on the side that reaches least far from the middle: a window that starts small grows evenly all round.
+    const int mx = tx0_ + N / 2, my = ty0_ + N / 2;
+    const int eL = vx0_ > tx0_ ? mx - vx0_ : 1 << 20, eR = vx1_ < tx1 ? vx1_ - 1 - mx : 1 << 20;
+    const int eD = vy0_ > ty0_ ? my - vy0_ : 1 << 20, eU = vy1_ < ty1 ? vy1_ - 1 - my : 1 << 20;
+    const int best = imin(imin(eL, eR), imin(eD, eU));
+    if (best == 1 << 20) break;
+    if (eL == best) { k = COL; idx = vx0_ - 1; atMin = true; }
+    else if (eR == best) { k = COL; idx = vx1_; }
+    else if (eD == best) { k = ROW; idx = vy0_ - 1; atMin = true; }
+    else { k = ROW; idx = vy1_; }
     if (k != curKind_ || idx != curIdx_) { curKind_ = k; curIdx_ = idx; curPos_ = 0; }
     const int lo = k == COL ? vy0_ : vx0_, hi = k == COL ? vy1_ : vx1_;
     int i = lo + curPos_;
@@ -114,11 +121,71 @@ int HeightCache::refreshWork(int budget) {
   return done;
 }
 
+// Load a rectangle of the window from nothing, in square blocks: a row of the window crosses 5 map tiles and the box keeps 2, so
+// the strip order of refresh() decodes about 5 tiles per line (693 decodes, 2.7 s on the device); a block of 32 cells touches 1
+// to 4 tiles, and the blocks of a row of blocks follow one another through the tiles (160 decodes).
+void HeightCache::loadRect(int x0, int y0, int x1, int y1) {
+  constexpr int kBlock = 32;
+  for (int by = y0; by < y1; by += kBlock)
+    for (int bx = x0; bx < x1; bx += kBlock)
+      for (int iy = by; iy < by + kBlock && iy < y1; iy++)
+        for (int ix = bx; ix < bx + kBlock && ix < x1; ix++) loadCell(ix, iy);
+  vx0_ = x0; vx1_ = x1; vy0_ = y0; vy1_ = y1;
+  for (int iy = y0; iy < y1; iy++)
+    for (int ix = x0; ix < x1; ix++) shadeCell(ix, iy);
+  curKind_ = NONE;
+}
+
 int HeightCache::fill(float x, float y) {
   setCentre(x, y);
+  if (src_ && vx0_ >= vx1_) {
+    loadRect(tx0_, ty0_, tx0_ + N, ty0_ + N);
+    return N * N;
+  }
   int total = 0, n;
   while ((n = refresh(4096)) > 0) total += n;
   return total;
+}
+
+// Only the 2r x 2r cells around (x, y); refresh() grows the rest. For a start that must show something at once.
+int HeightCache::fillNear(float x, float y, int r) {
+  setCentre(x, y);
+  if (!src_ || vx0_ < vx1_ || r >= N / 2) return fill(x, y);
+  const int mx = tx0_ + N / 2, my = ty0_ + N / 2;
+  loadRect(mx - r, my - r, mx + r, my + r);
+  warming_ = true;
+  shading_ = false;
+  wx0_ = tx0_; wy0_ = ty0_; wpos_ = 0;
+  return 4 * r * r;
+}
+
+int HeightCache::warmStep(int budget) {
+  constexpr int kBlock = 32, kPerBlock = kBlock * kBlock, kBlocksRow = N / kBlock, kShadeRows = 8;
+  int done = 0;
+  if (warming_) {
+    const uint32_t cost0 = src_->cost();
+    while (done < budget && wpos_ < N * N) {
+      const int blk = wpos_ / kPerBlock, w = wpos_ % kPerBlock;
+      const int ix = wx0_ + (blk % kBlocksRow) * kBlock + w % kBlock, iy = wy0_ + (blk / kBlocksRow) * kBlock + w / kBlock;
+      wpos_++;
+      if (inside(ix, iy)) continue;                           // the near rectangle is loaded already
+      loadCell(ix, iy);
+      done++;
+      if (src_->cost() != cost0) break;                       // a tile was decoded: that is this frame's share
+    }
+    if (wpos_ >= N * N) {                                     // everything is in: the valid rectangle is the whole window
+      vx0_ = wx0_; vx1_ = wx0_ + N; vy0_ = wy0_; vy1_ = wy0_ + N;
+      warming_ = false;
+      shading_ = true;
+      shadeRow_ = vy0_;
+      curKind_ = NONE;
+    }
+  } else if (shading_) {
+    for (int n = 0; n < kShadeRows && shadeRow_ < vy1_; n++, shadeRow_++)
+      for (int ix = vx0_; ix < vx1_; ix++) { shadeCell(ix, shadeRow_); done++; }
+    if (shadeRow_ >= vy1_) shading_ = false;
+  }
+  return done;
 }
 
 bool HeightCache::complete() const {

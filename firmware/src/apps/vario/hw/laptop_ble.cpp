@@ -99,6 +99,11 @@ void LaptopBle::disconnect() {
   if (conn_ != BLE_CONN_HANDLE_INVALID) Bluefruit.disconnect(conn_);
 }
 
+void LaptopBle::startAdvertising() {
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  if (!Bluefruit.Advertising.isRunning()) Bluefruit.Advertising.start(0);
+}
+
 void LaptopBle::stopAdvertising() {
   Bluefruit.Advertising.restartOnDisconnect(false);
   Bluefruit.Advertising.stop();

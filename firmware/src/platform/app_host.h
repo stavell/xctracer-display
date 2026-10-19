@@ -133,6 +133,7 @@ class AppHost : public IAppNav {
   int activeIndex() const { return activeIdx_; }
   void setLauncher(int index) { launcher_ = index; }       // the app that lists the others; -1 = none
   void setProbe(IFrameProbe* p) { probe_ = p; }
+  void setLinkGate(ILinkGate* g) { gate_ = g; }            // laptop link off while a game runs (null = never touched)
   void setComboHold(uint32_t ms) { combo_ = ComboHold(ms); }
   void setRotation(uint8_t r) { rotation_ = r; }           // the panel rotation an app starts with (apps may change it)
 
@@ -149,6 +150,7 @@ class AppHost : public IAppNav {
     gameClock_ = false;
     stats_ = FrameStats();
     active_->begin(nowMs);
+    if (gate_) gate_->setLinksOn(active_->frameIntervalMs() == 0);   // after begin(): lazy apps know their mode only then
     return true;
   }
 
@@ -283,6 +285,7 @@ class AppHost : public IAppNav {
   IPanel& panel_;
   IInput& input_;
   IFrameProbe* probe_ = nullptr;
+  ILinkGate* gate_ = nullptr;
   IApp* apps_[MAX_APPS] = {};
   int n_ = 0;
   IApp* active_ = nullptr;

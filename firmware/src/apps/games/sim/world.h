@@ -39,6 +39,10 @@ class World {
   // cacheBudget: cells of the height cache to load in this step (a run of substeps shares one budget, see SimApp::step).
   void step(const Controls& c, float dt, int cacheBudget = kCacheBudget);
   static constexpr int kCacheBudget = 48;
+  // A start over the map pack shows the cells around the glider at once (kNearCells each way) and fills the rest of the window in the
+  // first frames, kWarmBudget cells per step (the full fill took 1 to 2.7 s on the device).
+  static constexpr int kNearCells = 24, kWarmBudget = 128;
+  void setProgressive(bool on) { progressive_ = on; }
   // The day: how thermic (Air::setLevel, applies at the next begin) and the wind. A new wind takes effect at once but
   // eases in at 0.6 m/s per second (a 30 km/h change in about 14 s), so the air never jumps under the glider.
   void setLevel(int l) { level_ = l; }
@@ -96,6 +100,7 @@ class World {
   TrailPt trail_[kTrailMax];
   int trailN_ = 0, trailHead_ = 0;
   ClockUs clk_ = nullptr;
+  bool progressive_ = false;
   StepProf prof_;
 };
 

@@ -114,6 +114,15 @@ bool Terrain::verifyAll() {
 }
 
 void Terrain::split(int64_t num2, int32_t den2, int* whole, float* frac) {
+  if (num2 >= INT32_MIN && num2 <= INT32_MAX) {      // the usual case: 32-bit division (hardware), not the library's 64-bit one
+    int32_t w = (int32_t)num2 / den2;
+    int32_t rem = (int32_t)num2 - w * den2;
+    if (rem < 0) { w--; rem += den2; }
+    *whole = w;
+    // rem < den2 < 2^24 are exact floats: the float quotient is the correctly rounded one (soft double division is ~10 us here)
+    *frac = den2 < (1 << 24) ? (float)rem / (float)den2 : (float)((double)rem / (double)den2);
+    return;
+  }
   int64_t w = num2 / den2;
   int64_t rem = num2 - w * den2;
   if (rem < 0) { w--; rem += den2; }

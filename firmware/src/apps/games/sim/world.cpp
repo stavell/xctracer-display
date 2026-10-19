@@ -20,7 +20,8 @@ void World::place(float x, float y, float aglStart, float headingDeg) {
 void World::beginAt(IHeightSource* src, uint32_t seed, float x, float y, float aglStart, float headingDeg,
                     float windFromDeg, float windSpeed, float timeOfDay) {
   cache_.attach(src);
-  cache_.fill(x, y);
+  if (progressive_) cache_.fillNear(x, y, kNearCells);
+  else cache_.fill(x, y);
   float gh = 0;
   cache_.height(x, y, &gh);
   air_.setLevel(level_);
@@ -81,7 +82,11 @@ void World::step(const Controls& c, float dt, int cacheBudget) {
     air_.setWind(atan2f(-curE_, -curN_) * kRad2Deg, sqrtf(curE_ * curE_ + curN_ * curN_), windRef_);
   }
   cache_.setCentre(g_.x, g_.y);
-  cache_.refresh(cacheBudget);
+  if (cache_.warming()) {                                // a progressive start: the window fills in blocks, refresh() waits for it
+    if (cacheBudget > 0) cache_.warmStep(kWarmBudget);
+  } else {
+    cache_.refresh(cacheBudget);
+  }
   const uint32_t ta = clk_ ? clk_() : 0;
   air_.sample(g_.x, g_.y, g_.z, t_, &s_);
   const uint32_t tg = clk_ ? clk_() : 0;

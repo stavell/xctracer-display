@@ -44,6 +44,11 @@ class HeightCache {
   int refreshWork(int budget);
   // Centre on (x, y) and load the whole window now (level start, tests). Returns cells loaded.
   int fill(float x, float y);
+  int fillNear(float x, float y, int r);         // just the 2r x 2r cells around (x, y), then warmStep() loads the rest of the window
+  // After fillNear: load the rest of that window in tile-friendly block order, `budget` cells per call (the valid rectangle stays the
+  // near one meanwhile; refresh() must not run), then give it the whole window and shade it a few rows per call. Returns cells done.
+  int warmStep(int budget);
+  bool warming() const { return warming_ || shading_; }
   bool complete() const;
 
   // Bilinear height (m) at a local position; false outside the valid rectangle.
@@ -73,6 +78,7 @@ class HeightCache {
  private:
   enum Kind : uint8_t { NONE, COL, ROW };
   void loadCell(int ix, int iy);
+  void loadRect(int x0, int y0, int x1, int y1);
   void shadeCell(int ix, int iy);
   void shadeLine(Kind k, int idx);
   bool inside(int ix, int iy) const { return ix >= vx0_ && ix < vx1_ && iy >= vy0_ && iy < vy1_; }
@@ -83,6 +89,8 @@ class HeightCache {
   int vx0_ = 0, vx1_ = 0, vy0_ = 0, vy1_ = 0;    // valid rectangle, half open, in cell indices
   int tx0_ = 0, ty0_ = 0;                        // wanted window (N x N)
   bool haveTarget_ = false;
+  bool warming_ = false, shading_ = false;
+  int wx0_ = 0, wy0_ = 0, wpos_ = 0, shadeRow_ = 0;   // warm-up: the window it fills, the next cell in block order, the next row to shade
   Kind curKind_ = NONE;
   int curIdx_ = 0, curPos_ = 0;
   uint32_t loaded_ = 0;

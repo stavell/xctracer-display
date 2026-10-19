@@ -19,6 +19,46 @@ void line(const Bitmap1& bm, int x0, int y0, int x1, int y1, DrawMode m) {
   }
 }
 
+// A column's run of the grown line: the pixels of line() in columns x - grow .. x + grow, each grown by `grow` rows. Consecutive columns
+// of a Bresenham line differ by at most one row (shallow) or touch (steep), so within 2 grow + 1 columns the grown pixels are one run.
+void lineGrown(const Bitmap1& bm, int x0, int y0, int x1, int y1, int grow, DrawMode m) {
+  constexpr int kMaxCols = 320;
+  static int16_t lo[kMaxCols], hi[kMaxCols];
+  const int xa = x0 < x1 ? x0 : x1, xb = x0 < x1 ? x1 : x0;
+  const int cols = xb - xa + 1 + 2 * grow;
+  if (grow <= 0 || cols > kMaxCols) {                      // too wide for the scratch (never on the sim's screens): the plain way
+    for (int oy = -grow; oy <= grow; oy++)
+      for (int ox = -grow; ox <= grow; ox++) line(bm, x0 + ox, y0 + oy, x1 + ox, y1 + oy, m);
+    return;
+  }
+  for (int i = 0; i < cols; i++) { lo[i] = 32767; hi[i] = -32768; }
+  auto put = [&](int x, int y) {                           // pixel (x, y) of the line
+    for (int c = x - grow; c <= x + grow; c++) {
+      const int i = c - (xa - grow);
+      if (y - grow < lo[i]) lo[i] = (int16_t)(y - grow);
+      if (y + grow > hi[i]) hi[i] = (int16_t)(y + grow);
+    }
+  };
+  if (x0 == x1) {
+    for (int y = y0 < y1 ? y0 : y1, e = y0 < y1 ? y1 : y0; y <= e; y++) put(x0, y);
+  } else if (y0 == y1) {
+    for (int x = xa; x <= xb; x++) put(x, y0);
+  } else {
+    int ax = x0, ay = y0, bx = x1, by = y1;
+    const bool steep = abs(by - ay) > abs(bx - ax);
+    if (steep) { int t = ax; ax = ay; ay = t; t = bx; bx = by; by = t; }
+    if (ax > bx) { int t = ax; ax = bx; bx = t; t = ay; ay = by; by = t; }
+    const int dx = bx - ax, dy = abs(by - ay), ystep = ay < by ? 1 : -1;
+    int err = dx / 2;
+    for (; ax <= bx; ax++) {
+      if (steep) put(ay, ax); else put(ax, ay);
+      err -= dy;
+      if (err < 0) { ay += ystep; err += dx; }
+    }
+  }
+  for (int i = 0; i < cols; i++) bm.vline(xa - grow + i, lo[i], hi[i], m);
+}
+
 // Same pixels as Adafruit_GFX::drawCircle (midpoint algorithm, eight-fold symmetry).
 void circle(const Bitmap1& bm, int cx, int cy, int r, DrawMode m) {
   if (r < 0) return;

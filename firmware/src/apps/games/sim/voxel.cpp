@@ -114,29 +114,34 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
       if (!(i & 1) && i) yb[(i >> 1) - 1 < kYBins ? (i >> 1) - 1 : kYBins - 1] = (int16_t)ymin;
       const float s = s_[i];
       const float pxk = cxk + s * dxk, pyk = cyk + s * dyk;
-      float h, sh;
+      float h, sh = 0;
+      int s00 = 0, s10 = 0, s01 = 0, s11 = 0;
+      float tx = 0, ty = 0;
       if (i < kBilinearSteps) {
         const int ix = (int)pxk, iy = (int)pyk;
-        const float tx = pxk - (float)ix, ty = pyk - (float)iy;
+        tx = pxk - (float)ix; ty = pyk - (float)iy;
         const int cx0 = ix - (int)kBias, cy0 = iy - (int)kBias;
         if (cx0 < x0 || cx0 + 1 >= x1 || cy0 < y0 || cy0 + 1 >= y1) break;
-        const int s00 = HeightCache::slot(cx0, cy0), s10 = HeightCache::slot(cx0 + 1, cy0);
-        const int s01 = HeightCache::slot(cx0, cy0 + 1), s11 = HeightCache::slot(cx0 + 1, cy0 + 1);
+        s00 = HeightCache::slot(cx0, cy0); s10 = HeightCache::slot(cx0 + 1, cy0);
+        s01 = HeightCache::slot(cx0, cy0 + 1); s11 = HeightCache::slot(cx0 + 1, cy0 + 1);
         const float a = H[s00], b = H[s10], c = H[s01], d = H[s11];
         h = (a + (b - a) * tx) * (1.0f - ty) + (c + (d - c) * tx) * ty;
-        const float sa = S[s00], sb = S[s10], sc = S[s01], sd = S[s11];
-        sh = (sa + (sb - sa) * tx) * (1.0f - ty) + (sc + (sd - sc) * tx) * ty;
       } else {
         const int cx0 = (int)(pxk + 0.5f) - (int)kBias, cy0 = (int)(pyk + 0.5f) - (int)kBias;
         if (cx0 < x0 || cx0 >= x1 || cy0 < y0 || cy0 >= y1) break;
         const int sl = HeightCache::slot(cx0, cy0);
         h = H[sl];
         sh = S[sl];
+        s00 = -1;
       }
       const float yf = hyf + (camZ - h) * fs_[i];
       if (yf >= (float)ymin) continue;
       const int yi = yf < 0 ? 0 : (int)yf;
       if (yi >= ymin) continue;
+      if (s00 >= 0) {                                       // the shade is only needed where the terrain shows
+        const float sa = S[s00], sb = S[s10], sc = S[s01], sd = S[s11];
+        sh = (sa + (sb - sa) * tx) * (1.0f - ty) + (sc + (sd - sc) * tx) * ty;
+      }
       // Tone and fog folded into one multiply-add per step; alternate 25 m height bands one grey step apart: the terraces
       // show the lie of the land and give the ground a texture that streams past.
       int lvl = (int)(sh * ka_[i] + kb_[i]) + ((((int)(h * (1.0f / 25.0f))) & 1) ? (i < 30 ? 2 : 1) : 0);

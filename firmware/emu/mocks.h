@@ -150,6 +150,12 @@ class MockLaptop : public ILaptop {
   bool drawing = false;
 };
 
+struct MockLinks : ILinkGate {
+  void setLinksOn(bool on_) override { on = on_; calls++; if (!on_) offs++; }
+  bool on = true;
+  int calls = 0, offs = 0;
+};
+
 // A magnetometer + accelerometer for a unit with a known orientation. Earth's field: 20 uT north and
 // 40 uT down (a mid-latitude inclination); `hardIron` is added to the magnetometer like a magnetised
 // part in the case would. Orientation: heading psi (azimuth of the top of the screen), pitch (top up),
@@ -263,6 +269,7 @@ struct Rig {
   MockBattery battery;
   MockTracer tracer;
   MockLaptop laptop;
+  MockLinks links;
   MockKeyStore keys;            // the box's flash store: start-up app, high score, time zone, mounting, calibration
   BoxSettings settings{keys};
   MockCompass compass;
