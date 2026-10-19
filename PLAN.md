@@ -298,3 +298,5 @@ User additions (2026-10-19):
   confidence mark, 8 sectors instead of metres, gyro circle phase (log raw IMU + tracer receive times first), gate by
   older-turn spread. Validate each with `build.sh cue` on whole flights, then fly it. Also: the reviewer saw
   `sim_playability` / `sim_day_settings` fail once in a full emulator run (check.sh passes; investigate flakiness).
+  User observation (2026-10-19): the tracer's BLE vario reacts instantly on the box (a throw moves the graph at once), so the
+  local BMP280 + accel vario idea is dropped; the onboard sensors are only a candidate for gyro circle phase.
