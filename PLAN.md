@@ -301,3 +301,6 @@ User additions (2026-10-19):
   `sim_playability` / `sim_day_settings` fail once in a full emulator run (check.sh passes; investigate flakiness).
   User observation (2026-10-19): the tracer's BLE vario reacts instantly on the box (a throw moves the graph at once), so the
   local BMP280 + accel vario idea is dropped; the onboard sensors are only a candidate for gyro circle phase.
+- Tests and tools read `bulgaria.pack` from a hard-coded session-scratchpad path (sim_tests.h, map_page_tests.h,
+  intro_shots.h, play.cpp, smoke.sh): move the pack to a stable git-ignored repo path (e.g. host/terrain/out/) and
+  point everything there, so results don't depend on a temp dir.
