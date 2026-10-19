@@ -1,5 +1,7 @@
 #!/bin/sh
 # Build the PC emulator (with sanitizers), run the tests, render the standard screens.
+# Compilation runs on all cores through the Makefile next to this script (one object per source and flag set, header
+# dependencies tracked, so a rerun rebuilds only what changed); the tests run one process per test function, all cores.
 #   ./build.sh                      tests + screens
 #   ./build.sh replay <args...>     run the emulator with the given arguments (see emu_main.cpp)
 #   ./build.sh count [outdir] [rot]  per-section draw work of the live page (pixel/span call counts)
@@ -16,29 +18,51 @@
 #   ./build.sh simreach [PACK] [seeds] [t0..]  reachability of thermals from every takeoff + scripted-pilot climb (sim_reach.cpp)
 #   ./build.sh smoke               headless run of the whole box: renders the launcher, vario pages, Tetris
 #                                   started from the launcher and the way back (emu/out/box_*.png)
+#   ./build.sh prebuild            only build every binary (scripts/check.sh does this first, then runs its stages side by side)
 set -e
 cd "$(dirname "$0")"
-G="../.pio/libdeps/feather_sense/Adafruit GFX Library"
 mkdir -p out
-# 64-bit host: keep the full-width pgm_read_pointer from our stub (the library's is 32-bit)
-grep -v "define pgm_read_pointer" "$G/Adafruit_GFX.cpp" > out/Adafruit_GFX_host.cpp
-V=../src/apps/vario
-P=../src/platform
-T=../src/apps/games/tetris
-L=../src/apps/launcher
-S=../src/apps/settings
-STORAGE="$P/storage/pack_header.cpp $P/storage/pack_proto.cpp $P/storage/pack_loader.cpp"
-TERRAIN="$P/terrain/crc32.cpp $P/terrain/tile_codec.cpp $P/terrain/terrain.cpp $P/terrain/relief.cpp $P/terrain/map_vectors.cpp"
-TETRIS="$T/tetris.cpp $T/tetris_view.cpp $T/tetris_app.cpp"
-M=../src/apps/games/sim
-SIM="$M/glider.cpp $M/height_cache.cpp $M/air.cpp $M/world.cpp $M/voxel.cpp $M/chase.cpp $M/sky3d.cpp $M/topdown.cpp $M/sim_hud.cpp $M/sim_app.cpp"
-LAUNCHER="$L/launcher_app.cpp $L/launcher_view.cpp"
-SETTINGS="$S/settings_app.cpp $S/settings_view.cpp $P/settings/box_settings.cpp $P/settings/compass_cal.cpp $P/settings/cal_view.cpp"
-GFX="$P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $P/gfx/ui.cpp $P/gfx/icons.cpp"
-VARIO="$V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $V/core/thermal3d.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/terrain_map.cpp $V/view/prof.cpp $V/app/app.cpp"
+JOBS="$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
+mk() { make -s -j"$JOBS" "$@"; }
+
+# Every test function in its own process (out/tests --only NAME), all cores at once. Then the outputs are printed in
+# list order and the counts added up, so the summary line is what one process running them all would print.
+run_tests() {
+  D=out/tests.d
+  rm -rf "$D"; mkdir -p "$D"
+  out/tests --list > "$D/list"
+  # the slow ones first, so they do not end up alone at the tail
+  SLOW='^(sim_playability|sim_day_settings)$'
+  { grep -E "$SLOW" "$D/list" || true; grep -vE "$SLOW" "$D/list" || true; } > "$D/order"
+  xargs -P "$JOBS" -I{} sh -c 'out/tests --only "$1" > "out/tests.d/$1.log" 2>&1; echo $? > "out/tests.d/$1.rc"' _ {} < "$D/order"
+  checks=0; failures=0; bugs=0; bad=0
+  while read -r n; do
+    rc="$(cat "$D/$n.rc")"
+    grep -v '^@@ ' "$D/$n.log" || true
+    line="$(grep '^@@ ' "$D/$n.log" || true)"
+    if [ -z "$line" ]; then
+      echo "  FAIL test $n ended without finishing (exit status $rc)"
+      failures=$((failures + 1)); bad=1
+      continue
+    fi
+    set -- $line
+    checks=$((checks + $2)); failures=$((failures + $3)); bugs=$((bugs + $4))
+    if [ "$rc" -ne 0 ]; then echo "  FAIL in test $n (exit status $rc)"; bad=1; fi
+  done < "$D/list"
+  if [ "$bugs" -ne 0 ]; then printf '\n%d known firmware bugs hit (see BUG: comments in robust_tests.h)\n' "$bugs"; fi
+  printf '\n%d checks, %d failures\n' "$checks" "$failures"
+  [ "$bad" -eq 0 ] && [ "$failures" -eq 0 ]
+}
+
+if [ "$1" = "prebuild" ]; then
+  T="out/emu out/tests out/sim_demo out/terrain_demo out/loader_sim"
+  if command -v sdl2-config > /dev/null 2>&1; then T="$T out/play"; fi
+  mk $T
+  exit 0
+fi
 if [ "$1" = "loadtest" ]; then
   # End to end: host/load_pack.py against the real loader code over an in-memory flash (pipes instead of USB).
-  c++ -std=c++17 -O2 -g -Wall -I../src -I. $STORAGE $P/terrain/crc32.cpp loader_sim.cpp -o out/loader_sim
+  mk out/loader_sim
   PACK="${2:-fixtures/sopot.pack}"
   for mode in "" "--drop"; do
     ../../.venv/bin/python ../../host/load_pack.py "$PACK" --port "exec:out/loader_sim $mode" > out/loadtest.log 2> out/loadtest.err || { cat out/loadtest.log out/loadtest.err; echo "LOADTEST FAIL"; exit 1; }
@@ -51,22 +75,19 @@ if [ "$1" = "loadtest" ]; then
 fi
 if [ "$1" = "simbench" ]; then
   # Frame timing of the flight sim, calibrated against vario pages of known device time (no sanitizers, -O2).
-  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" \
-    $SIM $GFX $VARIO $SETTINGS $TETRIS $LAUNCHER $TERRAIN out/Adafruit_GFX_host.cpp sim_bench.cpp -o out/sim_bench
+  mk out/sim_bench
   shift
   exec out/sim_bench "${1:-fixtures/sopot.pack}"
 fi
 if [ "$1" = "simtests" ]; then
   # The flight sim tests alone, no sanitizers (fast): ./build.sh simtests [sky_fx]
-  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" \
-    $SIM $GFX $VARIO $SETTINGS $TETRIS $LAUNCHER $TERRAIN out/Adafruit_GFX_host.cpp sim_tests_main.cpp -o out/sim_tests
+  mk out/sim_tests
   shift
   exec out/sim_tests "$@"
 fi
 if [ "$1" = "simdemo" ]; then
   # Sim scenario renders only (fast): ./build.sh simdemo [PACK] [OUTDIR] -> OUTDIR/sim_*.pgm and .png (2x), thermal contact sheet
-  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" \
-    $SIM $GFX $TERRAIN out/Adafruit_GFX_host.cpp sim_demo.cpp -o out/sim_demo
+  mk out/sim_demo
   D="${3:-out/sim}"
   mkdir -p "$D"
   out/sim_demo "${2:-fixtures/sopot.pack}" "$D"
@@ -75,35 +96,28 @@ if [ "$1" = "simdemo" ]; then
 fi
 if [ "$1" = "simreach" ]; then
   # Playability of the air from every takeoff (see sim_reach.cpp).
-  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -Istubs -I../src -I. -I"$G" \
-    $SIM $GFX $TERRAIN out/Adafruit_GFX_host.cpp sim_reach.cpp -o out/sim_reach
+  mk out/sim_reach
   shift
   exec out/sim_reach "$@"
 fi
 if [ "$1" = "play" ] || [ "$1" = "smoke" ]; then
   # The player: no sanitizers (speed), SDL2 from Homebrew, the whole box over mock ports.
-  c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" $(sdl2-config --cflags) \
-    $TETRIS $SIM $LAUNCHER $SETTINGS $GFX $VARIO $TERRAIN out/Adafruit_GFX_host.cpp play.cpp $(sdl2-config --libs) -o out/play
+  mk out/play
   if [ "$1" = "smoke" ]; then exec ./smoke.sh; fi
   shift
   exec out/play "$@"
 fi
-SRC="$VARIO $GFX $TETRIS $SIM $LAUNCHER $SETTINGS $TERRAIN $STORAGE out/Adafruit_GFX_host.cpp"
-FLAGS="-std=c++17 -g -O1 -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I.
-       -fsanitize=address,undefined,float-cast-overflow -fno-sanitize-recover=all"
-c++ $FLAGS -I"$G" $SRC emu_main.cpp -o out/emu
-c++ $FLAGS -I"$G" $SRC tests.cpp -o out/tests
-# Flight sim scenario renderer and timing tool (no sanitizers: the timings are meant to be read)
-c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -DGFX_COUNT -Istubs -I../src -I. -I"$G" $SIM $GFX $TERRAIN out/Adafruit_GFX_host.cpp sim_demo.cpp -o out/sim_demo
-# Map page preview tool: hillshade + contours + roads + towns from a map pack (no sanitizers, it is a render tool)
-c++ -std=c++17 -O2 -g -DARDUINO=100 -Wall -Wno-unused-function -Istubs -I../src -I. -I"$G" $GFX $TERRAIN terrain_demo.cpp -o out/terrain_demo
+case "$1" in
+  replay|count|wind|windtrace|cue|soak) mk out/emu ;;
+  *) mk out/emu out/tests out/sim_demo out/terrain_demo ;;
+esac
 if [ "$1" = "replay" ]; then shift; exec out/emu replay "$@"; fi
 if [ "$1" = "count" ]; then shift; exec out/emu count "${1:-out}" "${2:-1}"; fi
 if [ "$1" = "wind" ]; then shift; exec out/emu wind "$@"; fi
 if [ "$1" = "windtrace" ]; then shift; exec out/emu windtrace "$@"; fi
 if [ "$1" = "cue" ]; then shift; exec out/emu cue "$@"; fi
 if [ "$1" = "soak" ]; then shift; exec out/emu soak "$@"; fi
-out/tests
+run_tests
 out/emu shots out ${ROT:-1}
 out/terrain_demo fixtures/sopot.pack 42.62 24.85 0 100 out/terrain_sopot.pgm
 ../../.venv/bin/python - <<'PY'

@@ -942,3 +942,33 @@ return to the vario, and the vario comes back on the compass page if it was left
 | feather_sense_diag | 293768 | 305400 | 103996 | 52316 |
 
 Loop stack: worst static chain 2696 B (vario) / 2712 B (box) of 4096.
+
+## Build and test time (2026-10-19)
+
+`scripts/check.sh` on this Mac (10 cores, `sysctl -n hw.ncpu`), wall clock:
+
+| | before | after |
+|---|---|---|
+| clean (no `emu/out`, no `.pio/build`) | 10 min 49 s (127 % CPU) | 2 min 26 s (640 % CPU) |
+| rerun, nothing changed | about 11 min (it recompiled everything every time) | 1 min 45 s |
+
+Where the time went: `build.sh` compiled every binary from all sources in one `c++` call (serial), then `out/tests`
+ran one test after another, and `check.sh` ran its stages one after the other. The tests are 620 CPU seconds with the
+sanitizers on, 570 of them in `sim_playability` and `sim_day_settings` (scripted-pilot flights), so the floor on 10
+cores is about a minute.
+
+What changed:
+- `firmware/emu/Makefile`: one object per source and flag set (`out/obj/{san,o2,o2n,ld}`), header dependencies
+  (`-MMD`), `make -j<cores>` from `build.sh`. A source several binaries share is compiled once per flag set.
+- `out/tests --list` / `--only NAME`: `build.sh` runs one process per test function, all cores, prints the outputs in
+  list order and adds the counts (same total, 136885 checks; a test that dies counts as a failure and is named).
+- `sim_tests.h` `forkEach`: the slow flights of `playability` and `day_settings` run one per forked process (8 at a
+  time); the children's CHECK counts are added back.
+- `check.sh`: the three pio images build at once, the emulator binaries are built by one `build.sh prebuild`, then
+  tests, loadtest and smoke run side by side, each into its own file, printed in the old order with the old messages.
+- The fuzz test's "worst tick < 50 ms" now measures thread CPU time, not wall time: under a loaded machine (the old
+  `check.sh` run while other work ran made it fail once) a descheduled tick looked slow. The printed timing lines of
+  other tests (map render, decode us/tile) are wall clock and read high while the machine is busy; read them from a
+  quiet `build.sh simbench` / single `out/tests --only NAME` run.
+- Checked: same check count, all 69 pgm / 87 png in `emu/out` (including the smoke run's `box_*.png`) are byte for byte
+  the same as before.

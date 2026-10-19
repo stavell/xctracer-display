@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <chrono>
+#include <time.h>
 #include <limits>
 #include "fuzzgen.h"
 
@@ -15,8 +16,12 @@ static int knownBugs = 0;
 #define BUG_CHECK(cond, what) do { if (!(cond)) { knownBugs++; if (knownBugs <= 40) printf("  known bug: %s  (%s:%d)\n", what, __FILE__, __LINE__); } \
                                    else if (0) {} } while (0)
 
-static double wallMs(std::chrono::steady_clock::time_point t0) {
-  return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+// CPU time of this thread, not wall time: the tests run as many processes at once, and a tick that was merely
+// descheduled must not look slow.
+static double cpuMs() {
+  timespec ts;
+  clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+  return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -172,9 +177,9 @@ static FuzzStats fuzzAppPhase(Rig& r, Driven& app, uint32_t& now, Rng& rng, int 
     }
     if (rng.chance(4)) { Command c; if (fuzzCommand(rng, cmdFlags, c)) { if (c.type == Command::XCTRC) delivered++; r.laptop.cmds.push_back(c); } }
     if (rng.chance(1)) r.input.press(now, (uint32_t)rng.range(20, 900));    // short and long presses (never 3 s: no power-off)
-    auto t0 = std::chrono::steady_clock::now();
+    const double t0 = cpuMs();
     app.tick(now);
-    double ms = wallMs(t0);
+    double ms = cpuMs() - t0;
     if (ms > st.worstTickMs) st.worstTickMs = ms;
     uint32_t total = app.linesOk() + app.linesBad();
     CHECK(total >= lastOkBad);

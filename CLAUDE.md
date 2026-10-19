@@ -94,6 +94,13 @@ right is worse than no data.
 Before every commit: `scripts/check.sh` (emulator tests, box smoke run, device builds, stack check). Look at the
 rendered PNGs after any view change.
 
+The emulator builds with `make -j` (`firmware/emu/Makefile`: one object per source and flag set, header dependencies, so a
+rerun rebuilds only what changed) and runs the tests one process per test function on all cores
+(`out/tests --list`, `out/tests --only NAME` for one). `check.sh` runs its stages side by side (about 2.5 min clean, 1.75
+min rerun, was 11 min; NOTES.md "Build and test time"). A new test function goes into the `kTests` table at the end of
+`emu/tests.cpp`; keep one test under about a minute of CPU or split it (`forkEach` in `emu/sim_tests.h`). Tests must not
+assert on wall-clock time (use CPU time): they run many at once.
+
 The vario must not change when the platform around it does: compare `build.sh replay ... ` output (it ends with a
 behaviour digest of every present() time and frame) and the `out/*.pgm` renders before and after a refactor.
 

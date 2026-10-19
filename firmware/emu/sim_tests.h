@@ -3,6 +3,8 @@
 // tests.cpp after CHECK / NEAR; run() is called from main.
 #include <math.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <vector>
 #include "apps/games/sim/air.h"
 #include "apps/games/sim/glider.h"
@@ -42,6 +44,51 @@ struct Hills : IHeightSource {
     return true;
   }
 };
+
+// Runs fn(i, result) for i < n (at most 64, 8 at a time) in forked children, one core each, and fills out[i] with what they report. The
+// children inherit the statics copy-on-write, so a test keeps its single-process shape; their CHECK counts are added to ours
+// (a child that dies counts as a failure). For the slow scripted-pilot runs.
+struct ForkResult { double a = 0, b = 0; };
+template <class F> static void forkEach(int n, F fn, ForkResult* out) {
+  fflush(stdout);
+  static const int kMax = 64, kPar = 8;
+  int fds[kMax], running = 0;
+  if (n > kMax) { CHECK(!"forkEach: too many jobs"); n = kMax; }
+  for (int i = 0; i < n; i++) {
+    if (running >= kPar) { if (wait(nullptr) > 0) running--; }
+    int p[2];
+    if (pipe(p) != 0) { CHECK(!"pipe"); fds[i] = -1; continue; }
+    const pid_t pid = fork();
+    if (pid == 0) {
+      close(p[0]);
+      checks = 0; failures = 0;
+      ForkResult r;
+      fn(i, r);
+      const double m[4] = {(double)checks, (double)failures, r.a, r.b};
+      const ssize_t w = write(p[1], m, sizeof m);
+      fflush(stdout);
+      _exit(w == (ssize_t)sizeof m ? 0 : 1);
+    }
+    close(p[1]);
+    if (pid < 0) { close(p[0]); fds[i] = -1; CHECK(!"fork"); continue; }
+    fds[i] = p[0];
+    running++;
+  }
+  for (int i = 0; i < n; i++) {
+    double m[4];
+    size_t got = 0;
+    while (fds[i] >= 0 && got < sizeof m) {
+      const ssize_t k = read(fds[i], (char*)m + got, sizeof m - got);
+      if (k <= 0) break;
+      got += (size_t)k;
+    }
+    if (fds[i] >= 0) close(fds[i]);
+    if (got != sizeof m) { printf("  FAIL forked job %d of %d died\n", i, n); checks++; failures++; continue; }
+    checks += (int)m[0]; failures += (int)m[1];
+    out[i].a = m[2]; out[i].b = m[3];
+  }
+  while (wait(nullptr) > 0) {}
+}
 
 static HeightCache gCache;          // 48 kB: static, the tests are not the loop task but keep the habit
 static VoxelView gVoxel;
@@ -877,11 +924,11 @@ static bool openPack(const char* path, std::vector<uint8_t>& bytes, terrain::Mem
 //   Per run: at least 2 working thermals reachable by a straight trim glide from the launch point even when the air sinks 0.5 m/s more
 //   than it does (>= 30 m above the ground on arrival), the nearest one within 1.5 km; the scripted pilot (assist on: nearest reachable
 //   thermal, circle, soar the slope when nothing is in reach) gains >= 500 m in 10 sim minutes in at least 80 % of the runs.
-static void playable_site(terrain::Terrain& t, int site, int seeds, const float* times, int nTimes, int* runs, int* gainOk) {
+static void playable_site(terrain::Terrain& t, int site, int seed0, int seeds, const float* times, int nTimes, int* runs, int* gainOk) {
   static World w;
   TerrainSource src(&t, kTakeoffs[site].lat, kTakeoffs[site].lon);
   for (int ti = 0; ti < nTimes; ti++)
-    for (int seed = 1; seed <= seeds; seed++) {
+    for (int seed = seed0; seed < seed0 + seeds; seed++) {
       w.begin(&src, (uint32_t)seed, kTakeoffs[site], -1.0f, times[ti]);
       CHECK(w.air().houseCount() >= 2);
       const simreach::Reach r = simreach::analyse(w);
@@ -897,21 +944,31 @@ static void playability() {
   static std::vector<uint8_t> bytes;
   static terrain::MemReader rd;
   static terrain::FullTerrain t;
-  const float times[] = {180.0f, 1800.0f};
-  int runs = 0, ok = 0;
-  if (openPack("fixtures/sopot.pack", bytes, rd, t)) playable_site(t, 0, 8, times, 2, &runs, &ok);
-  CHECK(runs == 16);
-  printf("  playability, Sopot fixture: scripted pilot gained >= 500 m in 10 min in %d of %d runs\n", ok, runs);
-  CHECK(ok * 100 >= runs * 80);
-  // The real pack (not in the repository): every takeoff of the table.
   static std::vector<uint8_t> bytes2;
   static terrain::MemReader rd2;
   static terrain::FullTerrain t2;
+  const float times[] = {180.0f, 1800.0f};
+  const bool haveSopot = openPack("fixtures/sopot.pack", bytes, rd, t);
+  // The real pack (not in the repository): every takeoff of the table.
   const char* big = "/private/tmp/claude-501/-Users-stavel-dev-display/da365ad1-40f2-499d-917a-3a6befca5ade/scratchpad/terrain/bulgaria.pack";
-  if (openPack(big, bytes2, rd2, t2)) {
+  const bool haveBig = openPack(big, bytes2, rd2, t2);
+  // One process per run: Sopot 2 start times x 8 seeds, then 8 takeoffs x 4 seeds of the big pack.
+  const int nSopot = haveSopot ? 16 : 0, nBig = haveBig ? kTakeoffCount * 4 : 0;
+  ForkResult res[16 + kTakeoffCount * 4];
+  forkEach(nSopot + nBig, [&](int i, ForkResult& r) {
+    int runs = 0, ok = 0;
+    if (i < nSopot) playable_site(t, 0, i % 8 + 1, 1, times + i / 8, 1, &runs, &ok);
+    else { const float tt[] = {1800.0f}; playable_site(t2, (i - nSopot) / 4, (i - nSopot) % 4 + 1, 1, tt, 1, &runs, &ok); }
+    r.a = runs; r.b = ok;
+  }, res);
+  int runs = 0, ok = 0;
+  for (int i = 0; i < nSopot; i++) { runs += (int)res[i].a; ok += (int)res[i].b; }
+  CHECK(runs == 16);
+  printf("  playability, Sopot fixture: scripted pilot gained >= 500 m in 10 min in %d of %d runs\n", ok, runs);
+  CHECK(ok * 100 >= runs * 80);
+  if (haveBig) {
     int r2 = 0, ok2 = 0;
-    const float tt[] = {1800.0f};
-    for (int s = 0; s < kTakeoffCount; s++) playable_site(t2, s, 4, tt, 1, &r2, &ok2);
+    for (int i = nSopot; i < nSopot + nBig; i++) { r2 += (int)res[i].a; ok2 += (int)res[i].b; }
     printf("  playability, Bulgaria pack, all %d takeoffs: gained >= 500 m in %d of %d runs\n", kTakeoffCount, ok2, r2);
     CHECK(ok2 * 100 >= r2 * 80);
   }
@@ -1105,13 +1162,13 @@ static void day_settings() {
   TerrainSource src(&t, kTakeoffs[0].lat, kTakeoffs[0].lon);
   static World fw;
   float gain[Air::kLevels] = {0, 0, 0, 0};
-  for (int l = 0; l < Air::kLevels; l++) {
-    for (int seed = 1; seed <= 6; seed++) {
-      fw.setLevel(l);
-      fw.begin(&src, (uint32_t)seed, kTakeoffs[0], -1.0f, 1800.0f);
-      gain[l] += simreach::fly(fw, 600.0f).gain / 6.0f;
-    }
-  }
+  ForkResult lv[Air::kLevels * 6];
+  forkEach(Air::kLevels * 6, [&](int i, ForkResult& r) {      // one process per level and seed
+    fw.setLevel(i / 6);
+    fw.begin(&src, (uint32_t)(i % 6 + 1), kTakeoffs[0], -1.0f, 1800.0f);
+    r.a = simreach::fly(fw, 600.0f).gain / 6.0f;
+  }, lv);
+  for (int i = 0; i < Air::kLevels * 6; i++) gain[i / 6] += (float)lv[i].a;
   printf("  scripted pilot, mean gain in 10 min, weak..epic: %.0f %.0f %.0f %.0f m\n", (double)gain[0], (double)gain[1], (double)gain[2], (double)gain[3]);
   CHECK(gain[2] > gain[0] + 150.0f && gain[3] > gain[1] && gain[1] > gain[0]);
   // Medium at the usual wind of every takeoff is the playability test above; weak days are not guaranteed.
