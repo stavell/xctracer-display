@@ -290,5 +290,5 @@ User additions (2026-10-19):
 - **Start-up animation**: done 2026-10-19 (`apps/intro`, NOTES "Start-up animation"); frame time and the added time to the first vario frame still to be measured on the device.
 - **Sun shading on the vario's map page**: done 2026-10-19 (see NOTES.md, "Map page: no more 1.9 s stall"); the sim's top-down map could still use the same sun.
 - Intro measured on the device (15ab75e): start 0.29 s (height fill 0.23 s), first second 44.5 fps (draw 21 ms),
-  cloud-front second 31.8 fps (draw 30 ms): the scripted puff front is the cost; cheapen it toward 50 fps. Wordmark
-  "SHARP / DISPLAY" is a placeholder: the user picks the name.
+  cloud-front second 31.8 fps (draw 30 ms): the scripted puff front is the cost; cut to 6 larger puffs and a thinner shaded ring, to be
+  re-measured on the device. End frame is now just "stavl.com" (no glyph, no wordmark).

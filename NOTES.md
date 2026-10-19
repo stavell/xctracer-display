@@ -1176,9 +1176,8 @@ The map picture has an 8 px margin on every side, so a 4 px stale threshold plus
 start-up app is built. Reuses World (only its height cache and air model, never stepped), VoxelView, SkyFx and ChaseCam through their
 public APIs; no sim file was changed. Scripted: the glider circles a thermal column (radius 16 m at 12 m/s, 41 degrees of bank, a turn
 every 8.4 s: faster than a real one so the camera sweeps), climbs 190 m in 2.3 s drifting toward the cloud's centre; from 0.8 s a scripted
-cloud front (outlined puffs, shaded underside) sweeps down over the picture (the sim's own cloud sprites stay where the thermal put them
-and never fill the view); from 1.45 s the dithered white-out (ordered dither, ragged front from the top, whole bytes); the name (glider
-mark, SHARP, DISPLAY) dissolves in through the same dither from 2.15 s and holds. Without a pack, or when no sim takeoff is covered: 2D
+cloud front (6 large outlined puffs, shaded underside; was 9 small ones, 31.8 fps on the device) sweeps down over the picture (the sim's own cloud sprites stay where the thermal put them
+and never fill the view); from 1.45 s the dithered white-out (ordered dither, ragged front from the top, whole bytes); the name (just "stavl.com" in FreeSansBold18pt, centred) dissolves in through the same dither from 2.15 s and holds. Without a pack, or when no sim takeoff is covered: 2D
 contour layers under swelling clouds, the same white-out and name.
 - **Scene choice** (deterministic): Kalofer if the pack covers it, else the first covered takeoff in the table's order (Sopot on the test
   fixture); sim day seed 13 (cloud base 2206 m, medium day); the thermal with a grown cumulus (>= 0.9) scored by strength and trigger height

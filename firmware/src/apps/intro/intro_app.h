@@ -118,7 +118,7 @@ class IntroApp : public IApp {
   int steps_ = 0;
   bool done_ = false, skipped_ = false;
   uint32_t beginUs_ = 0, fillUs_ = 0, searchUs_ = 0;
-  Font1 big_, mid_;
+  Font1 name_;
   uint8_t white_[65][8];                // dither bytes: bit k of [level][x & 7] is white where Bayer(x, 7 - k) < level
   int8_t wob_[240];                     // the ragged front of the white-out, per screen column
 };

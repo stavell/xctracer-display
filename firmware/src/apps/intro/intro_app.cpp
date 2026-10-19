@@ -1,6 +1,5 @@
 #include "apps/intro/intro_app.h"
-#include <Fonts/FreeSansBold12pt7b.h>
-#include <Fonts/FreeSansBold24pt7b.h>
+#include <Fonts/FreeSansBold18pt7b.h>
 #include <math.h>
 #include <stdio.h>
 #include "apps/games/sim/takeoffs.h"
@@ -145,8 +144,7 @@ void IntroApp::begin(uint32_t) {
     pose(0);
     chase_.reset(g_);
   }
-  big_.build(&FreeSansBold24pt7b, 1);
-  mid_.build(&FreeSansBold12pt7b, 1);
+  name_.build(&FreeSansBold18pt7b, 1);
   beginUs_ = (clk_ ? clk_() : 0) - t0;
 }
 
@@ -221,11 +219,11 @@ void IntroApp::cloudBank(const Bitmap1& bm, uint32_t ms) {
   const int edge = (int)lroundf(-80.0f + 440.0f * k);
   if (edge > 40) fillRect(bm, 0, 0, 240, edge - 48, Gray(16));
   for (int pass = 0; pass < 2; pass++)
-    for (int i = 0; i < 9; i++) {
-      const int r = 28 + (int)(unit(hash3((uint32_t)i, 5, 0xC10D)) * 16.0f);
-      const int cx = i * 30 - 8, cy = edge - r / 2 + (int)lroundf(10.0f * sinf(i * 1.7f));
+    for (int i = 0; i < 6; i++) {            // few, large puffs: the cost of the front is its area of fills
+      const int r = 40 + (int)(unit(hash3((uint32_t)i, 5, 0xC10D)) * 18.0f);
+      const int cx = i * 46 - 8, cy = edge - r / 2 + (int)lroundf(10.0f * sinf(i * 1.7f));
       fillDisc(bm, cx, cy, pass == 0 ? r : r - 2, pass == 0 ? DRAW_CLEAR : DRAW_SET);
-      if (pass == 1) fillRing(bm, cx, cy, r - 2, r - 11, Gray(12), ClipBox(0, cy + r / 4, 239, 399));   // the shaded underside
+      if (pass == 1) fillRing(bm, cx, cy, r - 2, r - 8, Gray(12), ClipBox(0, cy + r / 4, 239, 399));   // the shaded underside
     }
 }
 
@@ -287,23 +285,13 @@ void IntroApp::whiteout(const Bitmap1& bm, float p) {
 // that is already white where it sits; the pixels the level has not reached yet are put back to white.
 void IntroApp::drawLogo(const Bitmap1& bm, int level) {
   if (level <= 0) return;
-  if (!big_.isBuilt(&FreeSansBold24pt7b, bm.rotation)) big_.build(&FreeSansBold24pt7b, bm.rotation);
-  if (!mid_.isBuilt(&FreeSansBold12pt7b, bm.rotation)) mid_.build(&FreeSansBold12pt7b, bm.rotation);
-  const int cx = 120;
-  glyph(bm, cx, 176, 40.0f, 0.0f, DRAW_CLEAR, 0);
-  const char* name = "SHARP";
-  drawText(bm, cx - textWidth(name, big_) / 2, 258, name, big_, DRAW_CLEAR);
-  const char* sub = "DISPLAY";                              // spaced capitals
-  int w = 0;
-  const int gap = 5, n = 7;
-  for (int i = 0; i < n; i++) { char ch[2] = {sub[i], 0}; w += textWidth(ch, mid_) + (i + 1 < n ? gap : 0); }
-  int x = cx - w / 2;
-  for (int i = 0; i < n; i++) { char ch[2] = {sub[i], 0}; x = drawText(bm, x, 286, ch, mid_, DRAW_CLEAR) + gap; }
-  bm.fillRect(cx - 34, 300, 68, 2, DRAW_CLEAR);
+  if (!name_.isBuilt(&FreeSansBold18pt7b, bm.rotation)) name_.build(&FreeSansBold18pt7b, bm.rotation);
+  const char* name = "stavl.com";
+  drawText(bm, 120 - textWidth(name, name_) / 2, 208, name, name_, DRAW_CLEAR);
   if (level >= 64) return;
-  // Put back to white what the level does not show yet: screen columns 20..219, the bytes that cover y 110..310.
-  const int b0 = (399 - 310) >> 3, b1 = (399 - 110) >> 3;
-  for (int rx = 20; rx < 220; rx++) {
+  // Put back to white what the level does not show yet: screen columns 10..229, the bytes that cover y 170..230.
+  const int b0 = (399 - 230) >> 3, b1 = (399 - 170) >> 3;
+  for (int rx = 10; rx < 230; rx++) {
     uint8_t* row = bm.buf + (size_t)rx * bm.stride;
     const uint8_t shown = white_[level][rx & 7];           // the pixels already dissolved in
     for (int b = b0; b <= b1; b++) row[b] |= (uint8_t)~shown;
