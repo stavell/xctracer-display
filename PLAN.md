@@ -292,3 +292,9 @@ User additions (2026-10-19):
 - Intro measured on the device (15ab75e): start 0.29 s (height fill 0.23 s), first second 44.5 fps (draw 21 ms),
   cloud-front second 31.8 fps (draw 30 ms): the scripted puff front is the cost; cut to 6 larger puffs and a thinner shaded ring, to be
   re-measured on the device. End frame is now just "stavl.com" (no glyph, no wordmark).
+- **Thermal assistant review** (docs/thermal_review.md, 2026-10-19): centring cue on whole flights 64-68 % vs 55-61 %
+  "last turn" baseline (chance 50 %), median angle error ~60°, distance error ~40 m; shows only after two turns (18-21 %
+  of circling). Proposed, in order: one cue only (best-lift sector + average climb), cue from the first half turn with a
+  confidence mark, 8 sectors instead of metres, gyro circle phase (log raw IMU + tracer receive times first), gate by
+  older-turn spread. Validate each with `build.sh cue` on whole flights, then fly it. Also: the reviewer saw
+  `sim_playability` / `sim_day_settings` fail once in a full emulator run (check.sh passes; investigate flakiness).
