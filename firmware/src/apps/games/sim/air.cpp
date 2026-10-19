@@ -76,6 +76,8 @@ const Air::Tile* Air::tile(int tx, int ty) const {
       if (s > best) { best = s; t.x = x; t.y = y; t.z = g; t.score = s; }
     }
   t.valid = true;
+  t.tk = hash3(seed_, (uint32_t)tx, (uint32_t)ty);
+  timing(t.tk, false, &t.period, &t.offset);
   Tile& slot = tiles_[free >= 0 ? free : (base + (int)(hash32(key) & 3)) % kSlots];
   slot = t;
   return &slot;
@@ -87,8 +89,7 @@ void Air::timing(uint32_t tk, bool house, float* period, float* offset) const {
 }
 
 bool Air::thermalOf(const Tile& tl, uint32_t tk, int number, Th* out) const {
-  float period, offset;
-  timing(tk, tl.house, &period, &offset);
+  const float period = tl.period, offset = tl.offset;
   const uint32_t h = hash3(tk, (uint32_t)number, 0x7117);
   if (!tl.house && unit(h) >= fminf(0.98f, (0.35f + 0.6f * tl.score) * kLevel[level_].density)) return false;
   const float u1 = unit(hash32(h ^ 1)), u2 = unit(hash32(h ^ 2)), u3 = unit(hash32(h ^ 3));
@@ -156,6 +157,8 @@ void Air::setHome(float hx, float hy) {
       house_[nHouse_] = best[pass];
       house_[nHouse_].house = true;
       house_[nHouse_].valid = true;
+      house_[nHouse_].tk = hash3(seed_, 0x4005E + (uint32_t)nHouse_, 0x4011);
+      timing(house_[nHouse_].tk, true, &house_[nHouse_].period, &house_[nHouse_].offset);
       nHouse_++;
     }
 }
@@ -191,10 +194,11 @@ void Air::columnCentre(const Th& th, float z, float t, float* cx, float* cy) con
 int Air::collect(float x, float y, float z, float t, float range, Active* out, int cap) const {
   int n = 0;
   auto add = [&](const Tile& tl, uint32_t tk) {
-    float period, offset;
-    timing(tk, tl.house, &period, &offset);
+    const float period = tl.period, offset = tl.offset;
     const int nNow = (int)floorf((t - offset) / period);
     for (int k = nNow - 3; k <= nNow; k++) {                    // lives are up to 3 periods (houses)
+      const float age = t - (offset + k * period);              // same t0 as thermalOf; no life is longer than 1500 s: skip before any hashing
+      if (age < 0 || age > 1500.0f) continue;
       Th th;
       if (!thermalOf(tl, tk, k, &th)) continue;
       const float env = envelope(th, t);

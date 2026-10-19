@@ -111,6 +111,8 @@ class Air {
     bool valid = false;
     float x = 0, y = 0, z = 0, score = 0;       // best trigger candidate in the cell
     bool house = false;                         // a house thermal: always fires, never weak
+    uint32_t tk = 0;                            // the cell's hash key (its thermals' randomness)
+    float period = 0, offset = 0;               // timing(tk), kept: hashing them again for every query was most of the air model's cost
   };
   struct Th {
     float x0, y0, z0, t0, life, S, R;
