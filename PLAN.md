@@ -295,3 +295,9 @@ User additions (2026-10-19):
   white-out is the transition into the start-up app. Rules: never delays the vario beyond the animation (tracer scan starts in parallel),
   runs from the shared arena (freed before the start-up app is built), falls back to a 2D logo animation without a
   map pack, off in the vario-only image. A Settings row to turn it off.
+- **Sun shading on the vario's map page** (user, 2026-10-19): the hillshade of the sim's top-down map, lit from the real
+  sun: azimuth and elevation from the GPS time (WallClock / sample time) and the pilot's lat/lon (a small solar-position
+  formula, float, a few times per minute is enough). Practical in flight, not only pretty: sunlit slopes are where
+  thermals trigger, shaded ones are not. Low sun -> longer, darker shading; sun below the horizon -> the current fixed
+  light (or flat). The relief cache re-renders only when the sun has moved a few degrees. Compare the look with
+  `build.sh simdemo` map shots; vario frames change only on the map page.
