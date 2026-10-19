@@ -16,6 +16,9 @@
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
 #include "platform/hw/game_log.h"
+#ifdef SIM_BENCH
+#include "platform/hw/mbench.h"
+#endif
 #include "apps/vario/hw/config_store.h"
 #include "apps/vario/hw/diagnostics.h"
 #include "platform/hw/input_button.h"
@@ -158,7 +161,7 @@ static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, 
 static VarioProbe probe;
 static AppHost host(panel, button);
 static char* scratchBuf() { size_t c; return diagnosticsScratch(&c); }
-static GameLog gameLog(host, panel, fastMicros, &probe, scratchBuf(), 360);    // the "gm ..." line while a game runs; forwards clear / present to the vario probe
+static GameLog gameLog(host, panel, fastMicros, &probe, scratchBuf(), 560);    // the "gm ..." line while a game runs; forwards clear / present to the vario probe
 
 // Boot, and the way out of the clock sleep: straight into the start-up app (its begin() restarts what it needs).
 static void startStartupApp() {
@@ -225,6 +228,12 @@ void loop() {
   watchdog::feed();
   uint32_t now = millis();
 #ifdef SIM_BENCH
+  {
+    static bool mbDone = false;
+    static uint32_t mbPrint = 0;
+    if (!mbDone && now > 1500) { mbench::run(); mbDone = true; }
+    if (mbDone && now - mbPrint > 2000 && Serial) { mbPrint = now; Serial.println(mbench::line); }
+  }
   {  // bench build: the sim flies itself; level = how the board lies, the view alternates every 20 s, a landing restarts
     static uint32_t lastSwitch = 0;
     static bool zeroed = false;

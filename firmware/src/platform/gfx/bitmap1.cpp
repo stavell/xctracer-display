@@ -1,3 +1,4 @@
+#include "platform/util/fastmem.h"
 #include "platform/gfx/bitmap1.h"
 #include <string.h>
 
@@ -35,9 +36,9 @@ void Bitmap1::nativeRect(int nx0, int ny0, int nx1, int ny1, DrawMode m) const {
     if (b0 == b1) { applyMask(row[b0], first & last, m); continue; }
     applyMask(row[b0], first, m);
     if (b1 - b0 > 1) {
-      if (m == DRAW_CLEAR) memset(row + b0 + 1, 0x00, (size_t)(b1 - b0 - 1));
+      if (m == DRAW_CLEAR) fastFill(row + b0 + 1, 0x00, (size_t)(b1 - b0 - 1));
       else if (m == DRAW_INVERT) for (int i = b0 + 1; i < b1; i++) row[i] ^= 0xFF;
-      else memset(row + b0 + 1, 0xFF, (size_t)(b1 - b0 - 1));
+      else fastFill(row + b0 + 1, 0xFF, (size_t)(b1 - b0 - 1));
     }
     applyMask(row[b1], last, m);
   }

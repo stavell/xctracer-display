@@ -1,4 +1,5 @@
 #pragma once
+#include "platform/util/fastmem.h"
 #include <Adafruit_SharpMem.h>
 #include "platform/hw/fast_sharp.h"
 #include "platform/ports.h"
@@ -12,7 +13,7 @@ class SharpPanel : public IPanel {
   Adafruit_GFX& gfx() override { return display_; }
   Bitmap1 bitmap() override { return display_.bm(); }
   void setRotation(uint8_t r) override { display_.setRotation(r); }
-  void clear() override { display_.clearDisplayBuffer(); }
+  void clear() override { fastFill(display_.getBuffer(), 0xFF, 400 * 240 / 8); }
   void present() override;
   void invalidate() override { dirty_ = true; }
   void refresh() override;

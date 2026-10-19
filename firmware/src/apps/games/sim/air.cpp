@@ -95,7 +95,7 @@ bool Air::thermalOf(const Tile& tl, uint32_t tk, int number, Th* out) const {
   out->x0 = tl.x; out->y0 = tl.y; out->z0 = tl.z;
   out->t0 = offset + number * period;
   out->life = (tl.house ? 1100.0f : 900.0f) + (tl.house ? 400.0f : 600.0f) * u3;     // 15 - 25 min, longer than the period: they overlap
-  out->S = kLevel[level_].strength * (tl.house ? 2.6f + 1.8f * powf(u1, 1.2f) : 2.0f + 2.6f * powf(u1, 1.2f) * (0.5f + 0.5f * tl.score));
+  out->S = kLevel[level_].strength * (tl.house ? 2.6f + 1.8f * fpow(u1, 1.2f) : 2.0f + 2.6f * fpow(u1, 1.2f) * (0.5f + 0.5f * tl.score));
   out->R = 80.0f + 120.0f * u2;
   out->id = h;
   return true;
@@ -238,7 +238,7 @@ float Air::ridgeLift(float x, float y, float z) const {
   if (field_->gradient(x - wx / sp * back, y - wy / sp * back, 300.0f, &gx, &gy)) uUp = wx * gx + wy * gy;
   const float lift = fminf(fmaxf(fmaxf(uHere, uUp), 0.0f), 5.5f);
   const float lee = fmaxf(fminf(uHere, 0.0f), -4.0f);
-  return 1.0f * lift * expf(-agl / 260.0f) + lee * expf(-agl / 380.0f);
+  return 1.0f * lift * fexp(-agl / 260.0f) + lee * fexp(-agl / 380.0f);
 }
 
 void Air::sample(float x, float y, float z, float t, AirSample* out) const {
@@ -250,7 +250,7 @@ void Air::sample(float x, float y, float z, float t, AirSample* out) const {
     const Active& a = act[i];
     const float dx = x - a.cx, dy = y - a.cy;
     const float r2 = (dx * dx + dy * dy) / (a.R * a.R);
-    const float e1 = expf(-r2), e2 = expf(-r2 / 4.84f);
+    const float e1 = fexp(-r2), e2 = fexp(-r2 / 4.84f);
     const float dzr = z - a.th.z0;
     const float fh = smoothstep((dzr + 100.0f) / 250.0f);
     const float fc = 1.0f - smoothstep((z - (cloudBase_ - 250.0f)) / 250.0f);

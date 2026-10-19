@@ -1,3 +1,4 @@
+#include "platform/util/fastmem.h"
 #include "platform/hw/panel_sharp.h"
 #include <Arduino.h>
 #include <SPI.h>
@@ -124,7 +125,7 @@ void SharpPanel::send(const uint8_t* idx, int n) {
   if (snap_) {
     for (int i = 0; i < n; i++) {
       size_t o = (size_t)idx[i] * LD_BYTES_PER_LINE;
-      memcpy(snap_ + o, buf + o, LD_BYTES_PER_LINE);
+      fastCopy(snap_ + o, buf + o, LD_BYTES_PER_LINE);
     }
   }
   nrfx_spim_xfer_desc_t xfer = NRFX_SPIM_XFER_TX(gTx, len);
@@ -154,7 +155,7 @@ void SharpPanel::refresh() {
 }
 
 void SharpPanel::showRaw(const uint8_t* frame) {
-  memcpy(display_.getBuffer(), frame, BUF_LEN);
+  fastCopy(display_.getBuffer(), frame, BUF_LEN);
   refresh();
 }
 

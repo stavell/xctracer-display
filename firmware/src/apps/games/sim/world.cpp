@@ -82,13 +82,20 @@ void World::step(const Controls& c, float dt, int cacheBudget) {
   }
   cache_.setCentre(g_.x, g_.y);
   cache_.refresh(cacheBudget);
+  const uint32_t ta = clk_ ? clk_() : 0;
   air_.sample(g_.x, g_.y, g_.z, t_, &s_);
+  const uint32_t tg = clk_ ? clk_() : 0;
   const float px = g_.x, py = g_.y;
   // Tip lift: lift difference between the right and left wing tip along the wing, from the thermal's gradient.
   const float rx = cosf(g_.heading), ry = -sinf(g_.heading);
   const float dw = (s_.gx * rx + s_.gy * ry) * kSpan;
   kick_ += (clampf(-dw * kKickPerMs, -kKickMax, kKickMax) - kick_) * lagFactor(dt, 0.5f);
   g_.step(c, s_.wx, s_.wy, s_.wz, dt, kick_);
+  if (clk_) {
+    const uint32_t te = clk_();
+    prof_.airUs += tg - ta; prof_.gliderUs += te - tg; prof_.n++;
+    if (tg - ta > prof_.airMax) prof_.airMax = tg - ta;
+  }
   t_ += dt;
   dist_ += sqrtf((g_.x - px) * (g_.x - px) + (g_.y - py) * (g_.y - py));
   vario_ += (g_.vz - vario_) * lagFactor(dt, 0.8f);

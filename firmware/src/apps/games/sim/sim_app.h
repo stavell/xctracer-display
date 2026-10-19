@@ -71,7 +71,7 @@ class SimApp : public IApp {
   // gameInfo() reports them (view, scale, tile decodes, then avg/max ms of world physics, height-cache refresh, map update, 3D
   // render, sky, glider + HUD) for the second since the last call. No clock: gameInfo() still gives view, scale and decodes.
   typedef uint32_t (*ClockUs)();
-  void setClock(ClockUs c) { clk_ = c; world_.cache().setClock(c); }
+  void setClock(ClockUs c) { clk_ = c; world_.setClock(c); }
   int gameInfo(char* dst, size_t cap) override;
 
   const char* name() const override { return "flightsim"; }
@@ -169,7 +169,7 @@ class SimApp : public IApp {
     uint32_t sum = 0, max = 0, n = 0;
     void add(uint32_t us) { sum += us; if (us > max) max = us; n++; }
   };
-  enum { P_WORLD, P_TOPUPD, P_CHASEUPD, P_BLIT, P_VOXEL, P_SKY, P_SPRITE, P_HUD, P_COUNT };
+  enum { P_WORLD, P_TOPUPD, P_CHASEUPD, P_BLIT, P_VOXEL, P_SKY, P_SPRITE, P_HUD, P_ASSIST, P_TRAIL, P_SYMBOL, P_COUNT };
   uint32_t t() const { return clk_ ? clk_() : 0; }
   void lap(int part, uint32_t t0) { if (clk_) prof_[part].add(clk_() - t0); }
   ClockUs clk_ = nullptr;

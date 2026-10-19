@@ -55,6 +55,12 @@ class World {
   float rollKick() const { return kick_; }
   static constexpr float kLaunchAgl = 150.0f;          // m above the takeoff at the start: the first seconds after leaving the ground
 
+  // Profiling (see SimApp::setClock): per physics substep, microseconds spent in the air model's sample() and in the glider step.
+  typedef uint32_t (*ClockUs)();
+  struct StepProf { uint32_t airUs = 0, airMax = 0, gliderUs = 0, n = 0; };
+  void setClock(ClockUs c) { clk_ = c; cache_.setClock(c); }
+  StepProf takeProf() { StepProf p = prof_; prof_ = StepProf(); return p; }
+
   const Glider& glider() const { return g_; }
   Glider& gliderMut() { return g_; }
   const Air& air() const { return air_; }
@@ -89,6 +95,8 @@ class World {
   float t_ = 0, vario_ = 0, ground_ = 0, agl_ = 0, maxAlt_ = 0, startAlt_ = 0, dist_ = 0, trailT_ = 0, windFrom_ = 0;
   TrailPt trail_[kTrailMax];
   int trailN_ = 0, trailHead_ = 0;
+  ClockUs clk_ = nullptr;
+  StepProf prof_;
 };
 
 }  // namespace sim

@@ -26,7 +26,7 @@ static PackService* gPack;
 
 void diagnosticsSetPack(PackService* pack) { gPack = pack; }
 
-static char gScratch[360];
+static char gScratch[560];
 char* diagnosticsScratch(size_t* cap) {
   *cap = sizeof gScratch;
   return gScratch;

@@ -95,6 +95,19 @@ template <class F> static void forkEach(int n, F fn, ForkResult* out) {
 static HeightCache gCache;          // 48 kB: static, the tests are not the loop task but keep the habit
 static VoxelView gVoxel;
 
+// fexp / flog2 / fpow (sim_math.h) replace expf / logf / powf, which cost 1300 - 2500 cycles each on the device.
+static void fast_math() {
+  double worstE = 0, worstL = 0, worstP = 0;
+  for (float x = -30.0f; x <= 10.0f; x += 0.0137f) worstE = fmax(worstE, fabs((double)fexp(x) / exp((double)x) - 1.0));
+  for (float x = 1e-4f; x < 1e4f; x *= 1.013f) worstL = fmax(worstL, fabs((double)flog2(x) - log2((double)x)));
+  for (float u = 0.0001f; u <= 1.0f; u += 0.0007f) worstP = fmax(worstP, fabs((double)fpow(u, 1.2f) / pow((double)u, 1.2) - 1.0));
+  CHECK(worstE < 2e-6);               // grows with |x|: the argument itself is only good to 1e-7 relative
+  CHECK(worstL < 1e-6);
+  CHECK(worstP < 1e-6);
+  CHECK(fpow(0.0f, 1.2f) == 0.0f && fexp(0.0f) == 1.0f && fexp(-1000.0f) < 1e-30f);
+  NEAR(lagFactor(0.02f, 0.5f), 1.0 - exp(-0.04), 1e-7);
+}
+
 static void polar() {
   NEAR(Polar::sinkKmh(33.0f), 1.10f, 0.001);
   NEAR(Polar::sinkKmh(37.0f), 1.20f, 0.001);
@@ -736,15 +749,15 @@ static void game_mode() {
     probe.enable(true, 0);
     h.tick(0);
     p.busyNow = true;
-    h.tick(20);                                            // due, but the panel is still sending
-    CHECK(h.stats().panelBusy == 1);
+    h.tick(20);                                            // due while the panel is still sending: stepped and drawn at once, present waits
+    CHECK(h.stats().panelBusy == 1 && h.stats().frames == 2);
     p.busyNow = false;
-    h.tick(60);                                            // 3 slots late: 3 steps, 2 of them catch-up
-    CHECK(h.stats().catchUp == 2 && h.stats().dropped == 0);
+    h.tick(60);                                            // 2 slots late (40 and 60): 2 steps, one of them catch-up
+    CHECK(h.stats().catchUp == 1 && h.stats().dropped == 0);
     char line[400];
     probe.noteTick(1000);
     probe.report(line, sizeof line, 1000, "t", h.stats(), "x=1");
-    CHECK(strstr(line, "gm app=t ") && strstr(line, "catchup=2 dropped=0 busy=1") && strstr(line, "x=1"));
+    CHECK(strstr(line, "gm app=t ") && strstr(line, "catchup=1 dropped=0 busy=1") && strstr(line, "x=1"));
     probe.report(line, sizeof line, 2000, "t", h.stats(), "");
     CHECK(strstr(line, "catchup=0 dropped=0 busy=0"));      // per-second deltas
   }

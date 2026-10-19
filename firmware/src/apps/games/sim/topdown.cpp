@@ -3,6 +3,7 @@
 #include <string.h>
 #include "apps/games/sim/sim_math.h"
 #include "platform/gfx/gray.h"
+#include "platform/util/fastmem.h"
 
 namespace sim {
 
@@ -19,7 +20,7 @@ float angDiffDeg(float a, float b) {
 }  // namespace
 
 void TopDownView::reset() {
-  memset(buf_, 0xFF, sizeof buf_);
+  fastFill(buf_, 0xFF, sizeof buf_);
   front_ = 0;
   shownValid_ = busy_ = false;
   col_ = 0;
@@ -70,13 +71,13 @@ void TopDownView::renderColumn(const HeightCache& hc, const Params& p, uint8_t* 
     pix_[y] = white;
   }
   uint8_t* row = buf + (size_t)px * kStride;
-  memset(row, 0xFF, kStride);
+  fastFill(row, 0xFF, kStride);
   for (int y = 0; y < kH; y++)
     if (!pix_[y]) {
       const int nx = kH - 1 - y;
       row[nx >> 3] &= (uint8_t)~(1u << (nx & 7));
     }
-  memcpy(prevBand_, band_, sizeof prevBand_);
+  fastCopy(prevBand_, band_, sizeof prevBand_);
 }
 
 int TopDownView::update(const HeightCache& hc, float x, float y, float heading, float mPerPx, int budgetPx) {
@@ -130,6 +131,7 @@ void TopDownView::worldToScreen(float wx, float wy, float* sx, float* sy) const 
 }
 
 namespace {
+typedef uint32_t __attribute__((may_alias, aligned(1))) U32;     // unaligned word access (Cortex-M4 and the PC)
 // Bits [b, b + 8) of a native row of 47 bytes (LSB first); outside the row they read white.
 inline uint8_t srcBits(const uint8_t* row, int b) {
   const int p = b >> 3, s = b & 7;
@@ -157,12 +159,25 @@ void TopDownView::blit(const Bitmap1& screen, float gx, float gy) {
     if (sxp < 0 || sxp >= 240) continue;
     const uint8_t* srow = src + (size_t)px * kStride;
     uint8_t* drow = screen.buf + (size_t)sxp * screen.stride;
-    for (int j = lo >> 3; j <= (hi >> 3); j++) {
+    // Source byte of dest byte j is 8j - shift bits in: the same bit offset s for every j, so whole words move at once.
+    const int q = (-shift) >> 3, sb = (-shift) & 7;
+    const uint32_t keepHi = (0xFFu >> sb) * 0x01010101u, keepLo = ((1u << sb) - 1u) * 0x01010101u;
+    int j = lo >> 3;
+    const int jEnd = hi >> 3;
+    while (j <= jEnd) {
+      if (8 * j >= lo && 8 * (j + 3) + 7 <= hi && j + q >= 0 && j + q + 4 < kStride) {
+        const uint8_t* sp = srow + j + q;
+        const uint32_t w0 = *(const U32*)sp, w1 = *(const U32*)(sp + 1);
+        *(U32*)(drow + j) = ((w0 >> sb) & keepHi) | ((w1 & keepLo) << (8 - sb));
+        j += 4;
+        continue;
+      }
       const uint8_t v = srcBits(srow, 8 * j - shift);
       uint8_t m = 0xFF;
       if (8 * j < lo) m &= (uint8_t)(0xFFu << (lo - 8 * j));
       if (8 * j + 7 > hi) m &= (uint8_t)(0xFFu >> (8 * j + 7 - hi));
       drow[j] = (uint8_t)((drow[j] & ~m) | (v & m));
+      j++;
     }
   }
 }

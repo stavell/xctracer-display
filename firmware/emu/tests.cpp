@@ -1770,6 +1770,7 @@ static const TestEntry kTests[] = {
   {"terrain_tests_run", terrain_tests::run},
   {"storage_tests_run", storage_tests::run},
   {"map_page_tests_run", map_page_tests::run},
+  {"sim_fast_math", sim_tests::fast_math},
   {"sim_polar", []{ puts("sim"); sim_tests::polar(); }},
   {"sim_turn_and_sink", sim_tests::turn_and_sink},
   {"sim_stall", sim_tests::stall},

@@ -11,7 +11,7 @@
 //   4. if the app does not own the panel and wantsFrame(now): clear, draw(bitmap, gfx, now), present
 //
 // Game mode: an app whose frameIntervalMs() is > 0 (games use 20 ms: a steady 50 fps) gets a fixed-timestep loop
-// instead of step 4. The host keeps a frame clock: each time it is due (and the panel can take a frame) the app's
+// instead of step 4. The host keeps a frame clock: each time it is due the app's
 // step(simMs, dtMs) runs once per elapsed interval (normally once; at most kMaxCatchUp when frames were late, so
 // the simulation stays in real time), then ONE frame is cleared, drawn and presented. The simulation therefore advances
 // in equal steps whatever the draw costs, and the picture is always the newest state. frameIntervalMs() == 0 (the
@@ -99,7 +99,7 @@ struct FrameStats {
   uint32_t frames = 0;          // frames presented since the app started
   uint32_t dropped = 0;         // intervals skipped because the host fell behind by more than kMaxCatchUp
   uint32_t catchUp = 0;         // extra steps run for a frame that was late (slots whose picture was never drawn, but simulated)
-  uint32_t panelBusy = 0;       // host iterations where a frame was due but the previous SPI transfer was still in flight
+  uint32_t panelBusy = 0;       // frames whose present() found the previous SPI transfer still in flight (it waits for it)
 };
 
 // Brackets the clear and the present of a frame (the draw-time profiler hooks in here); optional.
@@ -116,7 +116,10 @@ class IFrameProbe {
 class AppHost : public IAppNav {
  public:
   static const int MAX_APPS = 8;
-  static const int kMaxCatchUp = 4;                        // simulation steps per frame at most
+  // Simulation steps per game frame at most: the late frame's own step plus one extra. More would make a slow frame slower (every
+  // extra step costs time the next frame does not have: measured on the device, 4 x a 16 ms step = 65 ms, 10 fps); a game that
+  // cannot keep up runs in slow motion instead (the missed slots count as dropped).
+  static const int kMaxCatchUp = 2;
   AppHost(IPanel& panel, IInput& input) : panel_(panel), input_(input) {}
 
   bool add(IApp& app) {
@@ -230,7 +233,8 @@ class AppHost : public IAppNav {
       winWorst_ = 0;
     }
     if ((int32_t)(nowMs - nextFrame_) < 0) return;
-    if (!panel_.ready()) { stats_.panelBusy++; return; }
+    // The panel may still be sending the previous frame: step and draw anyway. The transfer reads the packed tx buffer, not the frame
+    // buffer, so the CPU work overlaps it; present() waits for the rest only when the transfer is still running by then.
     int n = 0;
     while ((int32_t)(nowMs - nextFrame_) >= 0 && n < kMaxCatchUp) {
       simMs_ += fi;
@@ -254,6 +258,7 @@ class AppHost : public IAppNav {
     if (probe_) probe_->draw(true);
     active_->draw(bm, panel_.gfx(), nowMs);
     if (probe_) probe_->draw(false);
+    if (!panel_.ready()) stats_.panelBusy++;
     if (probe_) probe_->present(true);
     panel_.present();
     if (probe_) probe_->present(false);
