@@ -69,6 +69,8 @@ class MapVectors {
 
   void unitToLatLon(double x, double y, double* lat, double* lon) const;
   void latLonToUnit(double lat, double lon, double* x, double* y) const;
+  // Float version for per-point work (ground track): degrees * 1e7 in, units out, no double.
+  void latLonToUnitE7(int32_t lat_e7, int32_t lon_e7, float* x, float* y) const;
   UnitBox boxFromLatLon(double latS, double latN, double lonW, double lonE) const;
   UnitBox boxForWindow(const Window& win) const;       // bounding box of the (rotated) window
   VecXform makeXform(const Window& win) const;

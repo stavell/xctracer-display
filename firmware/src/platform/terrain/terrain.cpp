@@ -26,6 +26,7 @@ bool parseLayer(IBlockReader* rd, const Section& s, int kind, Layer* L) {
   const uint32_t idx = le32(d + 28), crc = le32(d + 32), data = le32(d + 36);
   if (codec != 3 || L->kind != kind || L->q == 0 || L->log2t < 1 || L->log2t > 5) return false;
   if (L->dy_e7 <= 0 || L->dx_e7 <= 0 || L->ty == 0 || L->tx == 0) return false;
+  if (L->dy_e7 > (1 << 20) || L->dx_e7 > (1 << 20)) return false;     // split() divides exactly in float up to 20 x this
   const uint32_t T = 1u << L->log2t, n = (uint32_t)L->ty * L->tx;
   if (L->rows != L->ty * T || L->cols != L->tx * T) return false;
   if (idx != 48 || crc != idx + 3 * (n + 1) || data != crc + 4 * n || data > s.len) return false;
@@ -118,7 +119,9 @@ void Terrain::split(int64_t num2, int32_t den2, int* whole, float* frac) {
   int64_t rem = num2 - w * den2;
   if (rem < 0) { w--; rem += den2; }
   *whole = (int)w;
-  *frac = (float)((double)rem / (double)den2);
+  // float / float of exact operands (|rem| < den2 <= 2^24, parseLayer guarantees it) equals the old (float)(double quotient): a double
+  // carries more than 2 x 24 + 2 bits, so the double rounding cannot differ.
+  *frac = (float)rem / (float)den2;
 }
 
 const int16_t* Terrain::tile(int layer, uint32_t ti) {

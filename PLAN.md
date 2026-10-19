@@ -261,13 +261,11 @@ Lessons from the sim speed pass (NOTES "sim speed"): on this chip libm (`expf` 1
 the clock (64 MHz, cache on). Shared platform fixes (word-wise clear / pack / diff) already reach the vario.
 
 Vario, by expected gain (measure on the device first; `box_vario_matches_alone` and replay digests must not change):
-1. **Map page maths**: soft `double` in the per-pixel / per-point path (`terrain::MapVectors::makeXform`,
-   `boxForWindow`, `latLonToUnit`, `TerrainMap::update` / `windowCentre` / `project` / `feedTrack`, `Terrain::relief`,
-   `elevation` / `ceiling` for AGL). Keep `double` only for the absolute lat/lon origin, do the rest in float relative to it.
-   Biggest win: faster map redraws, smoother map page, less battery.
-2. **Number text**: `fnum()` and other `snprintf("%.Nf")` calls -> integer formatting (as the sim HUD does now).
-3. **libm in wind / thermal code** (`expf`, `powf`, `logf`, `atan2f` per sample): fast versions where precision allows.
-   Small gain (about 3 samples per second).
+1. **Map page maths**: DONE (NOTES "Float map maths and integer number text"): ground track, makeXform, boxForWindow,
+   windowCentre, update, split, sim TerrainSource now float relative to the double origin; renders byte-identical. Still to
+   measure on the device (map page redraw and frame time with a long track).
+2. **Number text**: DONE: `fnum()` uses `fmtFixed` (integer maths, tested against snprintf). Device timing still open.
+3. **libm in wind / thermal code**: dropped, the premise does not hold (NOTES, same section).
 
 Sim leftovers:
 - 3D at ~31 fps, needs ~7 ms more for 50 (voxel 11, sprite 4.6, sky 3-4, HUD 2.5 ms); map ~30 thermal rings ~6 ms,
