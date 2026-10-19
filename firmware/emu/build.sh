@@ -36,6 +36,15 @@ run_tests() {
   SLOW='^(sim_playability|sim_day_settings)$'
   { grep -E "$SLOW" "$D/list" || true; grep -vE "$SLOW" "$D/list" || true; } > "$D/order"
   xargs -P "$JOBS" -I{} sh -c 'out/tests --only "$1" > "out/tests.d/$1.log" 2>&1; echo $? > "out/tests.d/$1.rc"' _ {} < "$D/order"
+  # A test that left no "@@" line was killed (a signal under load, the machine's process or memory limits: the two slow sim
+  # tests were reported like that once and never again). Run such a test once more on its own and say so, so a real crash
+  # (same exit status twice) stays a failure and a one-off does not.
+  while read -r n; do
+    if ! grep -q '^@@ ' "$D/$n.log"; then
+      echo "  note: test $n ended without finishing (exit status $(cat "$D/$n.rc")); running it again on its own"
+      out/tests --only "$n" > "$D/$n.log" 2>&1; echo $? > "$D/$n.rc"
+    fi
+  done < "$D/list"
   checks=0; failures=0; bugs=0; bad=0
   while read -r n; do
     rc="$(cat "$D/$n.rc")"

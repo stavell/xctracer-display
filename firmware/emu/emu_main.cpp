@@ -103,7 +103,7 @@ static ViewModel* thermalVm(int kind) {
 
 // A view model filled from a FlightModel that has climbed in a leaning thermal: 9 circles, the core leaning 9 m per
 // 100 m toward 70 degrees, 12 km/h of wind, the lift peaking mid-climb. kind 0: still circling (the centring page),
-// 1: only 14 s of the first turn, 2: no circling at all, 3: left the lift 40 s ago.
+// 1: only 14 s of the first turn, 2: no circling at all, 3: left the lift 40 s ago, 4: circling 24 m off the core, 5: 14 s of that.
 static ViewModel* climbVm(int kind) {
   static ViewModel vm;
   static FlightModel fm;
@@ -112,7 +112,7 @@ static ViewModel* climbVm(int kind) {
   const double wx = 12 / 3.6 * sin(270 * D2R), wy = 12 / 3.6 * cos(270 * D2R);
   const double sx = 0.09 * sin(70 * D2R), sy = 0.09 * cos(70 * D2R);
   double hdg = 40, z = 1400, t = 0;
-  const int circlingSeconds = kind == 2 ? 0 : kind == 1 ? 14 : 9 * 24, glide = kind == 3 ? 40 : (kind == 2 ? 120 : 0);
+  const int circlingSeconds = kind == 2 ? 0 : (kind == 1 || kind == 5) ? 14 : 9 * 24, glide = kind == 3 ? 40 : (kind == 2 ? 120 : 0);
   double lastX = 0, lastY = 0;
   for (int i = 0; i < 20 + circlingSeconds + glide; i++, t += 1) {
     const bool circling = i >= 20 && i < 20 + circlingSeconds;
@@ -120,7 +120,8 @@ static ViewModel* climbVm(int kind) {
     float v;
     if (circling) {
       const double R = 9.0 / (15 * D2R);
-      px = sx * (z - 1400) - R * sin(hdg * D2R + 1.5707963);
+      const double off = kind >= 4 ? 24.0 : 0.0;                    // 4, 5: the circle sits 24 m east of the core
+      px = sx * (z - 1400) - R * sin(hdg * D2R + 1.5707963) + off;
       py = sy * (z - 1400) - R * cos(hdg * D2R + 1.5707963);
       const double r = hypot(px - sx * (z - 1400), py - sy * (z - 1400));
       const float peak = 3.4f - 0.015f * fabsf((float)(z - 1560));
@@ -185,12 +186,12 @@ static int cmdShots(const std::string& out, int rot) {
   if (!gCountMode) { ts::shots(out.c_str()); bs::shots(out.c_str()); ms::shots(out.c_str()); simshots::fixtureShots(out.c_str()); is::shots(out.c_str()); }
   struct Sc { const char* name; };
   const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag",
-                         "center", "center_first", "center_none", "center_left", "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
+                         "center", "center_first", "center_none", "center_left", "center_off", "center_half", "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
   for (const char* n : names) {
     if (gCountMode && strcmp(n, "live") && strcmp(n, "nofix") && strcmp(n, "mag") && strcmp(n, "standalone") &&
         strcmp(n, "standalone_nodata") && strncmp(n, "thermal", 7) && strncmp(n, "center", 6)) continue;
     if (!strncmp(n, "center", 6)) {
-      ViewModel* cv = climbVm(!strcmp(n, "center_first") ? 1 : !strcmp(n, "center_none") ? 2 : !strcmp(n, "center_left") ? 3 : 0);
+      ViewModel* cv = climbVm(!strcmp(n, "center_first") ? 1 : !strcmp(n, "center_none") ? 2 : !strcmp(n, "center_left") ? 3 : !strcmp(n, "center_off") ? 4 : !strcmp(n, "center_half") ? 5 : 0);
       if (gCountMode) {
         static CountingSharp cc;
         cc.setRotation((uint8_t)rot);
@@ -442,12 +443,18 @@ static int cmdCue(int argc, char** argv) {
     else if (!strcmp(argv[i], "--lean")) ThermalColumn::cueLean = atoi(argv[i + 1]) != 0;
     else if (!strcmp(argv[i], "--turns")) ThermalColumn::cueMinTurns = atoi(argv[i + 1]);
     else if (!strcmp(argv[i], "--max")) ThermalColumn::cueMaxM = (float)atof(argv[i + 1]);
+    else if (!strcmp(argv[i], "--swin")) ThermalColumn::secWinDeg = (float)atof(argv[i + 1]);
+    else if (!strcmp(argv[i], "--sspread")) ThermalColumn::secMaxSpreadM = (float)atof(argv[i + 1]);
+    else if (!strcmp(argv[i], "--sshift")) ThermalColumn::secMinShiftM = (float)atof(argv[i + 1]);
+    else if (!strcmp(argv[i], "--sagree")) ThermalColumn::secMaxAgreeDeg = (float)atof(argv[i + 1]);
+    else if (!strcmp(argv[i], "--smin")) ThermalColumn::secMinDeg = (float)atof(argv[i + 1]);
     else if (!strcmp(argv[i], "--w")) sscanf(argv[i + 1], "%f,%f,%f", &ThermalColumn::cueW[0], &ThermalColumn::cueW[1], &ThermalColumn::cueW[2]);
   }
   struct Rec {
     double t, gx, gy;                  // seconds, ground position of the newest point (m from the first fix)
     float cx, cy, x, y, rawX, rawY, sx, sy, shiftM, spread, climb, turnS;
     float we, wn;                      // wind (m/s) of the analysis
+    SectorCue sc;                      // the sector cue of this second (before any gate of the tool)
     bool valid;
     float bsx, bsy;                    // baseline shift: raw lift centroid - centre
   };
@@ -471,6 +478,7 @@ static int cmdCue(int argc, char** argv) {
     r.gx = (h.lon - lon0) * kx; r.gy = (h.lat - lat0) * 111320.0;
     Wind w = fm.wind();
     if (w.valid) { r.we = w.speedKmh / 3.6f * sinf(w.toDeg * 0.017453292f); r.wn = w.speedKmh / 3.6f * cosf(w.toDeg * 0.017453292f); }
+    r.sc = c.sec;
     r.valid = c.cue.valid;
     if (r.valid) {
       const CoreCue& q = c.cue;
@@ -544,6 +552,133 @@ static int cmdCue(int argc, char** argv) {
   printf("  baseline (last turn only):   n %d, agree %.0f%%\n", pilotBase.n, 100.0 * pilotBase.hit / (pilotBase.n ? pilotBase.n : 1));
   printf("next turn's climb minus this one's: pilot moved toward the cue n %zu mean %+.2f m/s; against it n %zu mean %+.2f m/s\n",
          payToward.size(), mean(payToward), payAgainst.size(), mean(payAgainst));
+
+  // ---- the sector cue (SectorCue): coverage of the circling seconds and hit rate against the next full turn.
+  // Circling seconds = the seconds of a circling run that reached 270 degrees of turn, found afterwards.
+  std::vector<char> circ(R.size(), 0);
+  for (size_t i = 0; i < R.size();) {
+    if (R[i].sc.runDeg <= 0) { i++; continue; }
+    size_t e = i;
+    float mx = 0;
+    while (e < R.size() && R[e].sc.runDeg > 0 && (e == i || R[e].sc.runDeg >= R[e - 1].sc.runDeg - 1.0f || R[e].t - R[e - 1].t > 5)) { mx = fmaxf(mx, R[e].sc.runDeg); e++; }
+    if (mx >= 270) for (size_t k = i; k < e; k++) circ[k] = 1;
+    i = e;
+  }
+  int nCirc = 0, nOld = 0;
+  for (size_t i = 0; i < R.size(); i++) if (circ[i]) { nCirc++; if (R[i].valid) nOld++; }
+  printf("\nSECTOR CUE  circling seconds %d; old cue (two full turns, metres) in %d of them = %.0f%%\n", nCirc, nOld, 100.0 * nOld / (nCirc ? nCirc : 1));
+  auto angD = [](double x1, double y1, double x2, double y2) { return fabs(atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2)) * 57.29578; };
+  struct Gate { float minShift, maxSpread, maxAgree; int minConf; };
+  struct Res { int shown = 0, n = 0, hit = 0, hitQ = 0, nW = 0; };
+  // evaluate(gate, partialOnly: 0 all, 1 only partial windows, 2 only full)
+  auto evaluate = [&](const Gate& g, int which) {
+    Res res;
+    for (size_t i = 0; i < R.size(); i++) {
+      const Rec& a = R[i];
+      if (!circ[i] || !a.sc.cand) continue;
+      const bool part = a.sc.conf == 1 && a.sc.spread < 0;
+      if (which == 1 && !part) continue;
+      if (which == 2 && part) continue;
+      if (a.sc.shiftM < g.minShift) continue;
+      if (a.sc.spread >= 0 && a.sc.spread > g.maxSpread) continue;
+      if (a.sc.agreeDeg >= 0 && a.sc.agreeDeg > g.maxAgree) continue;
+      if (a.sc.conf < g.minConf) continue;
+      res.shown++;
+      size_t j = i + (size_t)lroundf(a.sc.periodS);
+      if (j >= R.size() || R[j].t - a.t > a.sc.periodS + 3.0 || !R[j].sc.fullValid) continue;
+      const Rec& b = R[j];
+      if (hypot(b.sc.fullX, b.sc.fullY) < 3.0) continue;
+      res.n++;
+      if (angD(a.sc.shiftM * 0 + sin(a.sc.deg * 0.0174533), cos(a.sc.deg * 0.0174533), b.sc.fullX, b.sc.fullY) < 90) res.hit++;
+      const double qd = a.sc.sector * 45.0 * 0.0174533;
+      if (angD(sin(qd), cos(qd), b.sc.fullX, b.sc.fullY) < 90) res.hitQ++;
+    }
+    return res;
+  };
+  auto line = [&](const char* name, const Res& r) {
+    printf("  %-34s cue in %5.1f%% of circling secs, n %4d, hit %5.1f%% (sector %5.1f%%)\n", name, 100.0 * r.shown / (nCirc ? nCirc : 1), r.n,
+           100.0 * r.hit / (r.n ? r.n : 1), 100.0 * r.hitQ / (r.n ? r.n : 1));
+  };
+  // baseline: the last full turn's raw lift offset (>= 10 m), direction unquantised, against the next turn's
+  {
+    Res b0;
+    for (size_t i = 0; i < R.size(); i++) {
+      const Rec& a = R[i];
+      if (!circ[i] || !a.sc.fullValid || hypot(a.sc.fullX, a.sc.fullY) < 10) continue;
+      b0.shown++;
+      const double tp = a.turnS > 0 ? a.turnS : 26;
+      size_t j = i + (size_t)lroundf((float)tp);
+      if (j >= R.size() || !R[j].sc.fullValid || hypot(R[j].sc.fullX, R[j].sc.fullY) < 3.0) continue;
+      b0.n++;
+      if (angD(a.sc.fullX, a.sc.fullY, R[j].sc.fullX, R[j].sc.fullY) < 90) b0.hit++;
+    }
+    line("baseline: last turn raw (>=10 m)", b0);
+  }
+  Gate open{0, 1e9f, 181, 0};
+  line("ungated, all windows", evaluate(open, 0));
+  line("ungated, partial windows only", evaluate(open, 1));
+  line("ungated, full turns only", evaluate(open, 2));
+  for (int cf = 1; cf <= 3; cf++) { char nm[40]; snprintf(nm, sizeof nm, "confidence >= %d", cf); Gate g = open; g.minConf = cf; line(nm, evaluate(g, 0)); }
+  printf(" gate: centred (pushed core nearer than X m to the centre)\n");
+  for (float m : {3.f, 5.f, 8.f, 10.f, 15.f, 20.f, 25.f, 30.f, 40.f, 50.f, 70.f}) { char nm[40]; snprintf(nm, sizeof nm, "min shift %.0f m", m); Gate g = open; g.minShift = m; line(nm, evaluate(g, 0)); }
+  printf(" gate: broken thermal (older turns' spread above X m; only where an older full turn exists)\n");
+  for (float m : {100.f, 80.f, 60.f, 50.f, 40.f, 30.f, 20.f}) { char nm[40]; snprintf(nm, sizeof nm, "max spread %.0f m", m); Gate g = open; g.maxSpread = m; line(nm, evaluate(g, 0)); }
+  printf(" gate: previous turn's direction differs by more than X deg\n");
+  for (float m : {120.f, 90.f, 60.f, 45.f}) { char nm[40]; snprintf(nm, sizeof nm, "max disagreement %.0f deg", m); Gate g = open; g.maxAgree = m; line(nm, evaluate(g, 0)); }
+  printf(" gate: mean climb of the window at least X m/s\n");
+  for (float m : {0.5f, 1.0f, 1.5f, 2.0f}) {
+    Res r; // climb gate needs the window climb: evaluate inline
+    for (size_t i = 0; i < R.size(); i++) {
+      const Rec& a = R[i];
+      if (!circ[i] || !a.sc.cand || a.sc.climb < m) continue;
+      r.shown++;
+      size_t j = i + (size_t)lroundf(a.sc.periodS);
+      if (j >= R.size() || R[j].t - a.t > a.sc.periodS + 3.0 || !R[j].sc.fullValid || hypot(R[j].sc.fullX, R[j].sc.fullY) < 3.0) continue;
+      r.n++;
+      if (angD(sin(a.sc.deg * 0.0174533), cos(a.sc.deg * 0.0174533), R[j].sc.fullX, R[j].sc.fullY) < 90) r.hit++;
+      const double qd = a.sc.sector * 45.0 * 0.0174533;
+      if (angD(sin(qd), cos(qd), R[j].sc.fullX, R[j].sc.fullY) < 90) r.hitQ++;
+    }
+    char nm[40]; snprintf(nm, sizeof nm, "mean climb >= %.1f", m); line(nm, r);
+  }
+  printf(" gate: min shift x max spread\n");
+  for (float m : {5.f, 10.f}) for (float sp : {60.f, 40.f, 30.f}) {
+    char nm[40]; snprintf(nm, sizeof nm, "shift>=%.0f spread<=%.0f", m, sp); Gate g = open; g.minShift = m; g.maxSpread = sp; line(nm, evaluate(g, 0));
+  }
+  {
+    printf(" the shipped rule (ThermalColumn::secMinShiftM / secMaxSpreadM / secMaxAgreeDeg): shift >= %.0f m, spread <= %.0f m, disagreement <= %.0f deg\n",
+           ThermalColumn::secMinShiftM, ThermalColumn::secMaxSpreadM, ThermalColumn::secMaxAgreeDeg);
+    Gate g{ThermalColumn::secMinShiftM, ThermalColumn::secMaxSpreadM, ThermalColumn::secMaxAgreeDeg, 0};
+    line("  SHIPPED, all windows", evaluate(g, 0));
+    line("  SHIPPED, partial turn only", evaluate(g, 1));
+    line("  SHIPPED, full turn only", evaluate(g, 2));
+    {                                   // the first two turns of a climb: where the old cue was absent by construction
+      int nEarly = 0, shown = 0, n = 0, hit = 0, oldOnly = 0;
+      for (size_t i = 0; i < R.size(); i++) {
+        const Rec& a = R[i];
+        if (!circ[i] || a.sc.runDeg >= 720) continue;
+        nEarly++;
+        if (R[i].valid) oldOnly++;
+        if (!a.sc.cand || a.sc.shiftM < g.minShift || (a.sc.spread >= 0 && a.sc.spread > g.maxSpread) || (a.sc.agreeDeg >= 0 && a.sc.agreeDeg > g.maxAgree)) continue;
+        shown++;
+        size_t j = i + (size_t)lroundf(a.sc.periodS);
+        if (j >= R.size() || R[j].t - a.t > a.sc.periodS + 3.0 || !R[j].sc.fullValid || hypot(R[j].sc.fullX, R[j].sc.fullY) < 3.0) continue;
+        n++;
+        const double qd = a.sc.sector * 45.0 * 0.0174533;
+        if (angD(sin(qd), cos(qd), R[j].sc.fullX, R[j].sc.fullY) < 90) hit++;
+      }
+      printf("  first two turns of a climb: %d circling secs, new cue in %d (%.0f%%), n %d, hit %.1f%% (sector); old cue in %d\n",
+             nEarly, shown, 100.0 * shown / (nEarly ? nEarly : 1), n, 100.0 * hit / (n ? n : 1), oldOnly);
+    }
+    {                                   // the old cue's own sample: shift >= 10 m, as in the hit-rate lines above
+      int k = 0;
+      for (size_t i = 0; i < R.size(); i++) if (circ[i] && R[i].valid && R[i].shiftM >= 10) k++;
+      printf("  old cue with its >= 10 m rule: %.1f%% of circling secs\n", 100.0 * k / (nCirc ? nCirc : 1));
+    }
+    int nAll = (int)R.size();
+    Res r = evaluate(g, 0);
+    printf("  = %.1f%% of all flight seconds (the review's coverage basis; the old two-turn cue: %.1f%%)\n", 100.0 * r.shown / (nAll ? nAll : 1), 100.0 * nValid / (nAll ? nAll : 1));
+  }
   return 0;
 }
 

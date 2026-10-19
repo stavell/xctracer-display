@@ -54,6 +54,29 @@ struct CoreCue {
   int a1 = 0, a2 = 0;              // first points of the turns before it (a1 = a0 if there is none)
 };
 
+// The one-glance centring cue (docs/thermal_review.md, improvements 1, 2, 3, 5): on which side of your circle the lift is,
+// in 8 sectors of 45 degrees (the data supports no finer: median angle error 58-64 degrees), from the first half
+// turn on. Air frame, bearing from the circle centre, degrees clockwise from north; the view turns it heading up.
+struct SectorCue {
+  bool cand = false;               // an estimate exists (before the gate): the evaluation tool applies its own gates to it
+  bool valid = false;              // show it: cand and passed the gate (centred / broken thermal show nothing)
+  int8_t sector = -1;              // 0 = north ... 7 = north-west, clockwise
+  uint8_t conf = 0;                // 1 low (part of a turn, or no older turn to compare with), 2 full turn, 3 full turn that agrees with the one before
+  float deg = 0;                   // bearing of the lift, degrees
+  float shiftM = 0;                // distance to the pushed core (only a gate input: never shown)
+  float winDeg = 0;                // heading change the estimate is made from (150..360)
+  float periodS = 0;               // estimated seconds per full turn
+  bool hasClimb = false;           // a window exists (a run of at least secMinDeg): climb is its mean
+  float climb = 0;                 // mean climb over the window (the number on the page), shown even when no sector is
+  float headDeg = 0;               // the way you fly in the air frame (last 3 s), degrees clockwise from north: the page turns heading up
+  float spread = -1;               // rms distance of the older turns' estimates (m), -1 without an older full turn
+  float agreeDeg = -1;             // angle between this and the previous turn's direction, -1 without one
+  float runDeg = 0;                // heading change of the circling run in progress (0 = not circling)
+  bool fullValid = false;          // a full-turn window ending now exists: its raw lift offset is the evaluation tool's truth
+  float fullX = 0, fullY = 0;      // lift-weighted centroid minus centre of that window, metres east / north
+  float fullClimb = 0;
+};
+
 enum ColumnTrend : uint8_t { TREND_NONE, TREND_BUILDING, TREND_STEADY, TREND_WEAKENING, TREND_TOP };
 
 class ThermalColumn {
@@ -70,6 +93,13 @@ class ThermalColumn {
   static float cueW[3];
   static int cueMinTurns;       // full turns before a cue is shown
   static float cueMaxM;         // a shift longer than this is not believed (no cue)
+  // Sector cue (SectorCue) tuning, static so the evaluation tool can sweep it
+  static float secMinDeg;       // heading change of the run before the first estimate (half a turn, less the cut)
+  static float secWinDeg;       // window of the estimate (360: the newest full turn, shorter while the run is young)
+  static float secMaxShiftM;    // an estimate further off than this is a circle that is not one: nothing
+  static float secMinShiftM;    // gate: a pushed core nearer than this to the circle centre means centred: nothing
+  static float secMaxSpreadM;   // gate: older turns further than this from the newest estimate mean a broken thermal: nothing
+  static float secMaxAgreeDeg;  // gate: previous turn's direction further than this from this one's: nothing
   static const int MAX_AGE_S = 120;     // a climb that ended longer ago than this is not shown
 
   void reset();
@@ -96,6 +126,7 @@ class ThermalColumn {
   float coreX0 = 0, coreY0 = 0, coreZ0 = 0;     // the core line: (x, y) at altitude z0 ...
   float coreSx = 0, coreSy = 0;                 // ... and its slope in metres per metre of height
   CoreCue cue;
+  SectorCue sec;
   ColumnTrend trend = TREND_NONE;
   float trendRatio = 0;          // climb of the newest two circles over the best earlier pair
   float zMin = 0, zMax = 0;      // altitude span of the climb's points
@@ -131,6 +162,8 @@ class ThermalColumn {
   void clearResults();
   void circleMetrics(CoreCircle& c) const;
   void computeCue(int sg, int lowest);
+  void computeSector(const int8_t* circ);
+  bool kasaCentre(int a, int b, float& cx, float& cy) const;
 
   Pt pts_[MAXP];
   int n_ = 0;
