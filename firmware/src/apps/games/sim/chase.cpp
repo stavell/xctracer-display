@@ -143,14 +143,11 @@ void sprite(const Bitmap1& bm, float px, float py, float W, float thick, float r
     const int qy[4] = {ty[i], ty[i + 1], by[i + 1], by[i]};
     fillQuad(bm, qx, qy, m, ink ? 0 : grow, !ink && grow && i == 0, !ink && grow && i == 2 * N - 1);
   }
-  for (int oy = -grow; oy <= grow; oy++)
-    for (int ox = -grow; ox <= grow; ox++) {
-      // lines from the underside of the canopy to the harness
-      for (int i = -N; i <= N; i += 4) line(bm, bx[i + N] + ox, by[i + N] + oy, hx + ox, hy + oy, m);
-      line(bm, hx + ox, hy + oy, a + ox, b + oy, m);                // pilot: body and legs
-      line(bm, a + ox, b + oy, c2 + ox, d2 + oy, m);
-      line(bm, a + ox, b + oy, e2 + ox, f2 + oy, m);
-    }
+  // lines from the underside of the canopy to the harness
+  for (int i = -N; i <= N; i += 4) lineGrown(bm, bx[i + N], by[i + N], hx, hy, grow, m);
+  lineGrown(bm, hx, hy, a, b, grow, m);                             // pilot: body and legs
+  lineGrown(bm, a, b, c2, d2, grow, m);
+  lineGrown(bm, a, b, e2, f2, grow, m);
   fillDisc(bm, hx, hy + 0, 2 + grow, m);                             // head
   if (ink) {                                                         // cell seams of the canopy, black on the white fill
     for (int i = -6; i <= 6; i += 3) {

@@ -97,6 +97,15 @@ class IThermo {
   virtual bool read(float& tempC, float& rhPct) = 0;   // true when a new reading is available; both values finite
 };
 
+// The radio links that only the vario and the tools need (the laptop link). The host switches them off while a game
+// (frameIntervalMs() > 0) is the active app: no advertising, no connection, less power. Called on every app start,
+// so it must be idempotent.
+class ILinkGate {
+ public:
+  virtual ~ILinkGate() {}
+  virtual void setLinksOn(bool on) = 0;
+};
+
 class IPower {
  public:
   virtual ~IPower() {}

@@ -460,6 +460,7 @@ static void run(int& totalOps) {
   testFontSharing();
   testScreensFastText();
   testShapes();
+  testThickLine();
   testCompassWork();
 }
 

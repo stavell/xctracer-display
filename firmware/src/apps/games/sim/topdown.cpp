@@ -37,14 +37,14 @@ void TopDownView::renderColumn(const HeightCache& hc, const Params& p, uint8_t* 
   const float rx = cs, ry = -sn, fx = sn, fy = cs;               // right and forward in world axes
   const float k = HeightCache::kInv;
   // World position of (px, row 0); row y is y * m behind it.
-  const float ahead = (float)kGliderY, side = (float)(px - kGliderX);
+  const float ahead = (float)(kGliderY + kMargin), side = (float)(px - kGliderX - kMargin);
   const float wx0 = p.x + p.m * (side * rx + ahead * fx), wy0 = p.y + p.m * (side * ry + ahead * fy);
   const float dxk = -p.m * fx * k, dyk = -p.m * fy * k;
   float pxk = wx0 * k + kBias, pyk = wy0 * k + kBias;
   const int16_t* H = hc.heights();
   const uint8_t* S = hc.shades();
   const int x0 = hc.x0(), x1 = hc.x1(), y0 = hc.y0(), y1 = hc.y1();
-  for (int y = 0; y < kH; y++, pxk += dxk, pyk += dyk) {
+  for (int y = 0; y < kPH; y++, pxk += dxk, pyk += dyk) {
     const int ix = (int)pxk, iy = (int)pyk;
     const int cx = ix - (int)kBias, cy = iy - (int)kBias;
     if (cx < x0 || cx + 1 >= x1 || cy < y0 || cy + 1 >= y1) { pix_[y] = 1; band_[y] = kNoBand; continue; }
@@ -74,9 +74,9 @@ void TopDownView::renderColumn(const HeightCache& hc, const Params& p, uint8_t* 
   }
   uint8_t* row = buf + (size_t)px * kStride;
   fastFill(row, 0xFF, kStride);
-  for (int y = 0; y < kH; y++)
+  for (int y = 0; y < kPH; y++)
     if (!pix_[y]) {
-      const int nx = kH - 1 - y;
+      const int nx = kPH - 1 - y;
       row[nx >> 3] &= (uint8_t)~(1u << (nx & 7));
     }
   fastCopy(prevBand_, band_, sizeof prevBand_);
@@ -93,16 +93,16 @@ int TopDownView::update(const HeightCache& hc, float x, float y, float heading, 
     making_ = Params{x, y, heading, mPerPx};
     busy_ = true;
     col_ = 0;
-    for (int i = 0; i < kH; i++) prevBand_[i] = kNoBand;
+    for (int i = 0; i < kPH; i++) prevBand_[i] = kNoBand;
   }
   int used = 0;
   do {
     renderColumn(hc, making_, back(), col_);
     col_++;
-    used += kH;
-  } while (col_ < kW && used < budgetPx);
+    used += kPH;
+  } while (col_ < kPW && used < budgetPx);
   pixels_ += (uint32_t)used;
-  if (col_ >= kW) {
+  if (col_ >= kPW) {
     front_ = 1 - front_;
     shown_ = making_;
     shownValid_ = true;
@@ -115,13 +115,13 @@ int TopDownView::update(const HeightCache& hc, float x, float y, float heading, 
 void TopDownView::renderNow(const HeightCache& hc, float x, float y, float heading, float mPerPx) {
   busy_ = false;
   shownValid_ = false;
-  while (!shownValid_ || angDiffDeg(heading, shown_.heading) > 0.01f) update(hc, x, y, heading, mPerPx, kW * kH);
+  while (!shownValid_ || angDiffDeg(heading, shown_.heading) > 0.01f) update(hc, x, y, heading, mPerPx, kPW * kPH);
 }
 
 int TopDownView::shownPixel(int px, int py) const {
-  if (px < 0 || px >= kW || py < 0 || py >= kH) return 1;
-  const int nx = kH - 1 - py;
-  return (buf_[front_][(size_t)px * kStride + (nx >> 3)] >> (nx & 7)) & 1;
+  if (px < -kMargin || px >= kW + kMargin || py < -kMargin || py >= kH + kMargin) return 1;   // (the margin is part of the picture)
+  const int nx = kPH - 1 - (py + kMargin);
+  return (buf_[front_][(size_t)(px + kMargin) * kStride + (nx >> 3)] >> (nx & 7)) & 1;
 }
 
 void TopDownView::worldToScreen(float wx, float wy, float* sx, float* sy) const {
@@ -151,13 +151,14 @@ void TopDownView::blit(const Bitmap1& screen, float gx, float gy) {
   const float right = (dx * cs - dy * sn) / shown_.m, fwd = (dx * sn + dy * cs) / shown_.m;
   ox_ = -(int)lroundf(right);
   oy_ = (int)lroundf(fwd);
-  // Picture pixel (px, py) -> screen (px + ox, py + oy + kTopY). Native bit: 399 - (py + oy + kTopY) = (375 - py) - oy.
-  const int shift = -oy_;                                   // dest bit = source bit + shift
-  const int lo = shift > 0 ? shift : 0, hi = shift < 0 ? kH - 1 + shift : kH - 1;
+  // Picture pixel (px, py) -> screen (px - kMargin + ox, py - kMargin + oy + kTopY). Native bit: source kPH - 1 - py, destination
+  // 399 - (py - kMargin + oy + kTopY) = source - kMargin - oy. Only the map area (native bits 0 .. kH - 1) is written.
+  const int shift = -kMargin - oy_;                         // dest bit = source bit + shift
+  const int lo = shift > 0 ? shift : 0, hi = shift + kPH - 1 < kH - 1 ? shift + kPH - 1 : kH - 1;
   if (lo > hi) return;
   const uint8_t* src = buf_[front_];
-  for (int px = 0; px < kW; px++) {
-    const int sxp = px + ox_;
+  for (int px = 0; px < kPW; px++) {
+    const int sxp = px - kMargin + ox_;
     if (sxp < 0 || sxp >= 240) continue;
     const uint8_t* srow = src + (size_t)px * kStride;
     uint8_t* drow = screen.buf + (size_t)sxp * screen.stride;

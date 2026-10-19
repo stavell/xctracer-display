@@ -1153,3 +1153,19 @@ Findings:
 - **Pilot symbol**: bold paper plane seen from above (nose along the track, 25 px nose to 16 px tail, 36 px wide), two faces (left lit
   grey, right shaded black) in a black outline with a 3.5 px white halo; replaces the arrow in a circle. Drawn per pixel with
   incremental edge distances (first version with per-pixel multiplications cost ~6 ms per frame; now none measurable).
+
+## Sim leftovers pass (2026-10-19, device, SIM_BENCH image, x3 time, box over the Sopot map pack)
+
+| item | before | now |
+|---|---|---|
+| 3D frame rate | 31 fps (before the -O3 / fastmem work) | 43.7-46 fps (draw 19.6 ms) |
+| voxel | 9.8-11 ms | 9-11.7 ms (shade only where the sample shows; no gain on this scene) |
+| sprite (glider, 3D) | 4.6 ms | 2.6 ms (`lineGrown`: one vline per column instead of (2g+1)^2 lines) |
+| glider symbol (map) | 2.9 ms | 0.7 ms |
+| sky | 3-4 ms | 2.6-4 ms |
+| HUD | 2.5 ms | 2.8 ms (two more boxes: time and distance; snprintf replaced by digit code) |
+| map view | 30 fps with rings | 50.0 fps, draw 10-11 ms |
+| flight restart after landing | 2.7 s stall (693 tile decodes) | 90-275 ms, 13 decodes in startFlight, the rest warms up over the next frames |
+
+BLE (laptop advertising and link) is off while a game runs and on again when leaving it; the vario and tools keep it.
+The map picture has an 8 px margin on every side, so a 4 px stale threshold plus the render time never shows a blank strip.

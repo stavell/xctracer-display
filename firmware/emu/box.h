@@ -112,6 +112,7 @@ struct Box {
     host.add(introApp);
     host.setLauncher(APP_LAUNCHER);
     host.setProbe(&probe);
+    host.setLinkGate(&r.links);
     registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
     registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
     registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);

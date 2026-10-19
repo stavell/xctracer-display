@@ -36,6 +36,20 @@ void fmt(char* dst, size_t n, const char* f, float v) {
   if (dec) { *p++ = '.'; *p++ = (char)('0' + q % 10); }
   *p = 0;
 }
+// m:ss, or h:mm from 100 minutes; "--" when not finite.
+void fmtClock(char* dst, size_t n, float s) {
+  if (!isfinite(s) || s < 0 || s > 1e6f) { snprintf(dst, n, "--"); return; }
+  const uint32_t t = (uint32_t)s;
+  const uint32_t major = t < 6000 ? t / 60 : t / 3600, minor = t < 6000 ? t % 60 : t / 60 % 60;
+  char* p = dst;                                         // by hand: snprintf is slow on this chip (the HUD runs every frame)
+  if (major >= 100) *p++ = (char)('0' + major / 100 % 10);
+  if (major >= 10) *p++ = (char)('0' + major / 10 % 10);
+  *p++ = (char)('0' + major % 10);
+  *p++ = ':';
+  *p++ = (char)('0' + minor / 10);
+  *p++ = (char)('0' + minor % 10);
+  *p = 0;
+}
 void frame(const Bitmap1& bm, int x, int y, int w, int h) {
   bm.fillRect(x, y, w, h, DRAW_SET);
   bm.hspan(x, y, w, DRAW_CLEAR);
@@ -114,22 +128,32 @@ void SimHud::draw(const Bitmap1& bm, const HudData& d, uint32_t fr) {
   windBox(bm, d);
   // Height above ground, bottom right.
   fmt(b, sizeof b, "%.0f", d.agl);
-  char c[32];
-  snprintf(c, sizeof c, "AGL %s", b);
+  char c[32] = "AGL ";
+  strncat(c, b, sizeof c - 5);
   const int cw = textWidth(c, mid_);
   frame(bm, 238 - cw - 10, 372, cw + 10, 26);
   text(bm, mid_, 238 - cw - 5, 392, c, DRAW_CLEAR);
-  if (d.timeScale > 1) {
-    char x[8];
-    snprintf(x, sizeof x, "x%d", d.timeScale);
-    const int w = textWidth(x, mid_) + 10;
+  {  // flight time (sim clock) and distance from the takeoff, under the top strip, left: "12:34   2.3 km"
+    char tb[16], db[16];
+    fmtClock(tb, sizeof tb, d.flightS);
+    fmt(db, sizeof db, "%.1f", d.fromStartM * 0.001f);
+    const int tw = textWidth(tb, mid_), dw = textWidth(db, mid_), kw = textWidth("km", small_);
+    const int w = tw + dw + kw + 26;
     frame(bm, 4, 30, w, 26);
-    text(bm, mid_, 9, 50, x, DRAW_CLEAR);
+    text(bm, mid_, 9, 50, tb, DRAW_CLEAR);
+    text(bm, mid_, 9 + tw + 12, 50, db, DRAW_CLEAR);
+    text(bm, small_, 9 + tw + 12 + dw + 2, 50, "km", DRAW_CLEAR);
+  }
+  if (d.timeScale > 1) {
+    char x[8] = {'x', (char)('0' + (d.timeScale % 10)), 0};
+    const int w = textWidth(x, mid_) + 10;
+    frame(bm, 4, 60, w, 26);
+    text(bm, mid_, 9, 80, x, DRAW_CLEAR);
   }
   if (d.assist) text(bm, small_, 60, 392, "assist", DRAW_CLEAR);
   if (d.stalled && ((fr / 12) & 1) == 0) {                      // blinks at about 2 Hz at 50 fps
-    bm.fillRect(40, 60, 150, 36, DRAW_CLEAR);
-    textC(bm, mid_, 115, 85, "STALL", DRAW_SET);
+    bm.fillRect(40, 100, 150, 36, DRAW_CLEAR);
+    textC(bm, mid_, 115, 125, "STALL", DRAW_SET);
   }
 }
 

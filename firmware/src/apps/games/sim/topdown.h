@@ -2,7 +2,7 @@
 // Top-down, heading-up map of the terrain around the glider, drawn from the HeightCache (not the map pack:
 // the pack's relief renderer takes 0.2-0.4 s per window on the device, far over a 20 ms frame).
 //
-// The picture is a 1-bit CACHE (240 x 376, one native row per screen column, like the vario's map page) that is
+// The picture is a 1-bit CACHE (240 x 376 plus a margin of kMargin pixels on every side, one native row per screen column, like the vario's map page) that is
 // re-rendered, a few thousand pixels per frame, into a back buffer while the front buffer keeps being shown; the
 // buffers swap when the back one is finished. A render starts when the shown one is stale (the glider moved more
 // than 12 px or the heading differs by more than 7 degrees from the one the picture was made for). Between
@@ -21,7 +21,9 @@ namespace sim {
 
 class TopDownView {
  public:
-  static constexpr int kW = 240, kH = 376, kStride = 47;
+  static constexpr int kW = 240, kH = 376;               // the visible part of the picture
+  static constexpr int kMargin = 8;                      // extra picture all round: the shown picture is shifted by the glider's move, so no strip is blank
+  static constexpr int kPW = kW + 2 * kMargin, kPH = kH + 2 * kMargin, kStride = kPH / 8;   // the cache (kPH is a multiple of 8)
   static constexpr int kTopY = 24;                       // screen row of the cache's first row
   static constexpr int kGliderX = 120, kGliderY = 188;   // glider position inside the map area
   static constexpr float kStalePx = 4.0f, kStaleDeg = 7.0f;
@@ -40,6 +42,8 @@ class TopDownView {
   float mPerPx() const { return shown_.m; }
   uint32_t renders() const { return renders_; }
   uint32_t pixelsRendered() const { return pixels_; }
+  int offsetX() const { return ox_; }                     // shift of the shown picture on the screen (blit()); must stay within kMargin
+  int offsetY() const { return oy_; }
 
   // Copy the picture to the screen with the glider at (kGliderX, kTopY + kGliderY); (gx, gy) is where the glider is now.
   void blit(const Bitmap1& screen, float gx, float gy);
@@ -54,15 +58,15 @@ class TopDownView {
   uint8_t* back() { return buf_[1 - front_]; }
   uint8_t* frontBuf() { return buf_[front_]; }
 
-  uint8_t buf_[2][kStride * kW];
+  uint8_t buf_[2][kStride * kPW];
   int front_ = 0;
   Params shown_ = {}, making_ = {};
   bool shownValid_ = false, busy_ = false;
   int col_ = 0;
   int ox_ = 0, oy_ = 0;                                  // screen offset of the shown picture's origin
-  int8_t prevBand_[kH];                                  // contour band (height / 200 m) of the previous column, per row
-  int8_t band_[kH];
-  uint8_t pix_[kH];
+  int8_t prevBand_[kPH];                                  // contour band (height / 200 m) of the previous column, per row
+  int8_t band_[kPH];
+  uint8_t pix_[kPH];
   uint32_t renders_ = 0, pixels_ = 0;
 };
 

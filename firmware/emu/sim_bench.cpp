@@ -55,12 +55,11 @@ struct Panel : MockPanel {
 };
 }  // namespace devmodel
 
-static void deviceModel(terrain::Terrain* terr, double factor) {
+static void deviceModel(terrain::Terrain* terr, double factorMap, double factor3d) {
   using namespace devmodel;
   static Panel panel;
   static MockInput input;
   static sim::SimApp a;
-  gFactor = factor;
   a.setTerrain(terr);
   a.setSite(0);
   a.showDayScreen(false);
@@ -69,10 +68,11 @@ static void deviceModel(terrain::Terrain* terr, double factor) {
   static GameProbe probe(clk);
   host.add(a);
   host.setProbe(&probe);
-  printf("\ndevice model (virtual M4 clock = PC time x %.0f, +1 ms loop delay, panel busy %.1f ms per frame after present):\n", factor, Panel::kSendMs);
+  printf("\ndevice model (virtual M4 clock = PC time x %.0f in the map view, x %.0f in 3D, +1 ms loop delay, panel busy %.1f ms per frame after present):\n", factorMap, factor3d, Panel::kSendMs);
   const sim::SimApp::View views[2] = {sim::SimApp::View::TOP, sim::SimApp::View::CHASE};
   for (int scale : {3, 1}) {
     for (sim::SimApp::View v : views) {
+      gFactor = v == sim::SimApp::View::TOP ? factorMap : factor3d;
       gLast = Clock::now();
       uint32_t nowMs = (uint32_t)(gVirtualUs / 1000);
       host.start(0, nowMs);
@@ -245,7 +245,16 @@ int main(int argc, char** argv) {
            r.name, r.st.clouds, r.st.cloudCols, r.st.shafts, r.st.shaftCols, r.st.bubbles, r.st.level, cyc, r.pc * factor,
            base + colsT * factor + cyc, base + colsT * factor + r.pc * factor);
   }
-  const char* ov = getenv("SIMBENCH_FACTOR");   // e.g. 280 makes the voxel renderer match its counted cycles (12.3 ms)
-  deviceModel(&gTerrain, ov ? atof(ov) : factor);
+  // ---- recalibration (2026-10-19): the vario pages are a poor ruler for this code (a single factor of 59 gave a 3D frame of 3 ms where the
+  // device needs ~17: the sim's inner loops are float / byte-fill code, the vario pages are glyph blits). So the sim is calibrated against
+  // ITSELF: the frame draw times measured on the device with the SIM_BENCH build (the "gm" lines, averages over 20 s), one factor per view.
+  // Update kDev* when the device numbers change (NOTES.md "Sim leftovers pass").
+  constexpr double kDevMapDraw = 11.0, kDev3dDraw = 17.0;
+  const double fMap = kDevMapDraw / top, f3d = kDev3dDraw / fpv;
+  printf("\nrecalibrated against the device: map draw %.1f ms / %.3f ms PC = x%.0f, 3D draw %.1f ms / %.3f ms PC = x%.0f (the vario-page factor was %.0f)\n",
+         kDevMapDraw, top, fMap, kDev3dDraw, fpv, f3d, factor);
+  printf("PC model of the parts at those factors (3D): voxel %.1f ms, sprite+shadow %.1f ms; map: picture re-render %.1f ms\n", vox * f3d, rows[2].pc * f3d, rn * fMap);
+  const char* ov = getenv("SIMBENCH_FACTOR");   // one factor for both views, if set
+  deviceModel(&gTerrain, ov ? atof(ov) : fMap, ov ? atof(ov) : f3d);
   return 0;
 }

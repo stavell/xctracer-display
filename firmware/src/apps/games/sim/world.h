@@ -39,6 +39,10 @@ class World {
   // cacheBudget: cells of the height cache to load in this step (a run of substeps shares one budget, see SimApp::step).
   void step(const Controls& c, float dt, int cacheBudget = kCacheBudget);
   static constexpr int kCacheBudget = 48;
+  // A start over the map pack shows the cells around the glider at once (kNearCells each way) and fills the rest of the window in the
+  // first frames, kWarmBudget cells per step (the full fill took 1 to 2.7 s on the device).
+  static constexpr int kNearCells = 24, kWarmBudget = 128;
+  void setProgressive(bool on) { progressive_ = on; }
   // The day: how thermic (Air::setLevel, applies at the next begin) and the wind. A new wind takes effect at once but
   // eases in at 0.6 m/s per second (a 30 km/h change in about 14 s), so the air never jumps under the glider.
   void setLevel(int l) { level_ = l; }
@@ -76,6 +80,9 @@ class World {
   float maxAltitude() const { return maxAlt_; }
   float startAltitude() const { return startAlt_; }
   float distanceFlown() const { return dist_; }
+  float flightTime() const { return t_ - startT_; }  // s of sim clock since the start of this flight (x3 time counts 3 per second)
+  // Straight line from the takeoff point (where this flight began), m.
+  float distanceFromStart() const { return sqrtf((g_.x - startX_) * (g_.x - startX_) + (g_.y - startY_) * (g_.y - startY_)); }
   int trailCount() const { return trailN_; }
   TrailPt trailAt(int i) const { return trail_[(trailHead_ - trailN_ + i + kTrailMax * 2) % kTrailMax]; }
   float windFromDeg() const { return windFrom_; }
@@ -92,10 +99,12 @@ class World {
   float kick_ = 0;
   int level_ = 1;
   float windRef_ = 0, curE_ = 0, curN_ = 0, tgtE_ = 0, tgtN_ = 0, tgtSpeed_ = 0;
+  float startX_ = 0, startY_ = 0, startT_ = 0;
   float t_ = 0, vario_ = 0, ground_ = 0, agl_ = 0, maxAlt_ = 0, startAlt_ = 0, dist_ = 0, trailT_ = 0, windFrom_ = 0;
   TrailPt trail_[kTrailMax];
   int trailN_ = 0, trailHead_ = 0;
   ClockUs clk_ = nullptr;
+  bool progressive_ = false;
   StepProf prof_;
 };
 

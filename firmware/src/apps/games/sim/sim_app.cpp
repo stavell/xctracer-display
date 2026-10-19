@@ -101,6 +101,7 @@ void SimApp::startFlight() {
   float from, sp;
   resolveWind(&from, &sp);
   world_.setLevel(level_);
+  world_.setProgressive(!source_);                        // over the map pack: show the surroundings at once, fill the window as it flies
   world_.begin(src, seed_ + (uint32_t)flights_ * 7919u, to, sp, 180.0f, from);
   flownSite_ = site_; flownLevel_ = level_;
   flights_++;
@@ -120,6 +121,7 @@ void SimApp::startAt(float x, float y, float aglStart, float headingDeg, float w
   if (!src) { mode_ = Mode::NOMAP; return; }
   usualFrom_ = windFromDeg; usualSpeed_ = windSpeed;
   world_.setLevel(level_);
+  world_.setProgressive(!source_);
   flownSite_ = site_; flownLevel_ = level_;
   world_.beginAt(src, seed, x, y, aglStart, headingDeg, windFromDeg, windSpeed, timeOfDay);
   mode_ = Mode::FLYING;
@@ -322,6 +324,8 @@ HudData SimApp::hud() const {
   d.bankDeg = g.bank * kRad2Deg;
   d.stalled = g.stalled;
   d.assist = assist_;
+  d.flightS = world_.flightTime();
+  d.fromStartM = world_.distanceFromStart();
   d.timeScale = scale_;
   return d;
 }
@@ -343,12 +347,9 @@ void gliderSymbol(const Bitmap1& bm, float cx, float cy, float a, DrawMode m, in
   for (int i = 0; i < 5; i++) sy.pt(wing[i][0], wing[i][1], &px[i], &py[i]);
   int hx, hy;
   sy.pt(0, -8, &hx, &hy);
-  for (int oy = -grow; oy <= grow; oy++)
-    for (int ox = -grow; ox <= grow; ox++) {
-      for (int i = 0; i + 1 < 5; i++) line(bm, px[i] + ox, py[i] + oy, px[i + 1] + ox, py[i + 1] + oy, m);
-      line(bm, px[0] + ox, py[0] + oy, hx + ox, hy + oy, m);
-      line(bm, px[4] + ox, py[4] + oy, hx + ox, hy + oy, m);
-    }
+  for (int i = 0; i + 1 < 5; i++) lineGrown(bm, px[i], py[i], px[i + 1], py[i + 1], grow, m);   // (grow 2: 150 line() calls before, 2.9 ms)
+  lineGrown(bm, px[0], py[0], hx, hy, grow, m);
+  lineGrown(bm, px[4], py[4], hx, hy, grow, m);
   fillDisc(bm, hx, hy, 2 + grow, m);
 }
 }  // namespace

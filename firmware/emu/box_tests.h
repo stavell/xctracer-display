@@ -886,6 +886,30 @@ static void clock_sleep_box() {
   CHECK(c.sleep == Box::SS_OFF && c.clockDraws == 0);
 }
 
+// BLE (the laptop link) is off while a game runs and back when it is left; the vario's own tracer logic is untouched.
+static void box_links_off_in_games() {
+  puts("box: the laptop link is off while the flight sim runs and back afterwards");
+  Box b;
+  BoxRun u(b);
+  b.boot(0);
+  u.run(300);
+  CHECK(b.r.links.on && b.r.links.offs == 0);                  // the vario keeps it
+  b.host.start(Box::APP_LAUNCHER, u.now);
+  u.run(100);
+  CHECK(b.r.links.on && b.r.links.offs == 0);
+  b.host.start(Box::APP_SIM, u.now);
+  u.run(100);
+  CHECK(b.host.gameMode() && !b.r.links.on && b.r.links.offs == 1);
+  b.host.start(Box::APP_SIM, u.now);                           // restarting a game keeps it off, idempotently
+  CHECK(!b.r.links.on);
+  b.host.start(Box::APP_LAUNCHER, u.now);
+  u.run(100);
+  CHECK(b.r.links.on);
+  b.host.start(Box::APP_VARIO, u.now);
+  u.run(100);
+  CHECK(b.r.links.on && b.r.tracer.paused == false);
+}
+
 static void test_box() {
   clock_sleep_logic();
   clock_sleep_box();
@@ -894,6 +918,7 @@ static void test_box() {
   box_flow();
   box_vario_matches_alone();
   box_vario_lazy();
+  box_links_off_in_games();
   box_gestures();
   settings_store();
   settings_app();

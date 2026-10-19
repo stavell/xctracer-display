@@ -26,6 +26,9 @@ struct ClipBox {
 };
 
 void line(const Bitmap1& bm, int x0, int y0, int x1, int y1, DrawMode m);
+// The union of line() drawn at every offset (ox, oy), |ox|, |oy| <= grow: a line grown by `grow` pixels all round, exactly, but as
+// one vline per column instead of (2 grow + 1)^2 lines of single pixels (portrait: a column is a run in one native row).
+void lineGrown(const Bitmap1& bm, int x0, int y0, int x1, int y1, int grow, DrawMode m);
 void circle(const Bitmap1& bm, int cx, int cy, int r, DrawMode m);
 
 void fillRing(const Bitmap1& bm, int cx, int cy, int R, int Ri, DrawMode m, const ClipBox& clip = ClipBox());

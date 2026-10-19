@@ -267,13 +267,12 @@ Vario, by expected gain (measure on the device first; `box_vario_matches_alone` 
 2. **Number text**: DONE: `fnum()` uses `fmtFixed` (integer maths, tested against snprintf). Device timing still open.
 3. **libm in wind / thermal code**: dropped, the premise does not hold (NOTES, same section).
 
-Sim leftovers:
-- 3D at ~31 fps, needs ~7 ms more for 50 (voxel 11, sprite 4.6, sky 3-4, HUD 2.5 ms); map ~30 thermal rings ~6 ms,
-  glider symbol 2.9 ms.
-- BLE (laptop advertising / link) off while a game runs (user asked; power, not speed).
-- One 2.7 s stall on a flight restart after landing (height cache refill) seen once, not investigated.
-- Recalibrate `build.sh simbench` against the device numbers.
-- Map view edge strips (<= 4 px) can show blank until the next north-up picture swaps in.
+Sim leftovers (2026-10-19, device numbers in NOTES "Sim leftovers pass"):
+- DONE: BLE off while a game runs (ILinkGate, advertising again on leaving); the 2.7 s flight-restart stall (block-wise height
+  load, near rectangle first: restart 90-275 ms); glider sprite and map symbol via `lineGrown` (sprite 4.6 -> 2.6 ms, symbol
+  2.9 -> 0.7 ms); the map view's blank edge strips (picture margin of 8 px, tested); `build.sh simbench` calibrated.
+- OPEN: 3D at ~44 fps (draw ~19.6 ms: voxel 11.5, sky 2.6-4, sprite 2.6, HUD 2.8); 50 fps needs voxel ~9 ms. The map view runs 50 fps.
+- DONE: sim HUD flight time (sim clock, m:ss) and straight-line distance from takeoff (km, one decimal).
 
 CPU options (NOTES "CPU options pass"): done `-fno-math-errno`, per-file `-O3` (3D 37 -> 41 fps). Dropped: code in RAM (slower), LTO (archives do not link), DSP intrinsics (float inner loops, would change renders).
 

@@ -17,6 +17,7 @@ class LaptopBle : public ILaptop {
   void service(uint32_t nowMs) override;
   void disconnect();
   void stopAdvertising();
+  void startAdvertising();                           // idempotent; the link comes back after a game
 
  private:
   static void onWrite(uint16_t h, BLECharacteristic* c, uint8_t* data, uint16_t len);
