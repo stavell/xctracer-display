@@ -8,6 +8,7 @@
 #   ./build.sh wind <lines.txt>     EKF vs circle-fit wind over a real flight (see emu_main.cpp)
 #   ./build.sh windtrace <lines.txt> per-second CSV of circle fit, EKF and shown wind (host/wind_ref.py reads it)
 #   ./build.sh cue<lines.txt>      hit rate of the centring cue against the next turn (see emu_main.cpp cmdCue)
+#   ./build.sh logeval <log.bin> [--latency MS] [--wind]  flight log (host/logdl.py) through the dead reckoner: lag, error vs holding the last fix
 #   ./build.sh soak [lines.txt]     long session through the App, about a minute (see emu_main.cpp)
 #   ./build.sh play <app> [opts]    play an app on the PC in an SDL window (see play.cpp): tetris, or box
 #                                   (the whole box: home screen + vario + Tetris + compass tool + Settings). The box loads a map pack
@@ -70,6 +71,14 @@ if [ "$1" = "loadtest" ]; then
     cat out/loadtest.err
     grep -q "SIM header=ok .* crc_ok=1" out/loadtest.err || { echo "LOADTEST FAIL"; exit 1; }
   done
+  # the flight log download (host/logdl.py) against the same firmware code: a synthetic ride, CRC-checked reads, CSV, erase
+  rm -f out/logtest*
+  ../../.venv/bin/python ../../host/logdl.py out/logtest --port "exec:out/loader_sim --log" --erase > out/logtest.log 2> out/logtest.err || { cat out/logtest.log out/logtest.err; echo "LOGTEST FAIL"; exit 1; }
+  grep -q "1 sessions, 400 lines" out/logtest.log && grep -q "log erased" out/logtest.log || { cat out/logtest.log; echo "LOGTEST FAIL"; exit 1; }
+  ../../.venv/bin/python ../../host/logdl.py --decode out/logtest.bin out/logtest2 > /dev/null && cmp out/logtest_lines.csv out/logtest2_lines.csv && cmp out/logtest_yaw.csv out/logtest2_yaw.csv || { echo "LOGTEST FAIL"; exit 1; }
+  mk out/emu
+  out/emu logeval out/logtest.bin | head -3
+  echo "LOGTEST OK"
   echo "LOADTEST OK"
   exit 0
 fi
@@ -108,7 +117,7 @@ if [ "$1" = "play" ] || [ "$1" = "smoke" ]; then
   exec out/play "$@"
 fi
 case "$1" in
-  replay|count|wind|windtrace|cue|soak) mk out/emu ;;
+  replay|count|wind|windtrace|cue|soak|logeval) mk out/emu ;;
   *) mk out/emu out/tests out/sim_demo out/terrain_demo ;;
 esac
 if [ "$1" = "replay" ]; then shift; exec out/emu replay "$@"; fi
@@ -117,6 +126,7 @@ if [ "$1" = "wind" ]; then shift; exec out/emu wind "$@"; fi
 if [ "$1" = "windtrace" ]; then shift; exec out/emu windtrace "$@"; fi
 if [ "$1" = "cue" ]; then shift; exec out/emu cue "$@"; fi
 if [ "$1" = "soak" ]; then shift; exec out/emu soak "$@"; fi
+if [ "$1" = "logeval" ]; then shift; exec out/emu logeval "$@"; fi
 run_tests
 out/emu shots out ${ROT:-1}
 out/terrain_demo fixtures/sopot.pack 42.62 24.85 0 100 out/terrain_sopot.pgm

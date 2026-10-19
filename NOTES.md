@@ -1219,3 +1219,11 @@ contour layers under swelling clouds, the same white-out and name.
 - Tests `box_intro`: length in real time, skip by press / keys / 3 s hold (never the home screen), arena freed and the tracer rule, off and
   the clock-sleep path, the Settings row, the 2D version, the 3D version deterministic on the Sopot fixture, end frame mostly white.
   Contact sheets: `emu/out/intro_sheet.png` (3D, study pack if present else the fixture) and `intro_flat_sheet.png`.
+
+## Flight log and gyro dead reckoning (2026-10-19)
+
+- `apps/vario/core/deadreckon.*`: course = fix course + integral of the earth-frame yaw rate, position along it, fix taken as the state at (receive time - latency) and carried to now; optional drift wind (air velocity turns, wind stays). Not wired into any screen yet. Synthetic circles (12 deg/s, 10 m/s, 0.8 s latency): hold-last-fix 10 m / 14 deg while turning, dead reckoned 0.02 m / 0.04 deg; with 2 deg/s gyro bias, 3 deg/s noise and 3 deg GPS course noise 0.4 m / 3.4 deg; with 5 m/s wind a drift wind cuts the course error 5.8 -> 2.9 deg.
+- A constant turn rate cannot reveal the delay (increments of course and gyro agree for any shift): ground tests need turn-rate changes. The tracer's line time has 1 s resolution (cs is always 0), so the delay is measured as gyro-vs-GPS-course lag (`build.sh logeval`).
+- Log: 23 B per tracer line + yaw at 25 Hz as 8-bit steps (28 B/s) = about 100 B/s at 3 lines/s, 360 kB/h. The nRF internal filesystem is only 28 kB (7 pages of 4 kB, 128 B blocks): 3 minutes. So the log lives in the last 256 kB of the QSPI flash (pack limit 1.82 MB, enforced by `ReservedTailFlash`), about 40 minutes. Page programs only in flight (0.5-3 ms, once per ~2.5 s); the erase happens only on the host's command (`logdl.py --erase`) because the chip cannot be read while erasing.
+- Found on the bench: a QSPI chip left in deep power-down (clock sleep) answered nothing after a reset (`pack hdr=noflash jedec=000000`); `QspiFlash::begin` now sends the release command first.
+- Bench (box on USB, igc_replay for 88 s): 88 lines, 2205 yaw samples (25 Hz), 5632 B, 0 dropped; still box yaw within +-0.15 deg/s.

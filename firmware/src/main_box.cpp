@@ -14,6 +14,7 @@
 #include "apps/vario/app/terrain_kit.h"
 #include "apps/vario/app/vario_app.h"
 #include "apps/vario/app/vario_box.h"
+#include "apps/vario/core/flight_log.h"
 #include "platform/hw/cyccnt.h"
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
@@ -138,9 +139,13 @@ struct BoxTerrain : ITerrainProvider, terrain::IPackStatus {
 };
 static BoxTerrain boxTerrain;
 
+// Validation recorder (README "Flight log"): tracer lines and the gyro turn rate go to the last 256 kB of the QSPI flash.
+static flightlog::FlightLogger flightLog(pack.logSink());
 static VarioBox* makeVario(void* mem, void*) {
-  return new (mem) VarioBox(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig(false), &wallClock,
-                            pack.reader());
+  VarioBox* v = new (mem) VarioBox(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig(false), &wallClock,
+                                   pack.reader());
+  v->core().setLog(&flightLog);
+  return v;
 }
 static LazyApp<VarioBox> varioApp(arena, "vario", makeVario);
 

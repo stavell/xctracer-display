@@ -1,6 +1,7 @@
 #pragma once
 // The seams between the vario app and its hardware: the generic ones are in platform/ports.h, these
 // belong to the flight display (tracer link, laptop link, saved tracer).
+#include "apps/vario/core/flight_log_port.h"
 #include "apps/vario/core/types.h"
 #include "apps/vario/view/viewmodel.h"
 #include "platform/ports.h"

@@ -80,7 +80,12 @@ bool QspiFlash::begin(uint8_t sckDiv) {
   if (started_) return ok_;
   sckDiv_ = sckDiv < 1 ? 1 : sckDiv > 16 ? 16 : sckDiv;
   ok_ = quad_ = asleep_ = false;
-  if (!startPeripheral(false)) return false;
+  asleep_ = true;                                          // startPeripheral keeps the driver up on a timeout then (the chip may be asleep)
+  startPeripheral(false);
+  asleep_ = false;
+  cinstr(OP_RELEASE, NRF_QSPI_CINSTR_LEN_1B, nullptr, nullptr);   // a chip left in deep power-down by an earlier run answers nothing else; harmless on an awake one
+  delayMicroseconds(60);
+  if (!started_) return false;
   uint8_t id[4] = {0, 0, 0, 0};
   if (!cinstr(OP_JEDEC, NRF_QSPI_CINSTR_LEN_4B, nullptr, id)) { nrfx_qspi_uninit(); started_ = false; return false; }
   jedec_ = (uint32_t)id[0] << 16 | id[1] << 8 | id[2];

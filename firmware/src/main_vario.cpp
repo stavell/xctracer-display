@@ -5,6 +5,7 @@
 #include "apps/vario/app/app.h"
 #include "apps/vario/app/terrain_kit.h"
 #include "apps/vario/app/vario_app.h"
+#include "apps/vario/core/flight_log.h"
 #include "platform/hw/cyccnt.h"
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
@@ -45,7 +46,8 @@ static AppConfig appConfig() {
 static App app(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig());
 static VarioApp varioApp(app);
 static PackService pack;                      // map pack in the QSPI flash + the USB serial loader (host/load_pack.py)
-static TerrainKit kit;                        // ~65 kB; no pack: the vario shows no terrain, AGL or map page
+static flightlog::FlightLogger flightLog(pack.logSink());   // validation recorder: last 256 kB of the QSPI flash (README "Flight log")
+static TerrainKit kit;                       // ~65 kB; no pack: the vario shows no terrain, AGL or map page
 static VarioProbe probe;
 static AppHost host(panel, button);
 
@@ -75,6 +77,7 @@ void setup() {
   laptop.begin();
 
   pack.begin();
+  app.setLog(&flightLog);
   if (pack.reader() && kit.open(pack.reader())) {
     app.setTerrain(&kit);
     pack.setTerrainOpen(true);

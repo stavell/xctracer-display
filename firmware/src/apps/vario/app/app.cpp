@@ -5,6 +5,7 @@
 #include "apps/vario/core/home.h"
 #include "platform/sensors/mount.h"
 #include "platform/sensors/sun.h"
+#include "platform/sensors/yawrate.h"
 #include "apps/vario/core/xctrc.h"
 #include "apps/vario/view/prof.h"
 #include "apps/vario/view/screens.h"
@@ -20,7 +21,9 @@ App::App(IPanel& panel, IBattery& battery, ITracer& tracer, ILaptop& laptop,
     : panel_(panel), battery_(battery), tracer_(tracer), laptop_(laptop),
       settings_(settings), compassHw_(compass), thermo_(thermo), power_(power), cfg_(cfg), cal_(settings) {}
 
-void App::begin(uint32_t) {
+void App::begin(uint32_t nowMs) {
+  tickMs_ = nowMs;
+  if (log_) log_->sessionStart(nowMs);
   heading_.configure(cfg_.gpsHeadingOnKmh, cfg_.gpsHeadingOffKmh);
   MagCal cal;
   if (settings_.loadMagCal(cal)) compass_.setCalibration(cal);
@@ -38,6 +41,7 @@ void App::begin(uint32_t) {
 // Another app takes over: stop the tracer link and scan, switch the compass sensors off. The flight model
 // stays as it is; its data goes stale on its own (hasData() needs a sample in the last freshMs).
 void App::end() {
+  if (log_) log_->sessionEnd(tickMs_);
   if (listOpen_) { tracer_.listClose(); listOpen_ = false; }
   if (calibrating_) finishCalibration(false);
   tracer_.pause();
@@ -82,6 +86,7 @@ void App::ingestLine(const char* line, uint32_t now) {
   Sample s;
   if (xctrcParse(line, s)) {
     linesOk_++;
+    if (log_) log_->line(now, s);
     feedFlight(s, now);
     lastSampleMs_ = now;
     haveSample_ = true;
@@ -193,6 +198,7 @@ void App::updateHeading(uint32_t now) {
     if (hg) {
       g = mountApply(mount_, g);
       ahrs_.update(g, a, compass_.corrected(m), now);
+      if (log_ && ahrs_.valid() && hasData(now)) log_->yaw(now, earthYawRateCwDps(g, ahrs_.bias(), ahrs_.up()));
       gyroMs_ = now;
       haveGyro_ = true;
     }
@@ -460,6 +466,7 @@ void App::drawListScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t he
 }
 
 void App::tick(uint32_t now) {
+  tickMs_ = now;
   ButtonEvent ev = ev_;
   ev_ = BTN_NONE;
   if (ev == BTN_HOLD) { shutdown(); return; }

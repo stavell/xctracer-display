@@ -75,6 +75,7 @@ class App {
   void draw(Bitmap1& bm, Adafruit_GFX& g, uint32_t nowMs);
   bool hostDrawing() const { return !local_; }       // the laptop owns the screen
   void setLauncher(ILauncherHook* h) { launcher_ = h; }
+  void setLog(IFlightLog* l) { log_ = l; }          // validation recorder (optional)
   void setClock(WallClock* c) { clock_ = c; }       // the box's time of day, set from the tracer's GPS time
   // Attach a map pack (platform/terrain). With none (the default) nothing terrain-related is computed, drawn
   // or in the page cycle. The kit must outlive the App; pass nullptr to detach.
@@ -162,6 +163,8 @@ class App {
   CompassCal cal_;                   // the platform's calibration flow; the screen is platform/settings/cal_view.h
   UiFonts calFonts_;                 // built on the first calibration screen
   WallClock* clock_ = nullptr;
+  IFlightLog* log_ = nullptr;
+  uint32_t tickMs_ = 0;              // time of the last tick (the end of a log session)
   ViewModel vm_;
   ViewModel::Page page_ = ViewModel::PAGE_COMPASS;
   ViewModel::Page lastPage_ = ViewModel::PAGE_COMPASS;

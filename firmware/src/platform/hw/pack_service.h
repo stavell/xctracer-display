@@ -13,13 +13,16 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "platform/hw/qspi_flash.h"
+#include "platform/storage/flash_log.h"
 #include "platform/storage/flash_reader.h"
+#include "platform/storage/flash_view.h"
+#include "platform/storage/log_shell.h"
 #include "platform/storage/pack_header.h"
 #include "platform/storage/pack_loader.h"
 
 class PackService {
  public:
-  PackService() : reader_(flash_), loader_(flash_) {}
+  PackService() : packView_(flash_, storage::kLogBytes), reader_(packView_), loader_(packView_), shell_(log_) {}
   void begin();
   void service(uint32_t nowMs);
 
@@ -29,6 +32,11 @@ class PackService {
   uint32_t packBytes() const { return hasPack_ ? header_.packLen : 0; }
   bool loading() const { return loader_.active(); }
   QspiFlash& flash() { return flash_; }
+  // The flight log in the last 256 kB of the chip (the pack gets the rest). Records go in through the sink; the USB serial
+  // commands LOGINFO / LOGREAD / LOGERASE (host/logdl.py) are handled in service().
+  storage::IRecordSink& logSink() { return log_; }
+  const storage::FlashLog& flightLog() const { return log_; }
+  void formatLogStatus(char* dst, size_t cap) const;       // "lg state=ready used=... cap=... dropped=..."
 
   void setTerrainOpen(bool open) { terrainOpen_ = open; }   // the image tells whether the terrain code accepted the pack
 
@@ -44,11 +52,19 @@ class PackService {
   void checkStoredCrc();
   void probeSpeed();
 
+  struct SerialOut : storage::ITextOut {
+    void put(const char* line) override;
+  };
   QspiFlash flash_;
+  storage::ReservedTailFlash packView_;             // the flash as the map pack sees it: without the log region
   storage::FlashBlockReader reader_;
   storage::PackLoader loader_;
   storage::CrcScan scan_;
   storage::FlashHeader header_;
+  storage::FlashLog log_;
+  storage::LogShell shell_;
+  SerialOut out_;
+  bool logErasing_ = false;
   storage::HeaderStatus hdrStatus_ = storage::HDR_BAD;
   bool flashOk_ = false, hasPack_ = false, terrainOpen_ = false;
   enum Crc : uint8_t { CRC_PENDING, CRC_RUNNING, CRC_OK, CRC_BAD } crc_ = CRC_PENDING;

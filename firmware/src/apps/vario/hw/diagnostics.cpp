@@ -194,6 +194,9 @@ static void __attribute__((noinline)) printNoVario(SharpPanel& panel, uint32_t& 
     gPack->formatStatus(pk, 260);
     Serial.print(pk);
     Serial.print("\n");
+    gPack->formatLogStatus(pk, 120);                // "lg state=... used=..." (the flight log, README "Flight log")
+    Serial.print(pk);
+    Serial.print("\n");
   }
   worstTickUs = 0;
 }
@@ -257,6 +260,9 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   if (gPack) {
     char* pk = gScratch;
     gPack->formatStatus(pk, 260);
+    Serial.print(pk);
+    Serial.print("\n");
+    gPack->formatLogStatus(pk, 120);                // "lg state=... used=..." (the flight log, README "Flight log")
     Serial.print(pk);
     Serial.print("\n");
   }

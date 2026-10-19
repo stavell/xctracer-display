@@ -39,6 +39,7 @@
 #include "mocks.h"
 #include "apps/vario/view/screens.h"
 #include "soak.h"
+#include "flightlog_io.h"
 #include "platform/gfx/gray.h"
 #include "platform/hw/fast_sharp.h"
 #include "count.h"
@@ -639,8 +640,29 @@ static int cmdWindTrace(const char* file) {
   return 0;
 }
 
+// emu logeval <log.bin> [--latency MS] [--wind]: replay a downloaded flight log (host/logdl.py) through the dead reckoner
+static int cmdLogEval(int argc, char** argv) {
+  FILE* f = fopen(argv[2], "rb");
+  if (!f) { fprintf(stderr, "cannot open %s\n", argv[2]); return 2; }
+  std::vector<uint8_t> d;
+  uint8_t buf[4096];
+  size_t n;
+  while ((n = fread(buf, 1, sizeof buf, f)) > 0) d.insert(d.end(), buf, buf + n);
+  fclose(f);
+  flightlog_io::EvalOptions o;
+  for (int i = 3; i < argc; i++) {
+    if (!strcmp(argv[i], "--latency") && i + 1 < argc) o.latencyMs = (float)atof(argv[++i]);
+    else if (!strcmp(argv[i], "--wind")) o.wind = true;
+  }
+  flightlog_io::Log log = flightlog_io::decode(d.data(), d.size());
+  printf("%zu bytes: %zu tracer lines, %zu yaw samples, %zu sessions, %d bad pages\n", d.size(), log.lines.size(), log.yaw.size(), log.sessions.size(), log.badPages);
+  flightlog_io::print(flightlog_io::evaluate(log, o));
+  return 0;
+}
+
 int main(int argc, char** argv) {
   signal(SIGALRM, watchdog);
+  if (argc >= 3 && !strcmp(argv[1], "logeval")) return cmdLogEval(argc, argv);
   if (argc >= 2 && !strcmp(argv[1], "soak")) return cmdSoak(argc, argv, readLines);
   if (argc >= 3 && !strcmp(argv[1], "wind")) return cmdWind(argv[2]);
   if (argc >= 3 && !strcmp(argv[1], "windtrace")) return cmdWindTrace(argv[2]);

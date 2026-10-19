@@ -491,6 +491,36 @@ chain over 3 KB. It cannot see indirect calls it cannot resolve (function pointe
 other tasks' stacks (BLE callbacks run on a 3 KB task), so it is a guard, not a proof. Its first run found a 1.8 KB
 frame in the wind fit (three `double[64]` locals): the worst chain was 3.5 KB of 4 KB; now 2.6 KB.
 
+## Flight log and the gyro dead-reckoning test
+
+While the vario app is open and the tracer is sending, the box records every parsed tracer line (receive time, the line's own
+time, position, speed, course, vario) and the **turn rate about the vertical** from the gyro (25 Hz, clockwise positive, via
+the AHRS gravity vector, so the mounting does not matter). It goes to the last 256 kB of the QSPI flash; the map pack gets the
+rest (a pack can be at most 1.82 MB; the loader refuses a larger one). Nothing is recorded in the other apps, and the screen is
+unchanged. Capacity: about 100 bytes/s, 360 kB/hour, so **about 40 minutes**; when full it stops (it never overwrites). The
+internal flash filesystem (28 kB) would hold only 3 minutes, which is why the QSPI tail is used. Format: `firmware/src/apps/vario/core/flight_log.h`.
+
+**Ground test (walk, cycle or drive circles):**
+
+1. Flash the box image (`scripts/flash.sh feather_sense_box`; the vario image `feather_sense` has the log too). One-time, with
+   the box on USB: `python host/logdl.py --erase` formats the log (a few seconds; the map is blank meanwhile).
+2. Switch on the tracer and the box, wait for a GPS fix on the box (vario app open, data shown). Carry both as in flight: box
+   on the chest / riser / in a cockpit mount, screen towards you; the tracer where it is normally.
+3. In an open area walk or cycle (or drive slowly, with the box fixed in the car) **circles of 10 to 30 m radius for 2 to
+   3 minutes, in both directions**, changing the turn rate now and then (tight, then wide), with straight stretches in between;
+   about 10 minutes in total. The change of turn rate matters: with a constant turn rate the delay cannot be measured. Keep
+   the box in the vario app the whole time.
+4. Connect the box with USB (nothing else may use the port) and run
+
+       python host/logdl.py logs/walk1          # writes logs/walk1.bin and CSVs; add --erase to clear the log afterwards
+       firmware/emu/build.sh logeval logs/walk1.bin            # --latency MS to force a delay, --wind to add a drift wind
+
+   `logeval` reports the fix rate, the measured delay between the gyro turn and the GPS course (rx time minus the instant the
+   fix describes), and the course / position error of "hold the last fix" against dead reckoning (the same code as
+   `apps/vario/core/deadreckon.*`), overall and while turning faster than 8 deg/s. `python host/logdl.py --info` shows the state
+   (`used`, `cap`, `dropped`). Send me the `.bin` (it is small) if anything looks odd. A real flight does the same; the log
+   holds the first 40 minutes after the erase.
+
 ## Host tools (`host/`)
 
 | Tool | Use |
@@ -501,6 +531,7 @@ frame in the wind fit (three `double[64]` locals): the worst chain was 3.5 KB of
 | `xct_probe.py` | find the tracer over BLE, list its GATT table, log raw notifications (`[seconds] [name]`) |
 | `orient_log.py` | record the compass sensor readings from the serial status line (`[seconds] [file]`) |
 | `orient_analyze.py` | solve the sensor-to-case axis mapping from that log and print the code to paste (`--selftest`) |
+| `logdl.py` | download / erase the flight log over USB, convert to CSV (`--info`, `--erase`, `--decode`); see "Flight log" |
 | `wind_check.py` | run the wind estimator offline on an IGC file |
 | `dashboard.py`, `send_test.py`, `bench.py`, `display_link.py` frame drawing | legacy: the early design where the laptop draws frames over BLE (`BLIT`/`DATA`/`FLUSH`). The vario screen resumes 10 s after the last draw command. Not needed for normal use. |
 

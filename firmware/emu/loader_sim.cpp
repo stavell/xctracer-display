@@ -6,6 +6,9 @@
 #include <unistd.h>
 #include <poll.h>
 #include "flash_mock.h"
+#include "apps/vario/core/flight_log.h"
+#include "platform/storage/flash_log.h"
+#include "platform/storage/log_shell.h"
 #include "platform/storage/pack_loader.h"
 #include "platform/terrain/crc32.h"
 
@@ -14,9 +17,38 @@ static uint32_t nowMs() {
   return (uint32_t)duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
+struct StdoutLine : storage::ITextOut {
+  void put(const char* l) override { printf("%s\n", l); }
+};
+
+// `--log`: also answer the flight log commands (host/logdl.py) over a log that holds a short synthetic ride.
+static void fillLog(storage::FlashLog& log, MemFlash& flash) {
+  log.attach(&flash, flash.capacity() - storage::kLogBytes);
+  log.startErase();
+  for (int i = 0; i < 100000 && log.erasing(); i++) log.service(i);
+  flightlog::FlightLogger lg(log);
+  lg.sessionStart(1000);
+  for (int i = 0; i < 400; i++) {
+    Sample s;
+    s.fix = true; s.lat = 42.5 + i * 1e-5; s.lon = 23.3; s.speedKmh = 40; s.course = fmodf(i * 3.0f, 360.0f); s.vario = 1.0f;
+    s.hh = 9; s.mm = 30; s.ss = (uint8_t)(i / 3 % 60);
+    lg.line(1000 + i * 333, s);
+    for (int k = 0; k < 8; k++) lg.yaw(1000 + i * 333 + k * 40, 11.5f);
+    log.service(i * 333);
+  }
+  lg.sessionEnd(200000);
+  for (int i = 0; i < 4; i++) log.service(300000 + i);
+}
+
 int main(int argc, char** argv) {
   MemFlash flash;
   storage::PackLoader loader(flash);
+  storage::FlashLog flog;
+  storage::LogShell shell(flog);
+  StdoutLine sout;
+  bool logMode = false;
+  for (int i = 1; i < argc; i++) if (std::string(argv[i]) == "--log") logMode = true;
+  if (logMode) fillLog(flog, flash);
   const bool damage = argc > 1 && std::string(argv[1]) == "--drop";   // lose every 50th chunk reply's frame: exercises the retries
   uint32_t lastNoise = 0;
   int frames = 0;
@@ -32,10 +64,16 @@ int main(int argc, char** argv) {
       for (ssize_t i = 0; i < n; i++) {
         if (damage && loader.active() && i == 20 && ++frames % 50 == 0) buf[i] ^= 0x55;   // a bit error on the wire
         loader.feedByte(buf[i], now);
+        if (logMode) shell.feed(buf[i], sout);
         if (const char* rep = loader.reply()) { printf("%s\n", rep); loader.replyDone(); }
       }
     }
     loader.service(now);
+    if (logMode) {
+      const bool was = flog.erasing();
+      flog.service(now);
+      if (was && !flog.erasing()) printf("lg ok erased\n");
+    }
     if (const char* rep = loader.reply()) { printf("%s\n", rep); loader.replyDone(); }
     if (now - lastNoise > 200) { lastNoise = now; printf("st ok=1 bad=0 fresh=1 fix=1 alt=1000\n"); }
     if (loader.rebootRequested()) break;

@@ -15,7 +15,7 @@ S := ../src/apps/settings
 M := ../src/apps/games/sim
 GFXHOST := out/Adafruit_GFX_host.cpp
 
-STORAGE := $P/storage/pack_header.cpp $P/storage/pack_proto.cpp $P/storage/pack_loader.cpp
+STORAGE := $P/storage/pack_header.cpp $P/storage/pack_proto.cpp $P/storage/pack_loader.cpp $P/storage/flash_log.cpp $P/storage/log_shell.cpp
 TERRAIN := $P/terrain/crc32.cpp $P/terrain/tile_codec.cpp $P/terrain/terrain.cpp $P/terrain/relief.cpp $P/terrain/map_vectors.cpp
 TETRIS := $T/tetris.cpp $T/tetris_view.cpp $T/tetris_app.cpp
 SIM := $M/glider.cpp $M/height_cache.cpp $M/air.cpp $M/world.cpp $M/voxel.cpp $M/chase.cpp $M/sky3d.cpp $M/topdown.cpp $M/sim_hud.cpp $M/sim_app.cpp
@@ -23,7 +23,7 @@ LAUNCHER := $L/launcher_app.cpp $L/launcher_view.cpp
 INTRO := ../src/apps/intro/intro_app.cpp
 SETTINGS := $S/settings_app.cpp $S/settings_view.cpp $P/settings/box_settings.cpp $P/settings/compass_cal.cpp $P/settings/cal_view.cpp
 GFX := $P/util/fastmem.cpp $P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $P/gfx/ui.cpp $P/gfx/icons.cpp
-VARIO := $V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $V/core/thermal3d.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $P/sensors/sun.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/terrain_map.cpp $V/view/prof.cpp $V/app/app.cpp
+VARIO := $V/core/xctrc.cpp $V/core/wind.cpp $V/core/windekf.cpp $V/core/thermal.cpp $V/core/thermal3d.cpp $P/sensors/compass.cpp $P/sensors/ahrs.cpp $P/sensors/mount.cpp $P/sensors/sun.cpp $V/core/heading.cpp $P/sensors/heading_smoother.cpp $V/core/map_motion.cpp $V/core/flight.cpp $V/core/windprofile.cpp $V/core/home.cpp $V/core/sim.cpp $P/panel/linediff.cpp $P/panel/sharp_frame.cpp $V/core/devmatch.cpp $V/app/command_decode.cpp $V/view/screens.cpp $V/view/terrain_map.cpp $V/view/prof.cpp $V/app/app.cpp $V/core/deadreckon.cpp $V/core/flight_log.cpp
 
 SDL_CFLAGS := $(shell sdl2-config --cflags 2>/dev/null)
 SDL_LIBS := $(shell sdl2-config --libs 2>/dev/null)
@@ -53,7 +53,7 @@ LIBSRC_O2 := $(SIM) $(INTRO) $(GFX) $(VARIO) $(SETTINGS) $(TETRIS) $(LAUNCHER) $
 $(eval $(call RULES,san,$(LIBSRC_SAN) emu_main.cpp tests.cpp,SAN_F))
 $(eval $(call RULES,o2,$(LIBSRC_O2) sim_bench.cpp sim_tests_main.cpp sim_demo.cpp play.cpp,O2_F))
 $(eval $(call RULES,o2n,$(SIM) $(GFX) $(TERRAIN) $(GFXHOST) terrain_demo.cpp sim_reach.cpp,O2N_F))
-$(eval $(call RULES,ld,$(STORAGE) $P/terrain/crc32.cpp loader_sim.cpp,LD_F))
+$(eval $(call RULES,ld,$(STORAGE) $V/core/flight_log.cpp $P/terrain/crc32.cpp loader_sim.cpp,LD_F))
 
 out/obj/san out/obj/o2 out/obj/o2n out/obj/ld:
 	@mkdir -p $@
@@ -79,7 +79,7 @@ out/terrain_demo: $(call objs,o2n,$(GFX) $(TERRAIN) $(GFXHOST) terrain_demo.cpp)
 	$(CXX) $(O2N_F) $^ -o $@
 out/sim_reach: $(call objs,o2n,$(SIM) $(GFX) $(TERRAIN) $(GFXHOST) sim_reach.cpp)
 	$(CXX) $(O2N_F) $^ -o $@
-out/loader_sim: $(call objs,ld,$(STORAGE) $P/terrain/crc32.cpp loader_sim.cpp)
+out/loader_sim: $(call objs,ld,$(STORAGE) $V/core/flight_log.cpp $P/terrain/crc32.cpp loader_sim.cpp)
 	$(CXX) $(LD_F) $^ -o $@
 
 -include $(wildcard out/obj/*/*.d)
