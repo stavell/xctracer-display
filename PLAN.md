@@ -281,3 +281,12 @@ CPU options (NOTES "CPU options pass"): done `-fno-math-errno`, per-file `-O3` (
 
 Other open items: measure the clock-sleep current (PPK2), wire the six buttons, print the case test plate, loader
 speed-up (pump the loader in a tight loop during a load), QSPI deep power-down measurement, launcher footer polish.
+
+User additions (2026-10-19):
+- **Flight sim HUD: flight time and distance from takeoff** (straight-line from the takeoff point, km with one decimal;
+  flight time from the sim clock, so x3 time shows sim minutes). Visual, no extra text labels beyond the standard units.
+- **A 3D compass** instead of the flat dial: a tilted, perspective compass card / globe that rolls and pitches with the
+  box (AHRS), shaded with the gray dither. RAM is not the limit: the compass tool lives in the shared app arena
+  (91 kB block, the tool uses 43 kB) and the heap has ~80 kB. Put it in the Compass & weather tool first; the vario's
+  compass page stays the flat, readable dial unless the user wants it there too (flight rule: practical, eye candy in
+  the tools / games). Same 0.0..359.9 heading text.
