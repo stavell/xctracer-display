@@ -764,11 +764,11 @@ static void box_intro() {
     CHECK(b.host.active() == &b.introApp && b.introApp.alive() && b.arena.busy());
     CHECK(b.introApp->mode() == intro::IntroApp::Mode::FLAT && b.introApp->site() < 0);
     CHECK(b.host.gameMode() && !b.r.tracer.paused);                    // 50 fps frame mode; the vario's scan runs in parallel
-    u.run(1000);                                                      // length: 140 steps of 20 ms in real time
+    u.run(1000);                                                      // length: 225 steps of 20 ms in real time
     CHECK(b.introApp->stepsDone() >= 48 && b.introApp->stepsDone() <= 51);
     u.run(1600);
     CHECK(b.host.active() == &b.introApp && b.introApp->stepsDone() >= 125);
-    u.run(600);
+    u.run(2200);
     CHECK(b.host.active() == &b.vario && b.vario.alive() && !b.introApp.alive() && !b.r.tracer.paused);
   }
   {
@@ -807,7 +807,7 @@ static void box_intro() {
     BoxRun u(b);
     b.boot(0, true);
     CHECK(b.r.tracer.paused);
-    u.run(3200);
+    u.run(5000);
     CHECK(b.host.active() == &b.tetris && b.tetris.alive() && !b.introApp.alive());
   }
   {
@@ -832,7 +832,7 @@ static void box_intro() {
     u.run(2500);
     CHECK(b.sleep == Box::SS_AWAKE && b.host.active() == &b.introApp && b.introApp.alive());
     CHECK(!b.r.tracer.paused);                                        // scan in parallel
-    u.run(3200);
+    u.run(5000);
     CHECK(b.host.active() == &b.vario && !b.introApp.alive());
     b.r.settings.setIntroEnabled(false);
     u.off();
@@ -879,7 +879,7 @@ static void box_intro() {
       CHECK(b.introApp->world().cache().complete());                 // the window was filled in begin()
       while (b.host.active() == &b.introApp && b.introApp->stepsDone() < 70) u.run(10);
       mid[run] = panelHash(b);
-      while (b.host.active() == &b.introApp && b.introApp->stepsDone() < 139) u.run(10);
+      while (b.host.active() == &b.introApp && b.introApp->stepsDone() < 224) u.run(10);
       last[run] = panelHash(b);
       u.run(300);
       CHECK(b.host.active() == &b.vario && !b.introApp.alive());
@@ -891,7 +891,7 @@ static void box_intro() {
     b.setTerrain(&kit);
     BoxRun u(b);
     b.boot(0, true);
-    while (b.host.active() == &b.introApp && b.introApp->stepsDone() < 139) u.run(10);
+    while (b.host.active() == &b.introApp && b.introApp->stepsDone() < 224) u.run(10);
     int white = 0;
     Bitmap1 bm = b.r.panel.bitmap();
     for (int y = 0; y < 400; y++)

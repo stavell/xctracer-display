@@ -1,9 +1,9 @@
 #pragma once
-// The start-up animation of the box image: about 2.8 s at 50 fps (game frame mode) between power-on and the start-up app.
+// The start-up animation of the box image: about 4.5 s at 50 fps (game frame mode) between power-on and the start-up app.
 //
-// Storyboard: the flight sim's chase camera behind a paraglider thermaling tight just under cloudbase over the real terrain
-// of the map pack, climbing into the cumulus above; the cloud fills the screen as dithered white and the box's name shows
-// through it as the end frame; the white is the transition into the start-up app. Without a map pack (or one that does not
+// Storyboard: the flight sim's chase camera behind a paraglider thermaling a full turn and a bit just under cloudbase over the real terrain
+// of the map pack, climbing into the cumulus above; the cloud fills the screen as dithered white and "XC Display" with "stavl.com" under it
+// shows through it as the end frame; the white is the transition into the start-up app. Without a map pack (or one that does not
 // cover a takeoff of the sim) a 2D version: layered contour lines falling away under growing clouds, the same white-out and name.
 //
 // Everything is scripted from the step counter (20 ms per step), so the animation is the same on every run and at any frame
@@ -44,7 +44,7 @@ class WindowSource : public sim::IHeightSource {
 class IntroApp : public IApp {
  public:
   static constexpr uint32_t kStepMs = 20;
-  static constexpr int kSteps = 140;                       // 2.8 s
+  static constexpr int kSteps = 225;                       // 4.5 s
   static constexpr uint32_t kTotalMs = kSteps * kStepMs;
   static constexpr int kTiles = 4;                         // pack tiles kept decoded while the window is filled (the sim's 2 thrash on a fill)
   static constexpr float kFillRadiusM = 6000.0f;           // the window is real terrain this far from the takeoff (a skirt beyond)
@@ -118,7 +118,7 @@ class IntroApp : public IApp {
   int steps_ = 0;
   bool done_ = false, skipped_ = false;
   uint32_t beginUs_ = 0, fillUs_ = 0, searchUs_ = 0;
-  Font1 name_;
+  Font1 title_, sub_;                   // "XC Display" and "stavl.com" on the end frame
   uint8_t white_[65][8];                // dither bytes: bit k of [level][x & 7] is white where Bayer(x, 7 - k) < level
   int8_t wob_[240];                     // the ragged front of the white-out, per screen column
 };

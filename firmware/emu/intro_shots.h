@@ -1,6 +1,6 @@
 #pragma once
-// Contact sheets of the start-up animation, rendered through the whole box (Box::boot with the intro): every 10th step
-// of the 140, 8 frames to a row, with the map pack (the real 3D version) and without (the 2D version).
+// Contact sheets of the start-up animation, rendered through the whole box (Box::boot with the intro): every 15th step
+// of the 225, 8 frames to a row, with the map pack (the real 3D version) and without (the 2D version).
 // Written as out/intro_sheet.pgm and out/intro_flat_sheet.pgm; build.sh converts them to PNG. Included by emu_main.cpp.
 #include <stdio.h>
 #include <unistd.h>
@@ -21,7 +21,7 @@ static bool loadPack(const char* path, std::vector<uint8_t>& bytes) {
   return ok;
 }
 
-// Plays the animation from a power-on and returns the frames at steps 1, 10, 20 ... 140 (each 240 x 400 bytes, 0 / 255).
+// Plays the animation from a power-on and returns the frames at steps 1, 15, 30 ... 225 (each 240 x 400 bytes, 0 / 255).
 static std::vector<std::vector<uint8_t>> frames(Box& b, int* lastApp = nullptr) {
   std::vector<std::vector<uint8_t>> out;
   uint32_t now = 1000;
@@ -35,7 +35,7 @@ static std::vector<std::vector<uint8_t>> frames(Box& b, int* lastApp = nullptr) 
     if (b.r.panel.presents != seen && st != lastSteps) {
       seen = b.r.panel.presents;
       lastSteps = st;
-      if (st == 1 || st % 10 == 0) {
+      if (st == 1 || st % 15 == 0) {
         std::vector<uint8_t> f(240 * 400);
         Bitmap1 bm = b.r.panel.bitmap();
         for (int y = 0; y < 400; y++)

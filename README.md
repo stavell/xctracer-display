@@ -418,9 +418,9 @@ coming back starts fresh and reconnects the tracer. The radios, settings and the
 ![Home screen, Settings, compass calibration, About, the vario menu with its Home row](docs/screens/box.png)
 
 **Start-up animation** (`apps/intro`, box image only). At power-on, on wake from System OFF and on the way out of the clock sleep
-the box plays a 2.8 s intro at 50 fps before the start-up app: the flight sim's chase camera behind a paraglider thermaling tight
+the box plays a 4.5 s intro at 50 fps before the start-up app: the flight sim's chase camera behind a paraglider thermaling a full turn and a bit (XC pilot in a pod harness under a slender elliptical wing)
 under a cumulus over the real terrain of the map pack, climbing into the cloud, which fills the screen as dithered white with
-"stavl.com" dissolving in as the end frame; the white is the hand-over to the start-up app. Any press skips it (the press is used up,
+"XC Display" with "stavl.com" under it dissolving in as the end frame; the white is the hand-over to the start-up app. Any press skips it (the press is used up,
 and the 3 s hold only skips); the vario's tracer scan runs in parallel from boot, so the intro is the only delay. Without a pack
 (or one that covers no takeoff of the sim) a 2D version plays: contour lines falling away under swelling clouds. The path is scripted
 and deterministic. Settings > Intro turns it off. It lives in the shared app arena and is gone before the start-up app is built.

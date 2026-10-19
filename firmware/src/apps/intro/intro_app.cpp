@@ -1,4 +1,5 @@
 #include "apps/intro/intro_app.h"
+#include <Fonts/FreeSans12pt7b.h>
 #include <Fonts/FreeSansBold18pt7b.h>
 #include <math.h>
 #include <stdio.h>
@@ -14,13 +15,13 @@ using namespace sim;
 namespace {
 
 // The script, in ms of animation time.
-constexpr uint32_t kClimbMs = 2300;                  // the glider reaches the cloud's level
-constexpr uint32_t kWhiteFrom = 1450, kWhiteTo = 2250;   // the white-out
-constexpr uint32_t kBankFrom = 800, kBankTo = 1900;        // the cloud front sweeps down
-constexpr uint32_t kLogoFrom = 2150, kLogoTo = 2550;     // the name dissolves in
-constexpr float kOmega = 0.75f;                      // rad/s around the thermal: a tight turn, 8.4 s a circle
-constexpr float kSpeed = 12.0f;                      // m/s
-constexpr float kRadius = kSpeed / kOmega;           // m (16 m: what 40 degrees of bank at this speed makes)
+constexpr uint32_t kClimbMs = 3700;                  // the glider reaches the cloud's level
+constexpr uint32_t kWhiteFrom = 2950, kWhiteTo = 3850;   // the white-out
+constexpr uint32_t kBankFrom = 1900, kBankTo = 3400;       // the cloud front sweeps down
+constexpr uint32_t kLogoFrom = 3750, kLogoTo = 4250;     // the name dissolves in
+constexpr float kOmega = 1.75f;                      // rad/s around the thermal: a full circle in 3.6 s, so one turn under the cloud and a bit
+constexpr float kSpeed = 10.5f;                      // m/s
+constexpr float kRadius = kSpeed / kOmega;           // m (6 m: a stylised tight turn, 62 degrees of bank at this speed)
 constexpr float kBelowStart = 150.0f, kAboveEnd = 40.0f;   // start and end altitude relative to the cloud base
 constexpr int kPreferredSite = 1;                    // Kalofer: a high ridge close under the cloud base on the study pack
 constexpr float kSkirtBelow = 300.0f;                // the flat ground beyond the window, below the takeoff
@@ -44,11 +45,12 @@ void glyph(const Bitmap1& bm, int cx, int cy, float W, float roll, DrawMode ink,
     const float u = (float)i / N;
     P(W * u, -0.78f * W - 0.16f * W * (1.0f - u * u) + 0.26f * W * u * u * u * u, &ax[i + N], &ay[i + N]);
   }
-  int hx, hy, bx, by, lx, ly, rx, ry;
+  int hx, hy, bx, by, lx, ly, rx, ry, tx, ty;             // helmet, shoulders, the pod's two lower corners and tail (a cocoon, legs inside)
   P(0, 0, &hx, &hy);
-  P(0, 0.16f * W, &bx, &by);
-  P(-0.10f * W, 0.40f * W, &lx, &ly);
-  P(0.10f * W, 0.40f * W, &rx, &ry);
+  P(0, 0.12f * W, &bx, &by);
+  P(-0.09f * W, 0.30f * W, &lx, &ly);
+  P(0.09f * W, 0.30f * W, &rx, &ry);
+  P(0, 0.46f * W, &tx, &ty);
   for (int oy = -grow; oy <= grow; oy++)
     for (int ox = -grow; ox <= grow; ox++) {
       for (int i = 0; i < 2 * N; i++)                         // the canopy: three strokes thick
@@ -57,8 +59,11 @@ void glyph(const Bitmap1& bm, int cx, int cy, float W, float roll, DrawMode ink,
       line(bm, hx + ox, hy + oy, bx + ox, by + oy, ink);
       line(bm, bx + ox, by + oy, lx + ox, ly + oy, ink);
       line(bm, bx + ox, by + oy, rx + ox, ry + oy, ink);
+      line(bm, lx + ox, ly + oy, tx + ox, ty + oy, ink);
+      line(bm, rx + ox, ry + oy, tx + ox, ty + oy, ink);
     }
   fillDisc(bm, hx, hy, 2 + grow, ink);
+  fillDisc(bm, (bx + tx) / 2, (by + ty) / 2, (int)(0.07f * W) + grow, ink);
 }
 
 }  // namespace
@@ -144,7 +149,8 @@ void IntroApp::begin(uint32_t) {
     pose(0);
     chase_.reset(g_);
   }
-  name_.build(&FreeSansBold18pt7b, 1);
+  title_.build(&FreeSansBold18pt7b, 1);
+  sub_.build(&FreeSans12pt7b, 1);
   beginUs_ = (clk_ ? clk_() : 0) - t0;
 }
 
@@ -281,17 +287,20 @@ void IntroApp::whiteout(const Bitmap1& bm, float p) {
   }
 }
 
-// The name: black on the white, dissolving in through the same dither (level 0..64). The logo is drawn whole into a frame
-// that is already white where it sits; the pixels the level has not reached yet are put back to white.
+// The end frame: "XC Display" with "stavl.com" under it, black on the white, dissolving in together through the same dither (level
+// 0..64). Both are drawn whole into a frame that is already white where they sit; the pixels the level has not reached yet are put back to white.
 void IntroApp::drawLogo(const Bitmap1& bm, int level) {
   if (level <= 0) return;
-  if (!name_.isBuilt(&FreeSansBold18pt7b, bm.rotation)) name_.build(&FreeSansBold18pt7b, bm.rotation);
-  const char* name = "stavl.com";
-  drawText(bm, 120 - textWidth(name, name_) / 2, 208, name, name_, DRAW_CLEAR);
+  if (!title_.isBuilt(&FreeSansBold18pt7b, bm.rotation)) title_.build(&FreeSansBold18pt7b, bm.rotation);
+  if (!sub_.isBuilt(&FreeSans12pt7b, bm.rotation)) sub_.build(&FreeSans12pt7b, bm.rotation);
+  const char* title = "XC Display";
+  const char* sub = "stavl.com";
+  drawText(bm, 120 - textWidth(title, title_) / 2, 204, title, title_, DRAW_CLEAR);
+  drawText(bm, 120 - textWidth(sub, sub_) / 2, 240, sub, sub_, DRAW_CLEAR);
   if (level >= 64) return;
-  // Put back to white what the level does not show yet: screen columns 10..229, the bytes that cover y 170..230.
-  const int b0 = (399 - 230) >> 3, b1 = (399 - 170) >> 3;
-  for (int rx = 10; rx < 230; rx++) {
+  // Put back to white what the level does not show yet: screen columns 4..235, the bytes that cover y 160..250.
+  const int b0 = (399 - 250) >> 3, b1 = (399 - 160) >> 3;
+  for (int rx = 4; rx < 236; rx++) {
     uint8_t* row = bm.buf + (size_t)rx * bm.stride;
     const uint8_t shown = white_[level][rx & 7];           // the pixels already dissolved in
     for (int b = b0; b <= b1; b++) row[b] |= (uint8_t)~shown;
