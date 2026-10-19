@@ -906,6 +906,31 @@ smaller window (needs a non-power-of-two cache). The 13 kB `laptop` frame buffer
 Guard: `scripts/ram_check.py` (a step of `scripts/check.sh`) prints .bss / .data / .heap of every built image and fails when
 .heap is below 48 KB. A new big object either lives in the arena or the check fails.
 
+### The vario in the arena too (2026-10-19)
+
+User decision: in the box image the vario is just another app and must not sit in RAM while others run. `VarioBox`
+(`apps/vario/app/vario_box.h`) is ONE object: the flight `App` + the `VarioApp` adapter + the `TerrainKit`, a `LazyApp<VarioBox>`
+in the shared arena (main_box.cpp and emu/box.h alike). `BoxTerrain` stays for the boot-time pack status cache only (it borrows the
+arena once at boot, before the start-up app). The kit is opened on the pack reader in the vario's `begin()`.
+
+| | before | after |
+|---|---|---|
+| static vario App (+ adapter 28 B) | 43472 (.bss) | 0 |
+| VarioBox in the arena (App 43472 + adapter 28 + kit 47672) | | 91192 |
+| arena (max of sim 86432, VarioBox 91192, compass tool 43512, Tetris 504) | 86432 | 91216 |
+| .bss, feather_sense_box | 183904 | 145184 |
+| .heap, feather_sense_box | 49216 | 87936 (+38.7 kB) |
+| feather_sense / feather_sense_diag | 91364 / 52252 | unchanged |
+| stack check, loop chain, box | 2628 B | 2628 B |
+
+Accepted costs: leaving the vario destroys it, so the flight state (trail, wind fit, thermal memory, map cache, page) is lost and
+the vario comes back fresh (compass page, no trail); the tracer link is re-found through `ITracer::resume()` in the new App's
+`begin()`, laptop commands queued meanwhile are dropped (`App::begin` now always drains them). Not lost: the BLE radios and their
+queues (`TracerBle`, `LaptopBle`, static; callbacks never touch the App), `BoxSettings`, the `WallClock` (the new App gets its
+pointer), the saved tracer, calibration. The serial status line (`diagnosticsSetApp`) prints a short `st vario=none ...` line
+while the vario does not exist. The PC stack check mis-resolves virtual calls when a class with several bases has a polymorphic base
+before `VarioApp` (it added 660 B of phantom chain): `VarioBoxCore` is deliberately not polymorphic, its terrain feed is a member.
+
 
 ## Map pack in the QSPI flash (2026-10-18)
 

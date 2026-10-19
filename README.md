@@ -405,6 +405,10 @@ weather tool (the vario's own compass screen, in a second `App` without tracer o
 `feather_sense` stays the vario alone, with no game code and no home screen. The box boots straight into the
 **start-up app** (default: the vario; Settings picks another, stored in flash). The home screen never opens by itself.
 
+In the box image the vario is an app like the others: it exists in RAM only while it runs (one shared app arena with Tetris,
+the compass tool and the flight sim). Leaving it to another app loses its flight state (trail, wind, thermals, map cache);
+coming back starts fresh and reconnects the tracer. The radios, settings and the wall clock live on.
+
 ![Home screen, Settings, compass calibration, About, the vario menu with its Home row](docs/screens/box.png)
 
 **Home screen.** A status bar (local time from the tracer's GPS time once the vario has seen a fix, `--:--` before; map pack

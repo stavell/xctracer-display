@@ -32,8 +32,10 @@ char* diagnosticsScratch(size_t* cap) {
   return gScratch;
 }
 
-void diagnosticsBegin(App& app, SharpPanel& panel, CompassLis& compass) {
-  gApp = &app;
+void diagnosticsSetApp(App* app) { gApp = app; }
+
+void diagnosticsBegin(App* app, SharpPanel& panel, CompassLis& compass) {
+  gApp = app;
   gPanel = &panel;
   gCompass = &compass;
 }
@@ -181,8 +183,23 @@ static void runBench() {}
 static void runFlightBench() {}
 #endif
 
+// No vario App (box image, another app runs): the status that exists without it. Its own frame, off the long path.
+static void __attribute__((noinline)) printNoVario(SharpPanel& panel, uint32_t& worstTickUs) {
+  Serial.printf("st vario=none tick=%luus refresh=%luus send=%luus wait=%luus spito=%lu lines=%d up=%lu loopstack=%lu\n",
+                (unsigned long)worstTickUs, (unsigned long)panel.refreshUs(), (unsigned long)panel.sendUs(),
+                (unsigned long)panel.waitUs(), (unsigned long)panel.timeouts(), panel.lastLines(),
+                (unsigned long)(millis() / 1000), (unsigned long)uxTaskGetStackHighWaterMark(nullptr) * 4);
+  if (gPack) {
+    char* pk = gScratch;
+    gPack->formatStatus(pk, 260);
+    Serial.print(pk);
+    Serial.print("\n");
+  }
+  worstTickUs = 0;
+}
+
 void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
-  App& app = *gApp;
+  App* const ap = gApp;              // the box image has no vario App while another app runs
   SharpPanel& panel = *gPanel;
   CompassLis& compassHw = *gCompass;
   static uint32_t last = 0;
@@ -196,6 +213,8 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   if (!listening) return;
   runBench();
   runFlightBench();
+  if (!ap) { printNoVario(panel, worstTickUs); return; }
+  App& app = *ap;
   uint32_t v0 = fastMicros();
   const ViewModel& vm = app.buildViewModel(now);
 #ifdef DIAGNOSTICS
