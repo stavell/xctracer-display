@@ -8,10 +8,11 @@ class SharpPanel;
 class CompassLis;
 class PackService;
 
-void diagnosticsBegin(App& app, SharpPanel& panel, CompassLis& compass);
+void diagnosticsBegin(App* app, SharpPanel& panel, CompassLis& compass);
 // The map pack service whose "pack ..." line joins the status output (optional).
 void diagnosticsSetPack(PackService* pack);
 // Prints every 2 s when a terminal is attached; never blocks. worstTickUs is reset after each line.
+void diagnosticsSetApp(App* app);                  // box image: the vario's App comes and goes; nullptr while it does not exist
 void diagnosticsTick(uint32_t now, uint32_t& worstTickUs);
 // One-shot drawing micro-benchmark on the real panel canvas (rotation 1); DIAGNOSTICS builds only, a no-op
 // otherwise. Call after setup, before the first frame. Also installs the draw-time profiler clock.

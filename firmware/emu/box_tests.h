@@ -192,13 +192,13 @@ static void box_flow() {
   u.run(500);
   CHECK(b.r.compass.enabled);
   for (int i = 0; i < 5; i++) { b.r.tracer.lines.push_back(xline(i, 1000 + i)); u.run(1000); }
-  CHECK(b.varioCore.linesOk() == 5);
+  CHECK(b.varioCore().linesOk() == 5);
   const int vf = b.r.panel.presents;
   CHECK(vf > 10);
 
   // Leave through the vario's menu: long press, short (to "Home"), long.
   u.longp();
-  CHECK(b.varioCore.listOpen() && b.r.tracer.opened);
+  CHECK(b.varioCore().listOpen() && b.r.tracer.opened);
   u.shortp();
   u.longp();
   CHECK(b.host.active() == &b.launcher);
@@ -212,7 +212,8 @@ static void box_flow() {
   // Lines that come while away are not collected.
   b.r.tracer.lines.push_back(xline(10, 1010));
   u.run(200);
-  CHECK(b.varioCore.linesOk() == 5);
+  CHECK(!b.vario.alive());                                                    // the vario is gone: its RAM is the arena's
+  CHECK(b.r.tracer.lines.size() <= 1);
 
   // Start Tetris: down one row, long press.
   CHECK(b.launcher.selected() == 0);
@@ -227,7 +228,7 @@ static void box_flow() {
   u.shortp();
   CHECK(b.tetris->game().state() == tetris::ST_PLAYING);
   u.run(1500);
-  CHECK(b.varioCore.linesOk() == 5 && !b.r.compass.enabled && b.r.tracer.paused);   // the vario sleeps
+  CHECK(!b.vario.alive() && !b.r.compass.enabled && b.r.tracer.paused);   // the vario does not exist
 
   // Back: hold the switch 3 s.
   u.off();
@@ -244,7 +245,7 @@ static void box_flow() {
   CHECK(b.r.compass.enabled);
   b.r.tracer.lines.push_back(xline(20, 1020));
   u.run(500);
-  CHECK(b.varioCore.linesOk() == 6);                                          // data flows again
+  CHECK(b.varioCore().linesOk() == 1);                                        // data flows again, into a fresh vario
   CHECK(blackPixels(b.r.panel) > 2500);
 }
 
@@ -280,10 +281,38 @@ static void box_vario_matches_alone() {
   }
   CHECK(pa == pb && pa > 100);
   CHECK(da == db);
-  CHECK(alone.linesOk() == b.varioCore.linesOk());
+  CHECK(alone.linesOk() == b.varioCore().linesOk());
   // And a game that was never chosen has not run.
   CHECK(!b.tetris.alive());
   CHECK(b.host.active() == &b.vario);
+}
+
+// The vario is an arena app like the others: gone when left, built afresh (flight state lost) when reopened.
+static void box_vario_lazy() {
+  puts("box: leaving the vario destroys it and frees the arena, reopening starts fresh and reconnects the tracer");
+  Box b;
+  BoxRun u(b);
+  b.boot(0);
+  u.run(300);
+  CHECK(b.vario.alive() && b.arena.busy());
+  for (int i = 0; i < 4; i++) { b.r.tracer.lines.push_back(xline(i, 1000 + i)); u.run(1000); }
+  CHECK(b.varioCore().linesOk() == 4);
+  b.host.start(Box::APP_LAUNCHER, u.now);
+  u.run(100);
+  CHECK(!b.vario.alive() && !b.arena.busy());                                 // arena released
+  CHECK(b.r.tracer.paused && !b.r.compass.enabled);
+  b.host.start(Box::APP_TETRIS, u.now);                                       // another app takes the block
+  u.run(100);
+  CHECK(b.tetris.alive() && !b.vario.alive());
+  b.host.start(Box::APP_VARIO, u.now);
+  u.run(300);
+  CHECK(!b.tetris.alive() && b.vario.alive());
+  CHECK(b.r.tracer.resumes >= 1 && !b.r.tracer.paused && b.r.compass.enabled);   // tracer link resumed by the new vario
+  CHECK(b.varioCore().linesOk() == 0);   // flight state starts fresh
+  b.r.tracer.lines.push_back(xline(9, 1009));
+  u.run(600);
+  CHECK(b.varioCore().linesOk() == 1);
+  CHECK(blackPixels(b.r.panel) > 2500);
 }
 
 static void box_gestures() {
@@ -576,8 +605,8 @@ static void settings_app() {
   b.r.settings.setMountIndex(9);
   b.host.start(Box::APP_VARIO, u.now);
   u.run(300);
-  CHECK(b.varioCore.mountIndex() == 9);
-  CHECK(b.varioCore.compass().calibration().valid);
+  CHECK(b.varioCore().mountIndex() == 9);
+  CHECK(b.varioCore().compass().calibration().valid);
 }
 
 // ctl.py cal / orient / tz reach the same storage while the vario runs in the box.
@@ -591,7 +620,7 @@ static void box_laptop_commands() {
   Command c; c.type = Command::CAL; c.value = 1;
   b.r.laptop.cmds.push_back(c);
   u.run(200);
-  CHECK(b.varioCore.calibrating());
+  CHECK(b.varioCore().calibrating());
   for (int psi = 0; psi < 360; psi += 20)
     for (int pitch = -90; pitch <= 90; pitch += 30)
       for (int roll = -90; roll <= 90; roll += 45) {
@@ -602,14 +631,14 @@ static void box_laptop_commands() {
   b.r.laptop.cmds.push_back(c);
   u.run(200);
   MagCal m;
-  CHECK(!b.varioCore.calibrating() && b.r.settings.loadMagCal(m));
+  CHECK(!b.varioCore().calibrating() && b.r.settings.loadMagCal(m));
   NEAR(m.off[2], -14, 3);
   Command o; o.type = Command::ORIENT; o.value = 11;
   b.r.laptop.cmds.push_back(o);
   Command tz; tz.type = Command::TZ; tz.value = -300;
   b.r.laptop.cmds.push_back(tz);
   u.run(200);
-  CHECK(b.r.settings.mountIndex() == 11 && b.r.settings.tzMinutes() == -300 && b.varioCore.mountIndex() == 11);
+  CHECK(b.r.settings.mountIndex() == 11 && b.r.settings.tzMinutes() == -300 && b.varioCore().mountIndex() == 11);
   // The vario hands the tracer's time of day to the home screen.
   for (int i = 0; i < 3; i++) { b.r.tracer.lines.push_back(xline(i, 1000 + i)); u.run(1000); }
   CHECK(b.clock.localMinutes(0, u.now) == 10 * 60 + 0);
@@ -864,6 +893,7 @@ static void test_box() {
   host_frame_loop();
   box_flow();
   box_vario_matches_alone();
+  box_vario_lazy();
   box_gestures();
   settings_store();
   settings_app();

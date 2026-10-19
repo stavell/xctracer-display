@@ -26,11 +26,9 @@ void App::begin(uint32_t) {
   mount_ = settings_.mountIndex();
   if (!mountValid(mount_)) mount_ = 0;
   tracer_.resume();                  // no-op unless end() paused it
-  if (left_) {                       // back from another app: whatever the laptop sent meanwhile is stale
-    left_ = false;
-    Command stale;
-    while (laptop_.pop(stale)) {}
-  }
+  left_ = false;
+  Command stale;                     // a fresh App (box image) or back from another app: what the laptop sent meanwhile is stale
+  while (laptop_.pop(stale)) {}
   panel_.setRotation(cfg_.rotation);
   panel_.invalidate();
   redraw_ = true;

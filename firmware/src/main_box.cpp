@@ -12,6 +12,7 @@
 #include "apps/vario/app/compass_tool.h"
 #include "apps/vario/app/terrain_kit.h"
 #include "apps/vario/app/vario_app.h"
+#include "apps/vario/app/vario_box.h"
 #include "platform/hw/cyccnt.h"
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
@@ -64,19 +65,17 @@ static AppConfig appConfig(bool tool) {
 // App indices in the host; the home screen lists all but itself.
 enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM };
 
-static App app(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig(false));
-static VarioApp varioApp(app);
-
 // The apps that are not the start-up app share ONE RAM block (see platform/lazy_app.h): each is built when it is opened
 // and destroyed when it is left. Statically they cost 93 + 44 kB of .bss and left the image with 2 kB of heap, too little
 // for FreeRTOS to start any task (no USB, blank screen). The block is as big as the biggest of them.
-static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimBox), maxSize(sizeof(TerrainKit), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
+static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
 static AppArenaStore<kArenaBytes> arena;
 
-// The map pack lives in the QSPI flash (platform/hw/pack_service.h). The vario's terrain kit (65 kB: tile cache, map page
-// cache, vector buffers) is built in the arena when the vario is opened and destroyed when it is left, so the other apps
-// can use the same RAM. Costs: the map page's cache and ground track start afresh on each return to the vario, and the
-// vario comes back on the compass page if it was left on the map page.
+// The map pack lives in the QSPI flash (platform/hw/pack_service.h). The vario is an arena app like the others: the App
+// (flight model, wind, thermals, trails), its adapter and its terrain kit (48 kB: tile cache, map page cache, vector
+// buffers) are ONE object (VarioBox), built when the vario is opened and destroyed when it is left. Costs: the flight
+// state (trail, wind, thermals) and the map cache start afresh on each return, and the vario comes back on the compass page.
+// What outlives it is static: the radios and their queues (TracerBle, LaptopBle), settings, wall clock, saved tracer.
 // The home screen and Settings > About ask about the pack without the vario running: the answers are copied from the
 // kit once at boot (the pack cannot change without a reboot).
 static PackService pack;
@@ -123,6 +122,12 @@ struct BoxTerrain : ITerrainProvider, terrain::IPackStatus {
   }
 };
 static BoxTerrain boxTerrain;
+
+static VarioBox* makeVario(void* mem, void*) {
+  return new (mem) VarioBox(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig(false), &wallClock,
+                            pack.reader());
+}
+static LazyApp<VarioBox> varioApp(arena, "vario", makeVario);
 
 // The compass & weather tool: the same App without a tracer or laptop, always on the compass page.
 static CompassTool* makeCompass(void* mem, void*) {
@@ -195,12 +200,11 @@ void setup() {
 
   pack.begin();
   boxTerrain.cacheStatus();
-  varioApp.setTerrainProvider(&boxTerrain);
   launcher.setPack(&boxTerrain);
   settingsApp.setPack(&boxTerrain);
   diagnosticsSetPack(&pack);
 
-  diagnosticsBegin(app, panel, compassHw);
+  diagnosticsBegin(nullptr, panel, compassHw);   // the vario's App exists only while it runs: the loop hands it over
   diagnosticsBench();                         // DIAGNOSTICS only
 
   host.add(varioApp);
@@ -212,7 +216,6 @@ void setup() {
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&gameLog);
   host.setRotation(DISPLAY_ROTATION);
-  app.setClock(&wallClock);
   registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
@@ -257,6 +260,7 @@ void loop() {
   uint32_t dt = fastMicros() - t0;   // not micros(): it once gave -67 s here (a 4.2e9 us 'worst tick')
   if (dt > worstTickUs) worstTickUs = dt;
   gameLog.tick(now, dt);
+  diagnosticsSetApp(varioApp.alive() ? &varioApp->core() : nullptr);   // a destroyed App is never read
   diagnosticsTick(now, worstTickUs);
   delay(pack.loading() ? 0 : host.loopDelayMs());                  // 10 ms; 1 ms while a game runs its fixed frame clock
 }

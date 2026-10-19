@@ -9,6 +9,7 @@
 #include "apps/settings/settings_app.h"
 #include "apps/vario/app/compass_tool.h"
 #include "apps/vario/app/terrain_kit.h"
+#include "apps/vario/app/vario_box.h"
 #include "mocks.h"
 #include "platform/app_registry.h"
 #include "platform/clock.h"
@@ -29,12 +30,11 @@ struct Box {
   MockKeyStore& keys = r.keys;
   WallClock clock;
   AppRegistry registry;
-  App varioCore;
-  VarioApp vario;
-  // Like main_box.cpp: the tool, Tetris and the sim share one arena and exist only while they are the active app.
-  static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimBox), maxSize(sizeof(TerrainKit), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
+  // Like main_box.cpp: the vario (with its map kit), the tool, Tetris and the sim share one arena and exist only while they are the active app.
+  static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
   AppArenaStore<kArenaBytes> arena;
   uint32_t seed;
+  LazyApp<VarioBox> vario;
   LazyApp<CompassTool> compassTool;
   LazyApp<TetrisApp> tetris;
   LazyApp<sim::SimBox> flightSim;
@@ -55,6 +55,12 @@ struct Box {
     void save(uint32_t v) override { k.set(SLOT_TETRIS_BEST, v); }
   } scores;
 
+  static VarioBox* makeVario(void* mem, void* ctx) {
+    Box& b = *static_cast<Box*>(ctx);
+    return new (mem) VarioBox(b.r.panel, b.r.battery, b.r.tracer, b.r.laptop, b.r.settings, b.r.compass, b.r.thermo, b.r.power,
+                              cfg(false), &b.clock, b.kit ? b.kit->terrain.reader() : nullptr);
+  }
+  App& varioCore() { return vario->core(); }                // the vario must be the active app
   static CompassTool* makeCompass(void* mem, void* ctx) {
     Box& b = *static_cast<Box*>(ctx);
     return new (mem) CompassTool(b.r.panel, b.r.battery, b.r.settings, b.r.compass, b.r.thermo, b.r.power, cfg(true));
@@ -81,8 +87,7 @@ struct Box {
   }
 
   explicit Box(uint32_t seed = 1)
-      : varioCore(r.panel, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power, cfg(false)),
-        vario(varioCore), seed(seed),
+      : seed(seed), vario(arena, "vario", makeVario, this),
         compassTool(arena, "compass", makeCompass, this), tetris(arena, "tetris", makeTetris, this),
         flightSim(arena, "flightsim", makeSim, this),
         launcher(r.battery, r.power, registry, r.settings, clock), settings(r.battery, r.compass, r.keys, r.settings, registry, "0.1"),
@@ -95,7 +100,6 @@ struct Box {
     host.add(flightSim);
     host.setLauncher(APP_LAUNCHER);
     host.setProbe(&probe);
-    varioCore.setClock(&clock);
     registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
     registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
     registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
@@ -103,10 +107,10 @@ struct Box {
     registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
   }
 
-  // A map pack for the vario (the kit must outlive the box); the compass tool has no terrain.
+  // A map pack for the vario (the kit must outlive the box; the vario opens its own kit on its reader when it starts);
+  // the compass tool has no terrain.
   void setTerrain(TerrainKit* k) {
     kit = k;                                                // the sim opens the same pack when it is started
-    varioCore.setTerrain(k);
     launcher.setPack(k);
     settings.setPack(k);
   }

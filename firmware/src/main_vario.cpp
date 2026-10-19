@@ -79,7 +79,7 @@ void setup() {
     pack.setTerrainOpen(true);
   }
 
-  diagnosticsBegin(app, panel, compassHw);
+  diagnosticsBegin(&app, panel, compassHw);
   diagnosticsSetPack(&pack);
   diagnosticsBench();                         // DIAGNOSTICS only
   host.add(varioApp);
