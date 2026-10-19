@@ -301,3 +301,5 @@ User additions (2026-10-19):
   `sim_playability` / `sim_day_settings` fail once in a full emulator run (check.sh passes; investigate flakiness).
   User observation (2026-10-19): the tracer's BLE vario reacts instantly on the box (a throw moves the graph at once), so the
   local BMP280 + accel vario idea is dropped; the onboard sensors are only a candidate for gyro circle phase.
+- feather_sense_diag heap margin is ~28 B over the 48 KB guard (49180): the next static in shared code fails the check; trim diag-only statics.
+- Clock lost on every reset/flash: run host/settime.py after flashing (load_pack/logdl set it too); a GPS fix also sets it.
