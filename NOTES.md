@@ -236,8 +236,9 @@ loop restarts the start-up app, with the intro (`PowerNrf::takeResumed()` -> `st
   and after a tap; with unknown time it only looks once a minute. A press must last 1 s to wake (the same anti-pocket rule as
   `gateOnWake`); the hold that powered off must be released first. Battery at or below 2 % on two readings 2 s apart ->
   System OFF (the battery is read about once a minute and on a tap; the percent table puts 2 % near 3.4 V).
-- Screen (`platform/power/clock_view.h`): seven-segment digits drawn with `roundFill`, no font, so no RAM; `--:--` when the
-  time is unknown or older than 12 h (the staleness rule of `clock.h`, unchanged); battery glyph + percentage below.
+- Screen (`platform/power/clock_view.h`, redesigned as an e-paper desk clock, see docs/screens/sleep_station_sheet.png): 12 px margins, hairlines between three blocks.
+  Hero time in round-capped stroke numerals (`platform/gfx/strokes.h`: a disc stamped along lines and arcs, geometric sans, 13 px stroke, 44 x 99 px per numeral, tabular cells, colon = two dots); `--:--` as dashes when the time is unknown or older than 12 h (staleness rule of `clock.h`). Battery: outline with a level, no digits.
+  Small text uses the shared Font1 cache (Sans 9, SansBold 12, and SansBold 18 built by this screen only).
 - Device wait (`power_nrf.cpp`): `ulTaskNotifyTake` with a timeout on the loop task, woken by a GPIOTE interrupt on the switch
   (`attachInterrupt`, PORT-event based, no hi-accuracy). The CPU sleeps in FreeRTOS tickless idle (the core's RTC1 keeps
   `millis()`), so the only regular wake-ups are the panel's 1 Hz VCOM timer, the watchdog feed (every 4 s: the 8 s WDT runs
@@ -254,10 +255,7 @@ current (about 1-10 uA). Expect roughly 50-250 uA, i.e. one to several weeks on 
 same panel-less leakage. To check on the device with a PPK2: sleep current with the panel, without the QSPI power-down
 (`powerDown()` is untested in the field: NOTES "Deep power-down" above), and that tickless idle really is entered (a
 current of about 1 mA would mean it is not).
-- Weather station (the sleep screen, user: "the sleep mode as a clock / weather station"). Layout, top to bottom: battery (small),
-  the time, temperature (integer C) and humidity (%) in big digits, the pressure in hPa with a 3 h tendency arrow (up / sideways
-  / down, doubled when fast) and a forecast pictogram, a 24 h pressure chart (scale: its hi / lo hPa; ticks at -6/-12/-18/-24 h;
-  dotted middle line; open dot = now). No fonts, no words (`platform/power/clock_view.h`, seven-segment glyphs and shapes). Unknown
+- Weather station (the sleep screen, user: "the sleep mode as a clock / weather station"). Layout, top to bottom: date (optional, the box has none yet) and battery, the time, forecast pictogram (72 px, dithered cloud bodies with a 2 px outline) with temperature in stroke numerals + humidity, the pressure in hPa with a 3 h tendency triangle (two when fast), a 24 h pressure line with a light dithered area, a dotted 3 h marker and the "now" ring (`platform/power/clock_view.h`). Unknown
   values read `--` (never the last good value: a missing sensor blanks), an empty chart with no data. Data (`platform/power/weather.h`,
   pure and tested): `WeatherLog`, 144 x int16 hPa*10 (288 B of RAM, lost at reset / System OFF), one sample per 10 min, taken by the
   loop while awake (`weather.sample()` in main_box.cpp, so the history exists when the sleep starts) and at every minute redraw

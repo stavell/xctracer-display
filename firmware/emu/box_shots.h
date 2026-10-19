@@ -108,7 +108,7 @@ static void shots(const char* dir) {
   // The other forecasts: rising (sun), steady (sun + cloud), a deep fall (storm), a sub-zero temperature.
   const struct { const char* name; float d3h, t, rh; Forecast f; } fc[] = {
     {"rising", 4.0f, 24.0f, 41, FC_SUN}, {"steady", 0.2f, 12.0f, 77, FC_SUN_CLOUD},
-    {"cloudy", -2.0f, 6.0f, 88, FC_CLOUD}, {"storm", -7.0f, -3.0f, 100, FC_STORM}};
+    {"cloudy", -2.0f, 6.0f, 88, FC_CLOUD}, {"rain", -4.5f, 9.0f, 93, FC_RAIN}, {"storm", -7.0f, -3.0f, 100, FC_STORM}};
   for (const auto& c : fc) {
     b.sleep = Box::SS_AWAKE;
     b.clock.set(15 * 3600 + 12 * 60, now);
@@ -124,6 +124,21 @@ static void shots(const char* dir) {
     dump(b, dir, nm);
     if (b.weather.forecast() != c.f) fprintf(stderr, "forecast mismatch for %s\n", c.name);
   }
+  // Asleep after the loop: the power-off hold fills the countdown bar; the date variant is drawn directly (the box has no date yet).
+  b.r.panel.setRotation(1);
+  b.r.panel.clear();
+  {
+    Bitmap1 bm = b.r.panel.bitmap();
+    clockview::draw(bm, 23 * 60 + 47, 12, &b.weather, 6, 12);
+  }
+  dump(b, dir, "sleep_station_countdown");
+  b.r.panel.setRotation(1);
+  b.r.panel.clear();
+  {
+    Bitmap1 bm = b.r.panel.bitmap();
+    clockview::draw(bm, 8 * 60 + 5, 100, &b.weather, -1, 12, "Mon 19 Oct");
+  }
+  dump(b, dir, "sleep_station_date");
 
   static std::vector<uint8_t> bytes;
   static terrain::MemReader rd;

@@ -1169,9 +1169,55 @@ static void box_links_off_in_games() {
   CHECK(b.r.links.on && b.r.tracer.paused == false);
 }
 
+// The sleep screen's look: nothing in the side margins, the time numerals sit in fixed cells (tabular: the time does not
+// jump), unknown time and unknown sensors still draw, the countdown bar only touches the bottom strip, drawing is deterministic.
+static void clock_view_look() {
+  puts("clock view: margins, tabular numerals, unknown states, countdown bar");
+  static MockPanel mp;
+  static WeatherLog wl;
+  auto render = [&](int minute, int batt, const WeatherLog* w, int bar) {
+    mp.setRotation(1);
+    mp.clear();
+    Bitmap1 bm = mp.bitmap();
+    clockview::draw(bm, minute, batt, w, bar, 12, nullptr);
+    return bm;
+  };
+  auto ink = [&](const Bitmap1& bm, int x0, int y0, int x1, int y1) {
+    int n = 0;
+    for (int y = y0; y <= y1; y++) for (int x = x0; x <= x1; x++) n += bm.getPixel(x, y) == 0;
+    return n;
+  };
+  for (int i = 0; i < WeatherLog::kN; i++) wl.push(1010.0f + 3.0f * sinf(i * 0.05f));
+  wl.tempC = 18.0f; wl.rhPct = 55.0f;
+  Bitmap1 bm = render(11 * 60 + 11, 50, &wl, -1);
+  CHECK(ink(bm, 0, 0, 11, 399) == 0 && ink(bm, 228, 0, 239, 399) == 0);          // 12 px margins stay white
+  CHECK(ink(bm, 0, 0, 239, 28) > 0 && ink(bm, 0, 40, 239, 140) > 500);           // battery; the hero time
+  const int c0 = (ui::W - (4 * 43 + 2 * 5 + 28)) / 2;                              // the four numeral cells of the hero time
+  const int cells[4] = {c0, c0 + 48, c0 + 2 * 43 + 5 + 28, c0 + 3 * 43 + 2 * 5 + 28};
+  int n1[4];
+  for (int i = 0; i < 4; i++) n1[i] = ink(bm, cells[i], 40, cells[i] + 42, 140);
+  CHECK(n1[0] == n1[1] && n1[2] == n1[3] && n1[0] == n1[2]);                       // identical numerals, identical cells
+  Bitmap1 b8 = render(8 * 60 + 8, 50, &wl, -1);
+  for (int i = 0; i < 4; i++) CHECK(ink(b8, cells[i], 40, cells[i] + 42, 140) > 0 && ink(b8, cells[i] - 4, 38, cells[i] - 1, 142) == 0);
+  CHECK(ink(b8, 0, 0, 11, 399) == 0 && ink(b8, 228, 0, 239, 399) == 0);
+  Bitmap1 bu = render(-1, -1, nullptr, -1);                                        // no time, no battery, no weather
+  CHECK(ink(bu, 0, 40, 239, 60) == 0 && ink(bu, 0, 80, 239, 100) > 0 && ink(bu, 0, 0, 239, 28) == 0);
+  CHECK(ink(bu, 12, 306, 228, 372) > 0);                                           // the empty chart's dotted baseline and "--"
+  Bitmap1 bb = render(600, 50, &wl, 5);
+  CHECK(ink(bb, 0, 386, 239, 399) > 0);
+  Bitmap1 bn = render(600, 50, &wl, -1);
+  CHECK(ink(bn, 0, 386, 239, 399) == 0);
+  static uint8_t before[400 * 240 / 8];
+  render(745, 80, &wl, -1);
+  memcpy(before, mp.raw(), sizeof before);
+  render(745, 80, &wl, -1);
+  CHECK(memcmp(before, mp.raw(), sizeof before) == 0);
+}
+
 static void test_box() {
   clock_sleep_logic();
   weather_station();
+  clock_view_look();
   clock_sleep_box();
   combo_and_debounce();
   host_frame_loop();
