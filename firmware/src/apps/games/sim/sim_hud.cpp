@@ -13,9 +13,26 @@ namespace sim {
 
 namespace {
 // A number for the HUD: "--" for anything that is not finite (a wrong number that looks right is worse than none).
+// f is "%.0f", "%.1f" or either with a leading "+" (shown on non-negative values). Written with integers: snprintf's float
+// conversion is soft double on the chip and took about 0.15 ms a number (six numbers a frame).
 void fmt(char* dst, size_t n, const char* f, float v) {
-  if (!isfinite(v)) snprintf(dst, n, "--");
-  else snprintf(dst, n, f, (double)v);
+  if (!isfinite(v) || n < 16) { snprintf(dst, n, "--"); return; }
+  const bool plus = f[0] == '+';
+  const int dec = f[strlen(f) - 2] == '1' ? 1 : 0;
+  const float scale = dec ? 10.0f : 1.0f;
+  const float a = fabsf(v) * scale;
+  if (a > 1e9f) { snprintf(dst, n, "--"); return; }
+  const uint32_t q = (uint32_t)rintf(a);
+  char* p = dst;
+  if (signbit(v)) *p++ = '-';
+  else if (plus) *p++ = '+';
+  char tmp[12];
+  int k = 0;
+  uint32_t ip = dec ? q / 10 : q;
+  do { tmp[k++] = (char)('0' + ip % 10); ip /= 10; } while (ip);
+  while (k) *p++ = tmp[--k];
+  if (dec) { *p++ = '.'; *p++ = (char)('0' + q % 10); }
+  *p = 0;
 }
 void frame(const Bitmap1& bm, int x, int y, int w, int h) {
   bm.fillRect(x, y, w, h, DRAW_SET);

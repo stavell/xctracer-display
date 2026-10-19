@@ -50,6 +50,74 @@ struct Rot {
 // The glider seen from behind, in one pass. DRAW_SET writes white, DRAW_CLEAR black: the white pass is a halo (outline only,
 // drawn grown) so the black pass reads on dark ground; the black pass fills the canopy solid (arcs stacked down by the
 // canopy's visible depth), draws the lines and the pilot. Hook point (px, py) is the harness; W the half span in pixels.
+// Fill the quadrilateral p[0..3] (screen pixels, portrait rotation: a screen column is a run in one native row) with one vline per column.
+// Measured: the canopy as a stack of 9 - 17 arches of 16 line segments each, drawn pixel by pixel, was 6.9 ms of the 3D frame.
+void fillQuad(const Bitmap1& bm, const int (&px)[4], const int (&py)[4], DrawMode m, int pad, bool padLeft, bool padRight) {
+  int x0 = px[0], x1 = px[0];
+  float slope[4];
+  for (int i = 0; i < 4; i++) {
+    if (px[i] < x0) x0 = px[i];
+    if (px[i] > x1) x1 = px[i];
+    const int j = (i + 1) & 3;
+    slope[i] = px[i] == px[j] ? 0.0f : (float)(py[j] - py[i]) / (float)(px[j] - px[i]);
+  }
+  for (int x = x0; x <= x1; x++) {
+    float lo = 1e9f, hi = -1e9f;
+    for (int i = 0; i < 4; i++) {
+      const int j = (i + 1) & 3;
+      const int ax = px[i], bx = px[j];
+      if ((x < ax && x < bx) || (x > ax && x > bx)) continue;
+      if (ax == bx) {
+        const float ya = (float)py[i], yb = (float)py[j];
+        if (ya < lo) lo = ya;
+        if (ya > hi) hi = ya;
+        if (yb < lo) lo = yb;
+        if (yb > hi) hi = yb;
+      } else {
+        const float y = (float)py[i] + slope[i] * (float)(x - ax);
+        if (y < lo) lo = y;
+        if (y > hi) hi = y;
+      }
+    }
+    if (lo > hi) continue;
+    const int ya = (int)(lo + 1000.5f) - 1000 - pad, yb = (int)(hi + 1000.5f) - 1000 + pad;     // rounded, without lroundf
+    bm.vline(x, ya, yb, m);
+    if (padLeft && x == x0) bm.vline(x - 1, ya, yb, m);
+    if (padRight && x == x1) bm.vline(x + 1, ya, yb, m);
+  }
+}
+
+// The glider seen from behind, in one pass. DRAW_SET writes white, DRAW_CLEAR black: the white pass is a halo (outline only,
+// drawn grown) so the black pass reads on dark ground; the black pass fills the canopy solid (arcs stacked down by the
+// canopy's visible depth), draws the lines and the pilot. Hook point (px, py) is the harness; W the half span in pixels.
+// Fill the quadrilateral p[0..3] (screen pixels, portrait rotation: a screen column is a run in one native row) with one vline per column.
+// Measured: the canopy as a stack of 9 - 17 arches of 16 line segments each, drawn pixel by pixel, was 6.9 ms of the 3D frame.
+void fillQuad(const Bitmap1& bm, const int (&px)[4], const int (&py)[4], DrawMode m) {
+  int x0 = px[0], x1 = px[0];
+  for (int i = 1; i < 4; i++) { if (px[i] < x0) x0 = px[i]; if (px[i] > x1) x1 = px[i]; }
+  for (int x = x0; x <= x1; x++) {
+    float lo = 1e9f, hi = -1e9f;
+    for (int i = 0; i < 4; i++) {
+      const int j = (i + 1) & 3;
+      const int ax = px[i], bx = px[j];
+      if ((x < ax && x < bx) || (x > ax && x > bx)) continue;
+      if (ax == bx) {
+        const float ya = (float)py[i], yb = (float)py[j];
+        if (ya < lo) lo = ya; if (ya > hi) hi = ya;
+        if (yb < lo) lo = yb; if (yb > hi) hi = yb;
+      } else {
+        const float y = py[i] + (float)(py[j] - py[i]) * (float)(x - ax) / (float)(bx - ax);
+        if (y < lo) lo = y;
+        if (y > hi) hi = y;
+      }
+    }
+    if (lo <= hi) bm.vline(x, (int)lroundf(lo), (int)lroundf(hi), m);
+  }
+}
+
+// The glider seen from behind, in one pass. DRAW_SET writes white, DRAW_CLEAR black: the black pass is a halo (the canopy filled
+// and shifted by one pixel to the four sides, so it shows as an outline) so the white pass reads on dark ground; the white pass fills
+// the canopy between its top and bottom arch, draws the lines and the pilot. Hook point (px, py) is the harness; W the half span in pixels.
 void sprite(const Bitmap1& bm, float px, float py, float W, float thick, float rollRad, bool ink, int grow) {
   const DrawMode m = ink ? DRAW_SET : DRAW_CLEAR;
   const float L = 0.78f * W;                              // line length
@@ -62,29 +130,21 @@ void sprite(const Bitmap1& bm, float px, float py, float W, float thick, float r
   r.pt(px, py + 0.12f * W, &a, &b);
   r.pt(px - 0.12f * W, py + 0.42f * W, &c2, &d2);
   r.pt(px + 0.12f * W, py + 0.42f * W, &e2, &f2);
-  const int rows = ink ? (int)thick : 1;
+  int tx[2 * N + 1], ty[2 * N + 1], bx[2 * N + 1], by[2 * N + 1];       // the canopy's top and bottom edge
+  for (int i = -N; i <= N; i++) {
+    const float u = (float)i / N, shape = 1.0f - 0.35f * fabsf(u);
+    r.pt(px + W * u, py + arch(u), &tx[i + N], &ty[i + N]);
+    r.pt(px + W * u, py + arch(u) + thick * shape, &bx[i + N], &by[i + N]);
+  }
+  for (int i = 0; i < 2 * N; i++) {                                     // canopy fill; the halo is the same fill one pixel taller and wider
+    const int qx[4] = {tx[i], tx[i + 1], bx[i + 1], bx[i]};
+    const int qy[4] = {ty[i], ty[i + 1], by[i + 1], by[i]};
+    fillQuad(bm, qx, qy, m, ink ? 0 : grow, !ink && grow && i == 0, !ink && grow && i == 2 * N - 1);
+  }
   for (int oy = -grow; oy <= grow; oy++)
     for (int ox = -grow; ox <= grow; ox++) {
-      // canopy: with ink a stack of arches, each one pixel lower, else just the top edge and the bottom edge
-      for (int k = 0; k <= (ink ? rows : 1); k++) {
-        const float dy = ink ? (float)k : (k ? thick : 0.0f);
-        int lx = 0, ly = 0;
-        for (int i = -N; i <= N; i++) {
-          const float u = (float)i / N;
-          const float yy = py + arch(u) + dy * (1.0f - 0.35f * fabsf(u));
-          int x, y;
-          r.pt(px + W * u, yy, &x, &y);
-          if (i > -N) line(bm, lx + ox, ly + oy, x + ox, y + oy, m);
-          lx = x; ly = y;
-        }
-      }
       // lines from the underside of the canopy to the harness
-      for (int i = -N; i <= N; i += 4) {
-        const float u = (float)i / N;
-        int x, y;
-        r.pt(px + W * u, py + arch(u) + thick * (1.0f - 0.35f * fabsf(u)), &x, &y);
-        line(bm, x + ox, y + oy, hx + ox, hy + oy, m);
-      }
+      for (int i = -N; i <= N; i += 4) line(bm, bx[i + N] + ox, by[i + N] + oy, hx + ox, hy + oy, m);
       line(bm, hx + ox, hy + oy, a + ox, b + oy, m);                // pilot: body and legs
       line(bm, a + ox, b + oy, c2 + ox, d2 + oy, m);
       line(bm, a + ox, b + oy, e2 + ox, f2 + oy, m);
