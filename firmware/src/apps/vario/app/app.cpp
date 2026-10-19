@@ -291,6 +291,7 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   vm.agl = NAN;
   vm.clearance = NAN;
   vm.map = nullptr;
+  vm.credits = creditsOn_;
   vm.mapMPerPx = cfg_.mapMPerPx;
   if (vm.terrainOn) {
     // GNSS altitude (the tracer's GPS height, which is what the DEM's heights are comparable to), never the
@@ -380,6 +381,25 @@ void App::prepareMapPage(const ViewModel& vm, uint32_t now) {
 
 // The sun for the map's shading, from the GPS date and time and the position; it moves 15 degrees an hour, so a
 // look every half minute is plenty. NaN (no date from the tracer yet) means the fixed light.
+// The map credits banner: once per boot (the box builds a new App on every entry, so the flag is a static), up to 3 s,
+// gone at the first press or the first fix. Never later.
+static bool gCreditsDone = false;
+void App::forgetCreditsShown() { gCreditsDone = false; }
+void App::updateCredits(uint32_t now, ButtonEvent ev) {
+  if (!creditsOn_) {
+    if (gCreditsDone || !hasTerrain()) return;
+    gCreditsDone = true;
+    creditsOn_ = true;
+    creditsUntil_ = now + 3000;
+    redraw_ = true;
+    return;
+  }
+  if (now - creditsUntil_ < 0x80000000u || ev != BTN_NONE || (flight_.hasData() && flight_.last().fix)) {
+    creditsOn_ = false;
+    redraw_ = true;
+  }
+}
+
 void App::updateSun(const ViewModel& vm, uint32_t now) {
   if (sunKnown_ && now - sunAtMs_ < 30000u) return;
   sunAtMs_ = now;
@@ -469,6 +489,7 @@ void App::tick(uint32_t now) {
   }
   updateMap(now);
   stepMapPicture();
+  updateCredits(now, ev);
 
   bool local = !laptop_.hostDrawing(now);
   if (local != wasLocal_) {

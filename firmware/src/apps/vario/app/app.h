@@ -65,6 +65,7 @@ class App {
   void begin(uint32_t nowMs);
   void end();                                        // leaving for another app: radios and sensors off
   void tick(uint32_t nowMs);
+  static void forgetCreditsShown();                  // tests: the banner is once per boot, this is a new boot
   // Map picture job statistics for the status line: step() calls since the last call, the longest one (us), a job
   // running, the shown picture is sun-shaded. Resets the counters.
   void takeMapStats(uint32_t* steps, uint32_t* maxUs, bool* building, bool* sun);
@@ -108,6 +109,7 @@ class App {
   void updateMap(uint32_t now);
   ViewModel::Page nextPage(ViewModel::Page p) const;   // the page cycle: compass, thermal, centring, [map], profile, home
   void prepareMapPage(const ViewModel& vm, uint32_t now);   // renders the cached relief when the pilot left its window                     // thermal page, once per tick: scale glide, moving flag
+  void updateCredits(uint32_t now, ButtonEvent ev);
   void updateSun(const ViewModel& vm, uint32_t now);
   void stepMapPicture();
   bool hasData(uint32_t now) const;   // a valid sample arrived recently
@@ -165,6 +167,8 @@ class App {
   ViewModel::Page lastPage_ = ViewModel::PAGE_COMPASS;
   TerrainKit* kit_ = nullptr;
   static constexpr uint32_t kMapStepUs = 5000;      // the map picture job's share of one loop pass
+  bool creditsOn_ = false;           // the once-per-boot credits banner is up
+  uint32_t creditsUntil_ = 0;
   float sunAz_ = NAN, sunEl_ = NAN;                 // the sun for the map's shading (NaN: unknown)
   uint32_t sunAtMs_ = 0;
   bool sunKnown_ = false;

@@ -39,12 +39,13 @@ static void shots(const char* dir) {
 
   struct Scenario { const char* name; int page; int mode; int hour; };   // mode 0 normal, 1 no fix, 2 outside the pack
   const Scenario sc[] = {{"live_agl", 0, 0, 10}, {"map", 4, 0, 10}, {"map_nofix", 4, 1, 10}, {"map_outside", 4, 2, 10},
-                          {"map_evening", 4, 0, 16}, {"map_night", 4, 0, 21}};   // low sun from the west; after dark: the fixed light
+                          {"credits", 0, 4, 10}, {"map_evening", 4, 0, 16}, {"map_night", 4, 0, 21}};   // low sun from the west; after dark: the fixed light
   for (const Scenario& s : sc) {
     // Fresh app and mocks per scenario, built in static storage (big; the soak accounting replaces global new/delete).
     alignas(64) static unsigned char rigMem[sizeof(Rig)], appMem[sizeof(Driven)];
     Rig& r = *new (rigMem) Rig();
     Driven& app = *new (appMem) Driven(r.panel, r.input, r.battery, r.tracer, r.laptop, r.settings, r.compass, r.thermo, r.power);
+    if (s.mode == 4) App::forgetCreditsShown();
     app.setTerrain(&kit);
     kit.map.clearTrack();
     kit.map.invalidate();
@@ -57,7 +58,8 @@ static void shots(const char* dir) {
     const double mpd = 111195.0, v = 40.0 / 3.6, course = 40.0 * 0.017453292519943295;
     double lat = 42.58, lon = 24.80;
     const int total = 180;
-    for (int sec = 0; sec < total; sec++) {
+    for (int sec = 0; sec < (s.mode == 4 ? 1 : total); sec++) {
+      if (s.mode == 4) { run(1000); break; }
       lat += v * cos(course) / mpd;
       lon += v * sin(course) / (mpd * cos(lat * 0.017453292519943295));
       bool outside = s.mode == 2;

@@ -301,6 +301,43 @@ static void test_map_cache() {
 }
 
 // Sun position against values worked out by hand (equinox / solstice noon) and the shading direction.
+static void test_credits() {
+  puts("map credits banner: once per boot, closes at a press or a fix");
+  CHECK(setup());
+  App::forgetCreditsShown();
+  {
+    Session s(&gKit);
+    s.run(500);
+    CHECK(s.app.buildViewModel(s.now).credits);
+    s.run(3000);
+    CHECK(!s.app.buildViewModel(s.now).credits);          // timed out
+  }
+  {
+    Session s(&gKit);                                      // a later entry in the same boot
+    s.run(500);
+    CHECK(!s.app.buildViewModel(s.now).credits);
+  }
+  App::forgetCreditsShown();
+  {
+    Session s(&gKit);
+    s.run(500);
+    CHECK(s.app.buildViewModel(s.now).credits);
+    s.fly(42.62, 24.85, 1300.0, 40, 1);
+    CHECK(!s.app.buildViewModel(s.now).credits);          // a fix closes it at once
+  }
+  App::forgetCreditsShown();
+  {
+    Session s(&gKit);
+    s.run(500);
+    s.press();
+    CHECK(!s.app.buildViewModel(s.now).credits);
+  }
+  Session n(nullptr);                                      // no pack: nothing to credit
+  App::forgetCreditsShown();
+  n.run(500);
+  CHECK(!n.app.buildViewModel(n.now).credits);
+}
+
 static void test_sun() {
   puts("sun: position formula, light vector, shading by the sun");
   float az, el;
@@ -567,6 +604,7 @@ static void run() {
   test_page_cycle();
   test_screens();
   test_map_cache();
+  test_credits();
   test_sun();
   test_map_incremental();
   test_map_cost();

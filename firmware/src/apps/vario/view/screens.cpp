@@ -337,7 +337,6 @@ static void drawStandalone(const ViewModel& vm, const Bitmap1* bm) {
   text(4 + 5 + tw + 10, cellY + 14, "C", F9, AL, WHT);
   cell(4 + cellW + 4, cellY, cellW, "HUMIDITY %", fnum(b, sizeof b, vm.humidityPct, "%.0f"));
 
-  if (vm.terrainOn) text(cx, H - 30, "(c) OpenStreetMap, Copernicus DEM", F9, AC);   // map credits, where nothing else is waiting
   if (vm.link == ViewModel::LINK_CONNECTED) {
     snprintf(b, sizeof b, "%lu ok, %lu bad", (unsigned long)vm.linesOk, (unsigned long)vm.linesBad);
     text(cx, H - 12, b, F9, AC);
@@ -1294,6 +1293,17 @@ static void powerBanner(uint32_t heldMs) {
   hbar(bx + 14, by + 38, bw - 28, 18, (heldMs - 1500) / 1500.0f);
 }
 
+// Once per boot, a few seconds after the vario starts: who made the map data. A centred rounded box over the screen.
+static void creditsBanner() {
+  const int bw = 208, bh = 76, bx = (W - bw) / 2, by = (H - bh) / 2;
+  d->fillRoundRect(bx, by, bw, bh, 10, WHT);
+  d->drawRoundRect(bx, by, bw, bh, 10, BLK);
+  d->drawRoundRect(bx + 1, by + 1, bw - 2, bh - 2, 9, BLK);
+  textMid(W / 2, by + 28, "OpenStreetMap", F12B);
+  textMid(W / 2, by + 48, "(c) contributors", F9);
+  textMid(W / 2, by + 66, "Copernicus DEM", F9);
+}
+
 void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm) {
   begin(g, bm);
   PROF_BEGIN(P_LIVE);
@@ -1305,6 +1315,7 @@ void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitma
   else if (vm.fresh) drawLiveBody(vm, bm);
   else drawStandalone(vm, bm);
   powerBanner(heldMs);
+  if (vm.credits) creditsBanner();
   PROF_END(P_LIVE);
 }
 

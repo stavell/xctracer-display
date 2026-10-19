@@ -230,9 +230,12 @@ void TerrainMap::reliefUnit(Terrain& terr) {
         continue;
       }
       if (bayer8(x, y) >= 4 * gv) bm.pixel(x, y, DRAW_CLEAR);
-      if (c[i]) {                                                    // contour: index lines 2 px wide
-        bm.pixel(x, y, DRAW_CLEAR);
-        if (c[i] == CONTOUR_INDEX) { bm.pixel(x + 1, y, DRAW_CLEAR); bm.pixel(x, y + 1, DRAW_CLEAR); }
+      if (c[i]) {                                                    // contour: dotted (every other pixel), never solid, so it cannot pass for a road
+        if (((x + y) & 1) == 0) bm.pixel(x, y, DRAW_CLEAR);
+        if (c[i] == CONTOUR_INDEX) {                                 // index contour: a second row of dots, still dotted
+          if (((x + 1 + y) & 1) == 0 && x + 1 < jw_) bm.pixel(x + 1, y, DRAW_CLEAR);
+          if (((x + y + 1) & 1) == 0 && y + 1 < jh_) bm.pixel(x, y + 1, DRAW_CLEAR);
+        }
       }
     }
   }
@@ -249,7 +252,7 @@ bool TerrainMap::roadUnit(MapVectors& vec) {
     return ++jpass_ >= 2;
   }
   if (r->cls > 3) return false;                                       // only motorway .. secondary roads, never anything else (rail)
-  static const int core[4] = {3, 2, 2, 1};                              // motorway, trunk, primary, secondary
+  static const int core[4] = {4, 3, 3, 2};                              // motorway, trunk, primary, secondary: always a solid line 2+ px wide
   const Bitmap1 bm = buildBitmap();
   const int cw = core[r->cls];
   for (int i = 0; i + 1 < r->n; i++) {
