@@ -289,8 +289,9 @@ User additions (2026-10-19):
   compass page stays the flat, readable dial unless the user wants it there too (flight rule: practical, eye candy in
   the tools / games). Same 0.0..359.9 heading text.
 - **Start-up animation** that shows off the box's graphics and sets expectations (user, 2026-10-19): a short (~2-3 s,
-  skippable with any press, 50 fps) intro at power-on and on wake from System OFF: e.g. a fly-in over the real 3D terrain
-  from the map pack (the sim's voxel renderer) with the logo forming out of dithered clouds / contour lines, then a
-  clean cut to the start-up app. Rules: never delays the vario beyond the animation (tracer scan starts in parallel),
+  skippable with any press, 50 fps) intro at power-on and on wake from System OFF. Storyboard (user): the sim's chase cam
+  behind a paraglider thermaling tight just under cloudbase over the real 3D terrain from the map pack, climbing into the
+  cloud; the cloud fills the screen as dithered white (the end frame, with the logo / name showing through), and the
+  white-out is the transition into the start-up app. Rules: never delays the vario beyond the animation (tracer scan starts in parallel),
   runs from the shared arena (freed before the start-up app is built), falls back to a 2D logo animation without a
   map pack, off in the vario-only image. A Settings row to turn it off.
