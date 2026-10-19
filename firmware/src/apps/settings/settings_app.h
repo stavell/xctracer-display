@@ -5,7 +5,7 @@
 //   platform/settings/compass_cal.h    the calibration flow, platform/settings/cal_view.h its screen
 //   platform/app_registry.h            the start-up app
 //
-// Rows: Compass calibration, Board mounting, Start-up app, Time zone, About, Home.
+// Rows: Compass calibration, Board mounting, Start-up app, Time zone, Power off (clock / off), About, Home.
 //
 // Input, single switch: short = next row, long = change the value / open (calibration: short cancels, long saves);
 // 3 s hold = back to the home screen (the host does that). Six buttons: UP / DOWN move, LEFT / RIGHT change a value
@@ -31,7 +31,7 @@ class SettingsApp : public IApp {
   }
   void setPack(const terrain::IPackStatus* pack) { pack_ = pack; }
 
-  enum Row { ROW_COMPASS, ROW_MOUNT, ROW_STARTUP, ROW_TZ, ROW_ABOUT, ROW_HOME, ROW_COUNT };
+  enum Row { ROW_COMPASS, ROW_MOUNT, ROW_STARTUP, ROW_TZ, ROW_POWER, ROW_ABOUT, ROW_HOME, ROW_COUNT };
   enum Screen { S_LIST, S_CAL, S_ABOUT };
 
   const char* name() const override { return "settings"; }

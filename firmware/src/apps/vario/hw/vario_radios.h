@@ -12,6 +12,7 @@ class VarioRadios : public IRadios {
     laptop_.disconnect();
     tracer_.disconnect();
   }
+  void resume() override { Bluefruit.Advertising.start(0); }   // the tracer link comes back with the vario's begin()
   void stop() override {
     laptop_.stopAdvertising();
     Bluefruit.Scanner.stop();

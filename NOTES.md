@@ -219,6 +219,41 @@ project is and how to run it; this file says what we found and why things are th
 - Not yet done: USB-present detection, any measurement of 2 Hz versus 3 Hz, sleep or low-power modes
   (only System OFF exists).
 
+## Clock sleep: power off that keeps the time (2026-10-19, emulator and builds only, NOT flashed, NOT measured)
+
+Design. The box image's default "power off" (Settings > Power off, `SLOT_POWER_MODE`, 0 = Clock, 1 = Off) no longer enters
+System OFF: `PowerNrf::shutdown()` stops the radios as before (disconnect, 150 ms, stop advertising / scanning, 800 ms), then
+`clockSleep()` switches the compass off, puts the QSPI flash into deep power-down (not while a map load runs; any later flash
+operation wakes it by itself), draws the clock and sleeps in System ON. Why System ON: a reset loses the WallClock (it only
+ever comes from the tracer's GPS time), and a wake without reset lets the start-up app restart tracer and sensors through
+its normal begin() (`App::end()` pauses the tracer, `begin()` resumes it). Hence `shutdown()` RETURNS in this mode and the
+loop restarts the start-up app (`PowerNrf::takeResumed()` -> `startStartupApp()`).
+- Logic (pure, `platform/power/clock_sleep.h`, `ClockSleep::step()`): draw / wait until / wake / System OFF. Draws on the
+  first step, when the local minute changes (the wait is to the next minute boundary + 50 ms, `WallClock::msToNextMinute`)
+  and after a tap; with unknown time it only looks once a minute. A press must last 1 s to wake (the same anti-pocket rule as
+  `gateOnWake`); the hold that powered off must be released first. Battery at or below 2 % on two readings 2 s apart ->
+  System OFF (the battery is read about once a minute and on a tap; the percent table puts 2 % near 3.4 V).
+- Screen (`platform/power/clock_view.h`): seven-segment digits drawn with `roundFill`, no font, so no RAM; `--:--` when the
+  time is unknown or older than 12 h (the staleness rule of `clock.h`, unchanged); battery glyph + percentage below.
+- Device wait (`power_nrf.cpp`): `ulTaskNotifyTake` with a timeout on the loop task, woken by a GPIOTE interrupt on the switch
+  (`attachInterrupt`, PORT-event based, no hi-accuracy). The CPU sleeps in FreeRTOS tickless idle (the core's RTC1 keeps
+  `millis()`), so the only regular wake-ups are the panel's 1 Hz VCOM timer, the watchdog feed (every 4 s: the 8 s WDT runs
+  in sleep) and the minute redraw. While the switch is down it polls every 20 ms (at most 1 s).
+- Vario-only image: `enableClockSleep()` is never called, `shutdown()` is System OFF exactly as before.
+- Emulator: `Box::tick()` turns `MockPower::requests` into the same state machine (`Box::sleep`); the PC player shows it
+  (hold `off`, then hold the switch 1 s, or press R to restart).
+Sleep current: NOT MEASURED. Estimate from the datasheets: nRF52840 System ON idle with RTC running and RAM retained about
+3-5 uA (the SoftDevice and its 32 kHz clock add a little; tickless idle wakes 1x per second for VCOM and every 4 s for the
+watchdog, each about tens of us), QSPI flash in deep power-down about 1 uA, the Sharp LS027B7DH01 about 50-175 uW static
+(roughly 15-50 uA at 3.7 V) plus the 1 Hz VCOM toggle, LIS3MDL/LSM6DS3/SHT30 and the LiPo divider (the VBAT divider is a
+constant load of 2 x 100k?, about 18 uA at 3.7 V if it is that: check the Feather schematic) and the regulator's quiet
+current (about 1-10 uA). Expect roughly 50-250 uA, i.e. one to several weeks on a 1000 mAh cell; System OFF is a few uA plus the
+same panel-less leakage. To check on the device with a PPK2: sleep current with the panel, without the QSPI power-down
+(`powerDown()` is untested in the field: NOTES "Deep power-down" above), and that tickless idle really is entered (a
+current of about 1 mA would mean it is not).
+Open risks: GPIOTE wake and tickless idle under Bluefruit are untested on the hardware; if the loop task misses an
+edge, the 20 ms poll after the next wake still catches a hold; `radios_.resume()` restarts only the laptop advertising.
+
 ## Open items
 
 1. Verify the tracer's speed unit and behaviour with a real GPS fix, outdoors.

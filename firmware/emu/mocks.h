@@ -223,7 +223,8 @@ class MockThermo : public IThermo {
 
 class MockPower : public IPower {
  public:
-  void shutdown() override { off = true; }
+  void shutdown() override { off = true; requests++; }
+  int requests = 0;                 // shutdown() calls (the box turns one into the clock sleep)
   bool off = false;
 };
 

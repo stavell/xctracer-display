@@ -532,6 +532,14 @@ static void settings_app() {
   b.r.input.setKey(KEY_LEFT, true, u.now); u.run(50); b.r.input.setKey(KEY_LEFT, false, u.now); u.run(50);
   CHECK(b.r.settings.tzMinutes() == -12 * 60);
 
+  // Power off: long press toggles clock / off (stored), the sub line says which.
+  u.shortp();
+  CHECK(b.settings.selected() == SettingsApp::ROW_POWER);
+  CHECK(b.r.settings.powerOffMode() == POWER_OFF_CLOCK);               // the default: unset reads as the clock
+  u.longp();
+  CHECK(b.r.settings.powerOffMode() == POWER_OFF_FULL && b.keys.v[SLOT_POWER_MODE] == 1);
+  u.longp();
+  CHECK(b.r.settings.powerOffMode() == POWER_OFF_CLOCK);
   // About: long press opens, any press goes back. Then Home.
   u.shortp();
   CHECK(b.settings.selected() == SettingsApp::ROW_ABOUT);
@@ -550,13 +558,13 @@ static void settings_app() {
   b.host.start(Box::APP_SETTINGS, u.now);
   u.run(100);
   auto tap = [&](Key k) { b.r.input.setKey(k, true, u.now); u.run(50); b.r.input.setKey(k, false, u.now); u.run(50); };
-  tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN);
+  tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN);
   CHECK(b.settings.selected() == SettingsApp::ROW_ABOUT);
   tap(KEY_ACTION);
   CHECK(b.settings.screen() == SettingsApp::S_ABOUT);
   tap(KEY_B);
   CHECK(b.settings.screen() == SettingsApp::S_LIST && b.host.active() == &b.settings);
-  tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP);
+  tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP);
   tap(KEY_ACTION);                                                   // the Compass row
   CHECK(b.settings.calibrating());
   tap(KEY_B);                                                        // cancels
@@ -713,7 +721,145 @@ static void box_lazy_apps() {
   CHECK(!b.tetris.alive());
 }
 
+// The clock sleep: the pure state machine, the wall clock helper, the screen, and the whole box going to sleep and waking.
+static void clock_sleep_logic() {
+  puts("clock sleep: state machine, minute schedule, wake hold, low battery");
+  WallClock wc;
+  CHECK(wc.msToNextMinute(0) == -1);                                  // unknown
+  wc.set(10 * 3600 + 38 * 60 + 50, 1000);                             // 10:38:50 at t = 1 s
+  CHECK(wc.msToNextMinute(1000) == 10000 && wc.msToNextMinute(5000) == 6000 && wc.msToNextMinute(11000) == 60000);
+  CHECK(wc.msToNextMinute(1000 + 12u * 3600u * 1000u + 1) == -1);     // the 12 h rule applies to the sleep too
+
+  auto in = [](uint32_t t, bool down, int batt, int min, long toMin) {
+    SleepIn i; i.nowMs = t; i.down = down; i.battPct = batt; i.localMinute = min; i.msToMinute = toMin; return i;
+  };
+  ClockSleep s;
+  s.begin();
+  SleepStep st = s.step(in(0, false, 80, 100, 7000));
+  CHECK(st.act == SLEEP_DRAW);                                        // the first screen
+  st = s.step(in(0, false, 80, 100, 7000));
+  CHECK(st.act == SLEEP_WAIT && st.wakeAtMs == 7050);                 // sleeps to the minute change, not a poll
+  CHECK(s.step(in(7050, false, 80, 101, 60000)).act == SLEEP_DRAW);   // once per minute
+  CHECK(s.step(in(7050, false, 80, 101, 60000)).act == SLEEP_WAIT);
+  // A pocket press (under 1 s) redraws, never wakes.
+  st = s.step(in(20000, true, 80, 101, 47000));
+  CHECK(st.act == SLEEP_WAIT && st.wakeAtMs == 20020);
+  CHECK(s.step(in(20999, true, 80, 101, 47000)).act == SLEEP_WAIT);
+  CHECK(s.step(in(21100, false, 80, 101, 47000)).act == SLEEP_DRAW);
+  CHECK(s.step(in(21100, false, 80, 101, 47000)).act == SLEEP_WAIT);
+  // A hold of 1 s wakes.
+  s.step(in(30000, true, 80, 101, 0));
+  CHECK(s.step(in(30999, true, 80, 101, 0)).act == SLEEP_WAIT);
+  CHECK(s.step(in(31000, true, 80, 101, 0)).act == SLEEP_WAKE);
+  // Unknown time: shown once, then only a look every minute (never a redraw of "--:--" for nothing).
+  s.begin();
+  CHECK(s.step(in(0, false, 80, -1, -1)).act == SLEEP_DRAW);
+  st = s.step(in(0, false, 80, -1, -1));
+  CHECK(st.act == SLEEP_WAIT && st.wakeAtMs == 60000);
+  CHECK(s.step(in(60000, false, 80, -1, -1)).act == SLEEP_WAIT);
+  CHECK(s.step(in(61000, false, 80, 5, 3000)).act == SLEEP_DRAW);     // the clock went from stale to ...: whatever it reads is drawn
+  // The switch still down from the power-off hold: no wake until it was released once.
+  s.begin();
+  CHECK(s.step(in(0, true, 80, 100, 5000)).act == SLEEP_WAIT);
+  CHECK(s.step(in(3000, true, 80, 100, 5000)).act == SLEEP_WAIT);
+  CHECK(s.step(in(3100, false, 80, 100, 5000)).act == SLEEP_DRAW);
+  // A nearly empty battery (two readings) ends in System OFF; one noisy reading does not.
+  s.begin();
+  s.step(in(0, false, 80, 100, 5000));
+  s.step(in(5050, false, 80, 101, 60000));
+  CHECK(s.step(in(70000, false, 1, 101, 1000)).act == SLEEP_WAIT);
+  CHECK(s.step(in(72000, false, 40, 101, 1000)).act != SLEEP_OFF);
+  CHECK(s.step(in(140000, false, 1, 102, 1000)).act != SLEEP_OFF);
+  CHECK(s.step(in(142000, false, 2, 102, 1000)).act == SLEEP_OFF);
+  s.begin();
+  CHECK(s.step(in(0, false, 0, 100, 5000)).act == SLEEP_DRAW);        // low at the start: draw, then confirm
+  CHECK(s.step(in(2000, false, 0, 100, 5000)).act == SLEEP_OFF);
+}
+
+static int countInk(MockPanel& p) { return blackPixels(p); }
+
+static void clock_sleep_box() {
+  puts("clock sleep: the box powers off into the clock, wakes by a 1 s hold into the vario, no reset");
+  static Box b;
+  BoxRun u(b);
+  b.r.settings.setTzMinutes(180);
+  b.clock.set(10 * 3600 + 38 * 60 + 50, 0);                           // 13:38:50 local
+  b.boot(0);
+  u.run(500);
+  CHECK(b.r.compass.enabled && !b.r.tracer.paused && b.host.active() == &b.vario);
+  const int vf = b.r.panel.presents;
+  u.off();                                                            // the 3 s hold of the vario
+  CHECK(b.r.power.requests == 1 && b.sleep == Box::SS_CLOCK);
+  CHECK(!b.r.compass.enabled && b.r.tracer.paused);                   // sensors and radios off
+  u.run(500);
+  CHECK(b.clockDraws == 1 && countInk(b.r.panel) > 2000);             // the clock is on the panel
+  const int ink = countInk(b.r.panel);
+  b.r.panel.dump("out/sleep_1338.pgm");
+  const int pres = b.r.panel.presents;
+  // Nothing ticks, nothing redraws, until the minute changes (10 s after the 13:38:50 mark).
+  u.run(4000);
+  CHECK(b.r.panel.presents == pres && b.clockDraws == 1);
+  u.run(3000);
+  CHECK(b.clockDraws == 2 && b.r.panel.presents == pres + 1);         // 13:39
+  const int d2 = b.clockDraws;
+  u.run(5 * 60 * 1000);
+  CHECK(b.clockDraws == d2 + 5);                                      // exactly one screen per minute
+  // Taps and pocket presses do not wake.
+  u.press(150);
+  u.press(700);
+  CHECK(b.sleep == Box::SS_CLOCK && b.host.active() == &b.vario && !b.r.compass.enabled && b.r.tracer.paused);
+  // A hold of 1.2 s wakes into the start-up app, without a reset: the wall clock is still known.
+  b.r.input.press(u.now + 10, 1200);
+  u.run(1100);
+  CHECK(b.sleep == Box::SS_RELEASE || b.sleep == Box::SS_CLOCK);
+  u.run(1000);
+  CHECK(b.sleep == Box::SS_AWAKE && b.host.active() == &b.vario);
+  CHECK(!b.r.tracer.paused && b.clock.localMinutes(180, u.now) >= 0);
+  u.run(500);
+  CHECK(b.r.compass.enabled);                                         // the vario restarted its sensors
+  CHECK(b.r.panel.presents > pres + 6);                               // and draws its own screens again
+  CHECK(countInk(b.r.panel) != ink);
+  CHECK(b.r.power.requests == 1);                                     // the wake hold did not count as another power-off
+  (void)vf;
+
+  // After 12 h without a tracer fix the clock reads "--:--" (never a stale time): the screen changes once more.
+  b.boot(u.now);
+  u.off();
+  CHECK(b.sleep == Box::SS_CLOCK);
+  u.run(500);
+  const int dBefore = b.clockDraws;
+  for (uint32_t e = u.now + 13u * 3600u * 1000u; u.now < e; u.now += 500) b.tick(u.now);   // a sleeping box needs no 10 ms steps
+  CHECK(b.clockDraws > dBefore + 600 && b.clock.localMinutes(180, u.now) == -1);
+  b.r.panel.dump("out/sleep_unknown.pgm");
+
+  // Low battery: the sleep ends in System OFF (and stays there until a reset).
+  b.sleep = Box::SS_AWAKE;
+  b.boot(u.now);
+  b.clock.set(8 * 3600, u.now);
+  u.run(300);
+  u.off();
+  CHECK(b.sleep == Box::SS_CLOCK);
+  u.run(5000);
+  b.r.battery.pct = 1;
+  u.run(130000);
+  CHECK(b.sleep == Box::SS_OFF && countInk(b.r.panel) == 0);
+  b.r.input.press(u.now + 10, 1500);
+  u.run(3000);
+  CHECK(b.sleep == Box::SS_OFF);                                      // a hold does not bring it back
+
+  // Mode "Off" is today's System OFF: no clock.
+  Box c;
+  BoxRun v(c);
+  c.r.settings.setPowerOffMode(POWER_OFF_FULL);
+  c.boot(0);
+  v.run(300);
+  v.off();
+  CHECK(c.sleep == Box::SS_OFF && c.clockDraws == 0);
+}
+
 static void test_box() {
+  clock_sleep_logic();
+  clock_sleep_box();
   combo_and_debounce();
   host_frame_loop();
   box_flow();

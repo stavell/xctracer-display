@@ -12,6 +12,15 @@ class WallClock {
     at_ = nowMs;
     known_ = true;
   }
+  // Milliseconds until the local minute changes (1..60000), or -1 when the time is unknown. The sleeping clock
+  // wakes up exactly then.
+  long msToNextMinute(uint32_t nowMs) const {
+    if (!known_) return -1;
+    const uint32_t dt = nowMs - at_;
+    if (dt > 12u * 3600u * 1000u) return -1;
+    const uint32_t into = (uint32_t)(sec_ % 60) * 1000u + dt % 60000u;
+    return (long)(60000u - into % 60000u);
+  }
   // Local minutes of the day, 0..1439, or -1 when unknown.
   int localMinutes(int tzMinutes, uint32_t nowMs) const {
     if (!known_) return -1;

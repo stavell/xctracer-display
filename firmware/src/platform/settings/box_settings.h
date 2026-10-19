@@ -4,6 +4,7 @@
 // compass tool and the Settings app use them too, and the vario-only image keeps them in the same place.
 // Pure C++ (no flash access of its own).
 #include "platform/ports.h"
+#include "platform/power/clock_sleep.h"
 #include "platform/util/types.h"
 
 class BoxSettings {
@@ -12,6 +13,10 @@ class BoxSettings {
 
   int tzMinutes() const;                           // minutes east of UTC, 0 when none was set
   void setTzMinutes(int minutes);                  // kept within +-24 h (ctl.py may send any int16)
+
+  // What "power off" does in the box image: show the clock in a low-power sleep (default) or switch off completely.
+  PowerOffMode powerOffMode() const { return s_.get(SLOT_POWER_MODE) == POWER_OFF_FULL ? POWER_OFF_FULL : POWER_OFF_CLOCK; }
+  void setPowerOffMode(PowerOffMode m) { s_.set(SLOT_POWER_MODE, (uint32_t)m); }
 
   bool loadMagCal(MagCal& out) const;              // false when none is stored
   void saveMagCal(const MagCal& cal);              // one flash write
