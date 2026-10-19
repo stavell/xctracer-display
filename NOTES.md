@@ -1302,3 +1302,29 @@ contour layers under swelling clouds, the same white-out and name.
   After an unexplained wake check `rst=` in the `dev` line (0x2 = watchdog).
 
 - **Pilot and wing sprite (chase.cpp, shared by the 3D sim and the intro)**: the dangling-legs pilot is now an XC pod harness seen from behind-above (egg-shaped cocoon, helmet, neck line, spine seam, two carabiners at the shoulders where the lines meet); the wing is slimmer (7-13 px thick), a stronger elliptical arc (tips 0.30 W down), thinning toward the tips, 8 cell seams and a panel line sweeping to each tip. About the same number of fills as before (3 pod quads replace 3 lines). Not yet timed on the device. The intro 2D fallback glyph has the pod too.
+
+## 3D compass (2026-10-19, PC only, no device timing)
+
+What: `apps/compass3d/compass3d.{h,cpp}`, shown by the Compass & weather tool (`apps/vario/app/compass_tool.h`: a dome page in game frame mode, 20 ms, and the
+old flat page behind a short press; the App's list / calibration screens take over the frame loop while open). Pure code, 18 kB in the tool's object (the
+arena block is 91 kB, the tool stays far below the vario), no statics, heap untouched.
+
+Design: the card is a disc of 72 segments with a 0.17 R wall, seen from a camera 3.4 R away, tilted 20 degrees back (`kBias`, so a flat box already shows depth).
+Orientation = `Ahrs::quaternion()` through a spring-damper on the rotation error (omega 11 rad/s, zeta 0.5: 13 % overshoot on a 90 degree turn, within 1 degree
+at 0.5 s); the number is `Ahrs::heading()` through `bearingTenths` (exact, never filtered). Drawing straight into the portrait panel's native rows: a vertical
+run of logical column x is a run of bits in one native row, so a convex polygon is one `col()` per column (lo / hi per column from the edges, word-wise
+`fastFill` in the middle, Bayer pattern byte = f(level, x & 7) because native bit k of every byte is logical y = 399 - 8b - k). Ops: write, OR, AND (shadows and
+the glass vignette darken what is under them). Static dome (liquid shaded like a lit bowl, two-bevel bezel, number window, vial, weather cells) is a 12 kB plate
+copied with `fastCopy`. Text on the card is stroked polylines projected like the card (they foreshorten); the heading digits are stroke numerals pre-rendered
+into 12 Atlases (2.7 kB), no font and no snprintf in the frame. Wall quads: visible iff `n.z * kDist > R` (exact for a cylinder seen from a point).
+Safety bounds found by the test: the farthest rim point of any orientation is 91 px at `kCardPx` 86 (glass radius 102), so 92 px stays inside.
+
+Cost (device cycles are ESTIMATED from counted work, `test c3t_run` prints it): ~1.9-2.2 k vertical runs, 7-12 kB written, ~690 projected points,
+~3.3 k line pixels, ~350 spans -> 5-7.2 ms per frame at 90 / 5 per byte / 70 / 22 / 45+12 cycles. Target was <= 15 ms; to be measured on the device.
+Not flashed: the device has the user's clock set.
+
+PC player: arrows tilt the virtual box, `0` levels it, `T` = mouse tilt, `,` `.` / wheel turn it; the mock compass has a gyro that follows the scripted
+orientation (`MockCompass::gyroFromMotion`, needs `nowMs` from `Box::tick`), otherwise the zero-rate mock gyro makes the AHRS lag seconds behind.
+`build.sh` writes `out/compass3d_*.png` and the sheet `out/compass3d_sheet.png` (copy: `docs/screens/compass3d_sheet.png`); `out/emu c3shots out` renders only these.
+Lessons: a mock gyro that returns exactly 0 trips the AHRS stuck-gyro guard (80 identical samples) - the first renders showed dashes; the dome's glass highlight
+has to be white strokes on the dark liquid, on the pale card it would not show.

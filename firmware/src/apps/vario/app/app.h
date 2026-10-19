@@ -91,6 +91,9 @@ class App {
   bool compassOn() const { return compassOn_; }
   const Compass& compass() const { return compass_; }
   const Ahrs& ahrs() const { return ahrs_; }
+  void requestRedraw() { redraw_ = true; }                  // the next wantsFrame() is true (a host that switched pages)
+  float ambientC(uint32_t nowMs) const { return haveAmbient_ && nowMs - ambientMs_ <= 10000 ? ambientC_ : NAN; }
+  float ambientRh(uint32_t nowMs) const { return haveAmbient_ && nowMs - ambientMs_ <= 10000 ? ambientRh_ : NAN; }
   bool fused() const { return fused_; }                     // the compass heading comes from the gyro fusion
   int mountIndex() const { return mount_; }
   const char* lastRaw() const { return lastRaw_; }          // last line received, parsed or not (diagnostics)

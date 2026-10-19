@@ -144,6 +144,7 @@ struct Box {
     }
   }
   void tick(uint32_t now) {
+    r.compass.nowMs = now;                                  // a mock gyro that follows the scripted orientation needs the time
     if (sleep != SS_AWAKE) { sleepTick(now); return; }
     host.tick(now);
     weather.sample(now, r.baro);                            // as main_box.cpp: sampled while awake too

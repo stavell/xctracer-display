@@ -283,11 +283,10 @@ speed-up (pump the loader in a tight loop during a load), QSPI deep power-down m
 User additions (2026-10-19):
 - **Flight sim HUD: flight time and distance from takeoff** (straight-line from the takeoff point, km with one decimal;
   flight time from the sim clock, so x3 time shows sim minutes). Visual, no extra text labels beyond the standard units.
-- **A 3D compass** instead of the flat dial: a tilted, perspective compass card / globe that rolls and pitches with the
-  box (AHRS), shaded with the gray dither. RAM is not the limit: the compass tool lives in the shared app arena
-  (91 kB block, the tool uses 43 kB) and the heap has ~80 kB. Put it in the Compass & weather tool first; the vario's
-  compass page stays the flat, readable dial unless the user wants it there too (flight rule: practical, eye candy in
-  the tools / games). Same 0.0..359.9 heading text.
+- **A 3D compass**: done 2026-10-19 (`apps/compass3d`, NOTES "3D compass"): the Compass & weather tool opens on a glass dome with a
+  perspective compass card (AHRS-driven, spring-damped, dither-shaded, 50 fps game frame mode); a short press swaps to the flat dial +
+  weather page the tool had. The vario's own compass page stays the flat dial. Still to do: measure the frame time on the device (estimate
+  6.5-7 ms draw), pressure on the weather strip (the tool has no barometer reading), maybe a tilt-limit option for a box held upright.
 - **Start-up animation**: done 2026-10-19 (`apps/intro`, NOTES "Start-up animation"); frame time and the added time to the first vario frame still to be measured on the device.
 - **Sun shading on the vario's map page**: done 2026-10-19 (see NOTES.md, "Map page: no more 1.9 s stall"); the sim's top-down map could still use the same sun.
 - Intro measured on the device (15ab75e): start 0.29 s (height fill 0.23 s), first second 44.5 fps (draw 21 ms),

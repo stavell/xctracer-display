@@ -178,7 +178,26 @@ class MockCompass : public ICompass {
     // board-frame data: the inverse of the case mounting the app will apply
     if (boardMount) { a = mountInverse(boardMount, a); m = mountInverse(boardMount, m); }
     haveGyro = gyro;
-    if (gyro) {                                   // still unit: a few counts of noise (a frozen gyro is a failure)
+    if (gyro && gyroFromMotion) {
+      double ax[3][3];
+      deviceAxes(psi, pitch, roll, ax);
+      g = Vec3();
+      if (haveAx_ && nowMs > lastAxMs_) {
+        const double dt = (nowMs - lastAxMs_) * 0.001;
+        // d(axis_k)/dt = w x axis_k (world frame); in the device frame w_i = 0.5 sum e_ijk (axis_k . d axis_j / dt)
+        auto dot = [&](int i, int j) { return ax[i][0] * (ax[j][0] - prevAx_[j][0]) + ax[i][1] * (ax[j][1] - prevAx_[j][1]) + ax[i][2] * (ax[j][2] - prevAx_[j][2]); };
+        g.x = (float)(0.5 * (dot(2, 1) - dot(1, 2)) / dt);
+        g.y = (float)(0.5 * (dot(0, 2) - dot(2, 0)) / dt);
+        g.z = (float)(0.5 * (dot(1, 0) - dot(0, 1)) / dt);
+      }
+      if (!haveAx_ || nowMs != lastAxMs_) { memcpy(prevAx_, ax, sizeof ax); lastAxMs_ = nowMs; haveAx_ = true; }
+      if (gyroNoise > 0) {                        // a frozen gyro is a failure: a live one never repeats itself
+        seed = seed * 1664525u + 1013904223u; g.x += gyroNoise * ((seed >> 8) / 8388608.0f - 1.0f);
+        seed = seed * 1664525u + 1013904223u; g.y += gyroNoise * ((seed >> 8) / 8388608.0f - 1.0f);
+        seed = seed * 1664525u + 1013904223u; g.z += gyroNoise * ((seed >> 8) / 8388608.0f - 1.0f);
+      }
+      if (boardMount) g = mountInverse(boardMount, g);
+    } else if (gyro) {                            // still unit: a few counts of noise (a frozen gyro is a failure)
       g = Vec3();
       if (gyroNoise > 0) {
         seed = seed * 1664525u + 1013904223u; g.x = gyroNoise * ((seed >> 8) / 8388608.0f - 1.0f);
@@ -189,7 +208,8 @@ class MockCompass : public ICompass {
     }
     return true;
   }
-  void reading(double psiDeg, double pitchDeg, double rollDeg, Vec3& a, Vec3& m) const {
+  // The device axes (x right, y top, z out of the screen) in east / north / up for heading psi, pitch (top up), roll (right edge down), degrees.
+  static void deviceAxes(double psiDeg, double pitchDeg, double rollDeg, double ax[3][3]) {
     const double D2R = 0.017453292519943295;
     double p = psiDeg * D2R, t = pitchDeg * D2R, r = rollDeg * D2R;
     // level device axes in east/north/up, then pitch about x, then roll about y
@@ -202,7 +222,11 @@ class MockCompass : public ICompass {
       x2[i] = x1[i] * cos(r) - z1[i] * sin(r);
       z2[i] = x1[i] * sin(r) + z1[i] * cos(r);
     }
-    const double *ax[3] = {x2, y1, z2};
+    for (int i = 0; i < 3; i++) { ax[0][i] = x2[i]; ax[1][i] = y1[i]; ax[2][i] = z2[i]; }
+  }
+  void reading(double psiDeg, double pitchDeg, double rollDeg, Vec3& a, Vec3& m) const {
+    double ax[3][3];
+    deviceAxes(psiDeg, pitchDeg, rollDeg, ax);
     const double up[3] = {0, 0, 1}, field[3] = {0, 20, -40};
     double av[3], mv[3];
     for (int k = 0; k < 3; k++) {
@@ -212,12 +236,19 @@ class MockCompass : public ICompass {
     a.x = (float)av[0]; a.y = (float)av[1]; a.z = (float)av[2];
     m.x = (float)(mv[0] + hardIron[0]); m.y = (float)(mv[1] + hardIron[1]); m.z = (float)(mv[2] + hardIron[2]);
   }
+  // Gyro that follows the scripted orientation (set gyroFromMotion; the owner sets nowMs before each tick): the angular velocity
+  // in the device frame from the change of the device axes since the last read, so a fast scripted turn is followed like on a real unit.
+  bool gyroFromMotion = false;
+  uint32_t nowMs = 0;
   bool enabled = false;
   bool gyro = false;                // has a gyro (zero rates plus gyroNoise rad/s of noise)
   float gyroNoise = 0.002f;
   int boardMount = 0;               // data is delivered in the board frame of this mounting index
   uint32_t seed = 12345;
   int enables = 0;
+  double prevAx_[3][3] = {};
+  uint32_t lastAxMs_ = 0;
+  bool haveAx_ = false;
   double psi = 0, pitch = 0, roll = 0;
   double hardIron[3] = {0, 0, 0};
 };

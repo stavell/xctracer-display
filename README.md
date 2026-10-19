@@ -417,6 +417,16 @@ coming back starts fresh and reconnects the tracer. The radios, settings and the
 
 ![Home screen, Settings, compass calibration, About, the vario menu with its Home row](docs/screens/box.png)
 
+**3D compass** (`apps/compass3d`, the Compass & weather tool's first page, 50 fps). A compass card with a raised, graduated rim floats level
+in a glass dome and points north while the box is tilted and turned (AHRS quaternion, perspective, back-face culling, 8x8 Bayer shading
+with a fixed light, soft shadow, glass reflections). The card follows through a damped spring like a liquid compass (a little overshoot);
+the number below is the exact heading (`0.0`..`359.9`, the vario's helper), with a bubble level and temperature / humidity. No calibration
+shows a figure-8 hint, a disturbed field greys and shakes the card (magnet icon), no attitude shows dashes. A short press of the switch swaps
+to the flat dial and weather page; the long press menu (Home) and every other way out are unchanged. Try it: `build.sh play box`, open Compass,
+arrows tilt the virtual box, `,` `.` turn it.
+
+![3D compass: turning, tilting, a quick spin, disturbed field, no calibration, no sensor](docs/screens/compass3d_sheet.png)
+
 **Start-up animation** (`apps/intro`, box image only). At power-on, on wake from System OFF and on the way out of the clock sleep
 the box plays a 4.5 s intro at 50 fps before the start-up app: the flight sim's chase camera behind a paraglider thermaling a full turn and a bit (XC pilot in a pod harness under a slender elliptical wing)
 under a cumulus over the real terrain of the map pack, climbing into the cloud, which fills the screen as dithered white with
@@ -474,12 +484,13 @@ plays an IGC file (converted by `host/make_lines.py`) or a line file (`--lines f
 | Enter or Esc | the user switch. Hold it: 0.7-1.5 s is the long press, 3 s the hold; the title shows `MAIN 1.2 s` |
 | arrows, X, Z | D-pad, A, B (A + B held 1.5 s = home screen) |
 | `,` `.` or mouse wheel | turn the compass heading |
+| arrows, `0`, `T` (Compass tool) | tilt the virtual box (pitch, roll; `0` = level), `T` = the mouse tilts it (x roll, y pitch) |
 | C, R, Q | Tetris hold piece, restart (reboot the box), quit |
 
 The window title shows the app, frames per second (frames the host actually presented) and the compass heading.
 Headless: `play box --igc f.igc --speed 12 --keys "200 shot:a.png main 30 long 20 shot:b.png"` (tokens: `main left
 right up down a b` taps, `long` 0.9 s, `off` 3.2 s hold, `combo` A + B, `+key` / `-key`, a number = 30 ms frames,
-`turn:90`, `shot:file.png`). `firmware/emu/build.sh smoke` runs a fixed script and checks which app is active at each
+`turn:90`, `tilt:30,-10` (pitch, roll), `shot:file.png`). `firmware/emu/build.sh smoke` runs a fixed script and checks which app is active at each
 screenshot (`emu/out/box_*.png`); `check.sh` runs it.
 
 ### Stack check

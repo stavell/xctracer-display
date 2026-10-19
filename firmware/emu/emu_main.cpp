@@ -48,6 +48,7 @@
 #include "box_shots.h"
 #include "map_page_shots.h"
 #include "intro_shots.h"
+#include "compass3d_shots.h"
 
 static void watchdog(int) {
   fputs("WATCHDOG: the emulator is stuck (infinite loop?)\n", stderr);
@@ -183,7 +184,7 @@ static void renderGray(const std::string& out, int rot) {
 static bool gCountMode = false;
 
 static int cmdShots(const std::string& out, int rot) {
-  if (!gCountMode) { ts::shots(out.c_str()); bs::shots(out.c_str()); ms::shots(out.c_str()); simshots::fixtureShots(out.c_str()); is::shots(out.c_str()); }
+  if (!gCountMode) { ts::shots(out.c_str()); bs::shots(out.c_str()); ms::shots(out.c_str()); simshots::fixtureShots(out.c_str()); is::shots(out.c_str()); c3s::shots(out.c_str()); }
   struct Sc { const char* name; };
   const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag",
                          "center", "center_first", "center_none", "center_left", "center_off", "center_half", "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};
@@ -808,6 +809,7 @@ int main(int argc, char** argv) {
     return cmdShots(argv[2], argc > 3 ? atoi(argv[3]) : 1);
   }
   if (argc >= 3 && !strcmp(argv[1], "introshots")) { is::shots(argv[2], argc > 3 ? argv[3] : nullptr); return 0; }   // emu introshots <outdir> [pack]
+  if (argc >= 3 && !strcmp(argv[1], "c3shots")) { c3s::shots(argv[2]); return 0; }   // only the 3D compass renders (fast)
   if (argc >= 3 && !strcmp(argv[1], "shots")) return cmdShots(argv[2], argc > 3 ? atoi(argv[3]) : 1);
   if (argc >= 4 && !strcmp(argv[1], "replay")) return cmdReplay(argc, argv);
   fputs("usage: emu shots <outdir> [rot] | emu replay <lines.txt> <outdir> [--hz N] [--inject] [--mix FILE] [--shot-every S] [--rot R]\n", stderr);

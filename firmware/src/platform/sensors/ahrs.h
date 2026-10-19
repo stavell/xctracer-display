@@ -51,6 +51,8 @@ class Ahrs {
   Vec3 bias() const { return bias_; }             // rad/s
   float biasDps() const;                          // magnitude, deg/s (diagnostics)
   Vec3 up() const;                                // predicted gravity direction (unit, device frame)
+  void quaternion(float out[4]) const { for (int i = 0; i < 4; i++) out[i] = q_[i]; }   // w x y z, device -> world (east, north, up)
+  float trust() const { return dbg_.trust; }      // weight of the magnetic field in the last update, 1 = clean, 0 = rejected
   bool still() const { return stillWin_ >= 1; }   // box has been still for about a second
   struct Debug { float trust, hxy, magRef, dipRef, dip, gstdDps; int magOk, stillWin, biasWins, winBad; };
   Debug debug() const { return dbg_; }            // last values, for the diagnostics status line

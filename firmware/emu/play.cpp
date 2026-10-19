@@ -15,7 +15,8 @@
 //
 // The mock tracer plays an IGC file (converted by host/make_lines.py) or a line file at --speed lines per
 // second (default 3, the tracer's rate), only while the vario runs: a paused tracer misses its lines, like the
-// real one flying on. The compass heading turns with the mouse wheel or the , and . keys.
+// real one flying on. The compass heading turns with the mouse wheel or the , and . keys. In the Compass tool (3D compass) the
+// arrow keys tilt the virtual box (0 = level) and T makes the mouse the tilt (x = roll, y = pitch).
 //
 // Headless mode (--frames, --screenshot or --keys given): no window, virtual time (10 ms host ticks, 30 ms
 // frames), a scripted input sequence, PNG output. Script tokens, separated by spaces:
@@ -27,6 +28,7 @@
 //   +left / -left                 press / release and keep it
 //   12                            wait 12 frames
 //   turn:90                       set the compass heading
+//   tilt:30,-10                   tilt the virtual box: pitch (top up) and roll (right edge down), degrees (3D compass)
 //   shot:file.png                 save a screenshot now
 // Without --keys the Tetris script is "main" followed by fixed moves (a demo game).
 #define SDL_MAIN_HANDLED
@@ -283,7 +285,7 @@ struct World {
   size_t next = 0;
   uint32_t t0 = 0, thermoAt = 0;
   bool started = false;
-  double heading = 0;
+  double heading = 0, pitch = 0, roll = 0;          // the virtual box: heading (wheel, , .), pitch (top up) and roll (right edge down), degrees
   float temp = 21.4f;
   int battery = 76;
   bool sim = false, simSent = false;
@@ -293,8 +295,10 @@ struct World {
     if (!started) { started = true; t0 = now; thermoAt = now; r->battery.pct = battery; }
     if (sim && !simSent) { simSent = true; r->laptop.sim(true); }
     r->compass.psi = heading;
-    r->compass.pitch = 0;
-    r->compass.roll = 0;
+    r->compass.pitch = pitch;
+    r->compass.roll = roll;
+    r->compass.gyro = true;                           // a gyro that follows the motion: the card of the 3D compass moves like on the device
+    r->compass.gyroFromMotion = true;
     if (!lines.empty()) {
       size_t due = (size_t)((now - t0) * speed / 1000.0);
       if (due > lines.size()) due = lines.size();
@@ -367,6 +371,11 @@ struct Runner {
       if (isdigit((unsigned char)tok[0])) step(atoi(tok.c_str()));
       else if (tok.compare(0, 5, "shot:") == 0) shot(tok.substr(5));
       else if (tok.compare(0, 5, "turn:") == 0) world.heading = atof(tok.c_str() + 5);
+      else if (tok.compare(0, 5, "tilt:") == 0) {      // tilt:PITCH,ROLL in degrees (3D compass)
+        const char* c = strchr(tok.c_str() + 5, ',');
+        world.pitch = atof(tok.c_str() + 5);
+        world.roll = c ? atof(c + 1) : 0;
+      }
       else if (tok == "hold") held(KEY_MAIN, 17);
       else if (tok == "long") held(KEY_MAIN, 30);
       else if (tok == "off") held(KEY_MAIN, 107);
@@ -411,6 +420,8 @@ static const char* kHelp =
     "       Enter / Esc = the user switch (hold it: 0.7-1.5 s long press, 3 s hold; the title shows the time)\n"
     "       A + B held 1.5 s = back to the launcher      , and . or the mouse wheel = turn the compass\n"
     "       C = Tetris hold piece (a 0.46 s press of the switch)    R = restart    Q or close the window = quit\n"
+    "Compass tool (3D compass, 50 fps): , . / wheel = turn the box, arrows = tilt it (0 = level), T = the mouse tilts it (x roll, y pitch);\n"
+    "       the switch (Enter) swaps to the flat dial and weather page and back\n"
     "Flight sim (game mode, 50 fps): LEFT/RIGHT bank, UP speed bar, DOWN brake, X (A) = map / 3D view, F = time x1/x3/x5, Z (B) or Esc = pause menu\n"
     "       (resume, view, assist, site, controls, zero tilt, new flight, home); after landing X = new flight\n"
     "       T = tilt steering with the mouse (x = roll, y = pitch, top of the window = top away = speed bar); T again = buttons\n";
@@ -447,7 +458,13 @@ static int runWindow(Machine& m, World& w, Args& a) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_QUIT) running = false;
-      if (e.type == SDL_MOUSEMOTION && tiltOn && m.tilt()) {
+      const bool compassActive = m.host().active() && !strcmp(m.host().active()->name(), "compass");
+      if (e.type == SDL_MOUSEMOTION && tiltOn && compassActive) {
+        int ww = 1, wh = 1;
+        SDL_GetWindowSize(win, &ww, &wh);
+        w.roll = ((float)e.motion.x / ww - 0.5f) * 160.0f;                 // window edge = 80 degrees
+        w.pitch = (0.5f - (float)e.motion.y / wh) * 160.0f;                // top of the window = 80 degrees top up
+      } else if (e.type == SDL_MOUSEMOTION && tiltOn && m.tilt()) {
         int ww = 1, wh = 1;
         SDL_GetWindowSize(win, &ww, &wh);
         m.tilt()->roll = ((float)e.motion.x / ww - 0.5f) * 90.0f;     // window edge = 45 degrees
@@ -458,11 +475,21 @@ static int runWindow(Machine& m, World& w, Args& a) {
       bool down = e.type == SDL_KEYDOWN;
       now = SDL_GetTicks();
       SDL_Keycode sym = e.key.keysym.sym;
+      auto tiltKey = [&](SDL_Keycode k) {             // the arrow keys tilt the virtual box in the compass tool
+        if (!compassActive) return;
+        if (k == SDLK_UP) w.pitch = fmin(w.pitch + 4, 180);
+        if (k == SDLK_DOWN) w.pitch = fmax(w.pitch - 4, -180);
+        if (k == SDLK_RIGHT) w.roll = fmin(w.roll + 4, 180);
+        if (k == SDLK_LEFT) w.roll = fmax(w.roll - 4, -180);
+        if (k == SDLK_0) w.pitch = w.roll = 0;
+      };
       if (down && e.key.repeat) {                     // the compass keys repeat; the buttons do not
         if (sym == SDLK_COMMA) w.heading = fmod(w.heading - 3 + 360, 360);
         if (sym == SDLK_PERIOD) w.heading = fmod(w.heading + 3, 360);
+        tiltKey(sym);
         continue;
       }
+      if (down) tiltKey(sym);
       MockInput& in = m.input();
       switch (sym) {
         case SDLK_LEFT: in.setKey(KEY_LEFT, down, now); break;
@@ -483,7 +510,8 @@ static int runWindow(Machine& m, World& w, Args& a) {
           }
           break;
         case SDLK_t:
-          if (down && m.tilt() && m.flightSim()) {
+          if (down && compassActive) tiltOn = !tiltOn;
+          else if (down && m.tilt() && m.flightSim()) {
             tiltOn = !tiltOn;
             m.tilt()->on = tiltOn;
             if (tiltOn) {
@@ -541,7 +569,7 @@ static int runWindow(Machine& m, World& w, Args& a) {
         const FrameStats& st = m.host().stats();
         n += snprintf(t + n, sizeof t - n, "  gap max %u ms  work max %.1f ms  late %u", st.worstGapMs, workShown, st.dropped);
       }
-      if (m.rig()) n += snprintf(t + n, sizeof t - n, "  hdg %03.0f", w.heading);
+      if (m.rig()) n += snprintf(t + n, sizeof t - n, "  hdg %03.0f pitch %.0f roll %.0f", w.heading, w.pitch, w.roll);
       if (held > 0) snprintf(t + n, sizeof t - n, "  MAIN %.1f s%s", held / 1000.0, held >= 3000 ? " HOLD" : held >= 1500 ? " (cancel zone)" : held >= 700 ? " LONG" : "");
       SDL_SetWindowTitle(win, t);
     }
