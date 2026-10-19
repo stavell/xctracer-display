@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 #include "apps/vario/app/terrain_kit.h"
+#include "platform/util/numfmt.h"
+#include <random>
 
 namespace map_page_tests {
 using namespace terrain;
@@ -346,6 +348,91 @@ static void test_map_cost_real() {
     }
 }
 
+// fmtFixed must give the very string snprintf gives, for every format the views use.
+static void test_numfmt() {
+  const char* fmts[] = {"%.0f", "%.1f", "%+.0f", "%+.1f", "%.2f", "%.3f", "%+.3f"};
+  long bad = 0, n = 0;
+  auto one = [&](float v) {
+    for (const char* f : fmts) {
+      int dec; bool plus;
+      CHECK(fmtFixedSpec(f, &dec, &plus));
+      char a[32], b[32];
+      snprintf(a, sizeof a, f, v);
+      const bool ok = fmtFixed(b, sizeof b, v, dec, plus);
+      n++;
+      if (!ok) { if (!(fabsf(v) >= 1e9f)) { bad++; printf("  numfmt refused %g\n", v); } continue; }
+      if (strcmp(a, b) != 0) { if (bad++ < 10) printf("  numfmt %s of %.9g: snprintf '%s', fmtFixed '%s'\n", f, v, a, b); }
+    }
+  };
+  // ties, rounding edges, signs, zero, tiny, large
+  for (int i = -4000; i <= 4000; i++) {
+    one(i * 0.5f); one(i * 0.25f); one(i * 0.125f); one(i * 0.05f); one(i * 0.1f); one(i * 0.01f); one(i * 0.001f);
+    one(i * 0.05f + 0.0001f); one(i * 0.05f - 0.0001f);
+  }
+  one(0.0f); one(-0.0f); one(-0.04f); one(-0.4f); one(-0.5f); one(0.5f); one(1.5f); one(2.5f); one(0.95f); one(0.05f);
+  one(9.95f); one(99.95f); one(999999.5f); one(123456789.0f); one(999999999.0f); one(1e-30f); one(-1e-30f);
+  one(1e-45f); one(1.17549435e-38f); one(8388607.5f); one(16777216.0f); one(0.99999994f); one(-0.99999994f);
+  // every float of a few binades by consecutive bit patterns, and random bit patterns
+  for (uint32_t bitsBase : {0x3F7FFF00u, 0x3F000000u, 0x41200000u, 0x4B7FFF00u, 0x00000000u, 0x80000000u, 0xBF7FFF00u}) {
+    for (uint32_t k = 0; k < 4096; k++) {
+      uint32_t bits = bitsBase + k;
+      float v; memcpy(&v, &bits, 4);
+      if (isfinite(v)) one(v);
+    }
+  }
+  std::mt19937 rng(12345);
+  for (int i = 0; i < 40000; i++) {
+    uint32_t bits = rng();
+    float v; memcpy(&v, &bits, 4);
+    if (isfinite(v)) one(v);
+    one((float)((int)(rng() % 2000001) - 1000000) / 1000.0f);        // plausible readings: +-1000 with 3 decimals
+    one((float)((int)(rng() % 20000001) - 10000000) / 100.0f);
+  }
+  printf("  numfmt: %ld strings compared with snprintf, %ld differences\n", n, bad);
+  CHECK(bad == 0);
+  char s[4];
+  CHECK(fmtFixed(s, sizeof s, 12345.0f, 1, false) && strcmp(s, "123") == 0);   // truncates like snprintf
+  CHECK(!fmtFixed(s, sizeof s, NAN, 1, false) && !fmtFixed(s, sizeof s, 2e9f, 0, false));
+  { int dd; bool pp; CHECK(!fmtFixedSpec("%d", &dd, &pp) && !fmtFixedSpec("%.4f", &dd, &pp)); }
+}
+
+// The float map maths against the double formulas they replaced.
+static void test_map_float_maths() {
+  if (!setup()) { CHECK(false); return; }
+  const MapVectors& vec = gKit.vec;
+  const PackInfo& I = gKit.terrain.info();
+  double worstUnit = 0, worstXf = 0;
+  std::mt19937 rng(7);
+  for (int i = 0; i < 2000; i++) {
+    const double lat = 41.3 + (rng() % 29000) * 1e-4, lon = 22.4 + (rng() % 60000) * 1e-4;
+    const int32_t la = (int32_t)llround(lat * 1e7), lo = (int32_t)llround(lon * 1e7);
+    double ux, uy;
+    vec.latLonToUnit(la * 1e-7, lo * 1e-7, &ux, &uy);
+    float fx, fy;
+    vec.latLonToUnitE7(la, lo, &fx, &fy);
+    worstUnit = fmax(worstUnit, fmax(fabs(fx - ux), fabs(fy - uy)));
+    // transform against the double formulas (the old code) for a random window
+    Window w; w.lat = lat; w.lon = lon; w.mPerPx = 25.0f + (rng() % 200); w.headingDeg = (rng() % 3600) / 10.0f;
+    const VecXform t = vec.makeXform(w);
+    const double mpd = I.mPerDeg, u = I.unitM, cosLat = cos(w.lat * 0.017453292519943295);
+    const double th = w.headingDeg * 0.017453292519943295, ct = cos(th), sn = sin(th);
+    const double ex = u * cosLat / I.cos0, e0 = (I.originLon_e7 * 1e-7 - w.lon) * mpd * cosLat, ny = -u,
+                 n0 = (I.originLat_e7 * 1e-7 - w.lat) * mpd, s = w.mPerPx;
+    const double a = ex * ct / s, b = -ny * sn / s, c = w.w * 0.5 + (e0 * ct - n0 * sn) / s;
+    const double d = -ex * sn / s, e = -ny * ct / s, f = w.h * 0.5 - (e0 * sn + n0 * ct) / s;
+    // pixel error over the whole window, from units up to +-3000 away from the centre
+    for (int k = 0; k < 4; k++) {
+      const double x = ux + (k & 1 ? 3000 : -3000), y = uy + (k & 2 ? 3000 : -3000);
+      worstXf = fmax(worstXf, fmax(fabs(t.px((float)x, (float)y) - (a * x + b * y + c)),
+                                   fabs(t.py((float)x, (float)y) - (d * x + e * y + f))));
+    }
+    (void)I;
+  }
+  printf("  float map maths: worst unit error %.4f units (10 m), worst pixel error %.4f px\n", worstUnit, worstXf);
+  CHECK(worstUnit < 0.01);
+  CHECK(worstXf < 0.05);
+}
+
 static void run() {
   test_agl();
   test_page_cycle();
@@ -353,6 +440,8 @@ static void run() {
   test_map_cache();
   test_map_cost();
   test_map_cost_real();
+  test_numfmt();
+  test_map_float_maths();
 }
 
 }  // namespace map_page_tests

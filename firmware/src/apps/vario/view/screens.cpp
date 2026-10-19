@@ -2,6 +2,7 @@
 #include "apps/vario/view/terrain_map.h"
 #include "apps/vario/view/prof.h"
 #include "platform/util/angle.h"
+#include "platform/util/numfmt.h"
 #include "platform/gfx/gray.h"
 #include "platform/gfx/shapes.h"
 #include "platform/gfx/font.h"
@@ -113,8 +114,10 @@ static int textW(const char* s, const GFXfont* f) {
 
 // The one place a float becomes text: anything that is not a finite number prints "--".
 static const char* fnum(char* b, size_t n, float v, const char* fmt) {
+  int dec;
+  bool plus;
   if (!isfinite(v)) snprintf(b, n, "--");
-  else snprintf(b, n, fmt, v);
+  else if (!fmtFixedSpec(fmt, &dec, &plus) || !fmtFixed(b, n, v, dec, plus)) snprintf(b, n, fmt, v);   // integer maths, same text
   return b;
 }
 
@@ -518,7 +521,7 @@ static void drawThermalMap(const ViewModel& vm, const Bitmap1* bm, int mx, int m
                         hx + (int)lroundf(6 * qx), hy + (int)lroundf(6 * qy),
                         hx - (int)lroundf(6 * qx), hy - (int)lroundf(6 * qy), WHT);
         float dist = hypotf(gMr[0], gMu[0]);
-        if (dist >= 1000) snprintf(lb, sizeof lb, "%.1f km", dist / 1000.0f);
+        if (dist >= 1000) { fnum(lb, sizeof lb, dist / 1000.0f, "%.1f"); strncat(lb, " km", sizeof lb - strlen(lb) - 1); }
         else snprintf(lb, sizeof lb, "%d m", (int)(dist + 0.5f));
         int lx = ex - (int)lroundf(ux * 34), ly = ey - (int)lroundf(uy * 22);
         lx = lx < mx + 28 ? mx + 28 : (lx > mx + mw - 28 ? mx + mw - 28 : lx);
@@ -531,7 +534,7 @@ static void drawThermalMap(const ViewModel& vm, const Bitmap1* bm, int mx, int m
   int lxs[ViewModel::MARKS_MAX], lys[ViewModel::MARKS_MAX], nl = 0;
   for (int i = 0; i < nm; i++) {
     if (!gIn[i]) continue;
-    snprintf(lb, sizeof lb, "%+.1f", vm.marks[i].avgClimb);
+    fnum(lb, sizeof lb, vm.marks[i].avgClimb, "%+.1f");
     int w = textW(lb, F9), rad = i == 0 ? 10 : 7;
     int lx = gSx[i] + rad + 3, ly = gSy[i] + 5;                 // right of the ring, baseline
     if (lx + w > mx + mw - 4) lx = gSx[i] - rad - 3 - w;        // no room: left of it
@@ -812,8 +815,7 @@ static void mapTrackAndPilot(const ViewModel& vm, int mx, int my, int mw, int mh
     have = false;
     for (int i = 0; i <= n; i++) {                                // the points, then the pilot as the last one
       float x, y;
-      double la, lo;
-      if (i < n) { if (!m.trackAt(i, &la, &lo) || !m.project(la, lo, &x, &y)) { have = false; continue; } }
+      if (i < n) { if (!m.projectTrack(i, &x, &y)) { have = false; continue; } }
       else { x = px; y = py; }
       x += mx; y += my;
       if (have) {

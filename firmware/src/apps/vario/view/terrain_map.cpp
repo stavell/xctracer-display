@@ -8,7 +8,7 @@ using namespace terrain;
 
 namespace {
 
-const double kD2R = 0.017453292519943295;
+const float kD2Rf = 0.017453292f;
 
 float angDiff(float a, float b) {                       // absolute shortest angle, degrees
   float d = fabsf(fmodf(a - b, 360.0f));
@@ -43,11 +43,13 @@ int toPx(float v) {
 }  // namespace
 
 void TerrainMap::windowCentre(const Params& p, double mPerDeg, double* lat, double* lon) {
+  // The shift ahead is a few km: float is exact enough; only the sum with the absolute position stays double.
   const float hd = isfinite(p.headingDeg) ? p.headingDeg : 0.0f;
-  const double ahead = isfinite(p.headingDeg) ? kAhead * p.h * p.mPerPx : 0.0;   // north up: the pilot is in the centre
-  const double north = ahead * cos(hd * kD2R), east = ahead * sin(hd * kD2R);
-  *lat = p.lat + north / mPerDeg;
-  *lon = p.lon + east / (mPerDeg * cos(*lat * kD2R));
+  const float ahead = isfinite(p.headingDeg) ? kAhead * p.h * p.mPerPx : 0.0f;   // north up: the pilot is in the centre
+  const float north = ahead * cosf(hd * kD2Rf), east = ahead * sinf(hd * kD2Rf);
+  const float dLat = north / (float)mPerDeg;
+  *lat = p.lat + (double)dLat;
+  *lon = p.lon + (double)(east / ((float)mPerDeg * cosf((float)*lat * kD2Rf)));
 }
 
 TerrainMap::Result TerrainMap::update(Terrain& terr, MapVectors& vec, const Params& p, const Font1* font, uint32_t nowMs) {
@@ -59,12 +61,13 @@ TerrainMap::Result TerrainMap::update(Terrain& terr, MapVectors& vec, const Para
   q.headingDeg = isfinite(p.headingDeg) ? hd : NAN;
   double lat, lon;
   const double mpd = terr.info().mPerDeg;
+  const float mpdf = (float)mpd;
   windowCentre(q, mpd, &lat, &lon);
 
   bool redo = !valid_ || w != w_ || h != h_ || p.mPerPx != mPerPx_ || vec_ != &vec;
   if (!redo) {
-    const double dN = (lat - cLat_) * mpd, dE = (lon - cLon_) * mpd * cos(lat * kD2R);
-    const float movedPx = (float)(sqrt(dN * dN + dE * dE) / p.mPerPx);
+    const float dN = (float)(lat - cLat_) * mpdf, dE = (float)(lon - cLon_) * mpdf * cosf((float)lat * kD2Rf);
+    const float movedPx = sqrtf(dN * dN + dE * dE) / p.mPerPx;
     const float turned = angDiff(hd, hdg_);
     const bool old = (uint32_t)(nowMs - renderedMs_) >= kRefreshMs;
     redo = movedPx > kMovePx || turned > kTurnDeg || (old && (movedPx >= kSmallMovePx || turned >= kSmallTurnDeg));
@@ -86,11 +89,23 @@ TerrainMap::Result TerrainMap::update(Terrain& terr, MapVectors& vec, const Para
 
 bool TerrainMap::project(double lat, double lon, float* x, float* y) const {
   if (!valid_ || !vec_) return false;
-  double ux, uy;
-  vec_->latLonToUnit(lat, lon, &ux, &uy);
-  *x = xf_.px((float)ux, (float)uy);
-  *y = xf_.py((float)ux, (float)uy);
+  if (!(fabs(lat) <= 90 && fabs(lon) <= 180)) return false;       // also rejects NaN
+  return projectE7((int32_t)llround(lat * 1e7), (int32_t)llround(lon * 1e7), x, y);
+}
+
+bool TerrainMap::projectE7(int32_t lat_e7, int32_t lon_e7, float* x, float* y) const {
+  if (!valid_ || !vec_) return false;
+  float ux, uy;
+  vec_->latLonToUnitE7(lat_e7, lon_e7, &ux, &uy);
+  *x = xf_.px(ux, uy);
+  *y = xf_.py(ux, uy);
   return isfinite(*x) && isfinite(*y);
+}
+
+bool TerrainMap::projectTrack(int i, float* x, float* y) const {
+  if (i < 0 || i >= trackN_) return false;
+  const int k = (trackHead_ - trackN_ + i + 2 * kTrackMax) % kTrackMax;
+  return projectE7(trackLat_[k], trackLon_[k], x, y);
 }
 
 void TerrainMap::render(Terrain& terr, MapVectors& vec, const Window& win, const Font1* font) {

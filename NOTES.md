@@ -1076,3 +1076,44 @@ contend with the data loads on the same bus (voxel +70% slower, fastmem no chang
 (single-cycle FPU MACs); an integer SMLAD bilinear would not be bit-identical with the float result and so would change the renders; the other hot
 loops (fastmem, pack, diff) are already word-wise memory-bound. Not worth a second code path. Note -O3 allows different FMA contraction than -O2 on the
 device; renders on the PC are unaffected (the pragma is ARM only).
+
+## Float map maths and integer number text (2026-10-19) — PC only, no device timing
+
+Soft-double call sites (`bl __aeabi_d*`, `__extendsfdf2` ... in `arm-none-eabi-objdump -d` of `feather_sense_box`; static
+counts, not executed counts; whole image 1199 -> 1067):
+
+| function | before | after |
+|---|---|---|
+| `MapVectors::makeXform` | 49 | 9 |
+| `MapVectors::boxForWindow` | 50 | 9 |
+| `MapVectors::latLonToUnit` (per track point, per frame) | 14 | not called any more (`latLonToUnitE7`, 0) |
+| `TerrainMap::update` (every frame) | 19 | 11 |
+| `TerrainMap::windowCentre` (every frame) | 14 | 6 |
+| `TerrainMap::project` (pilot, per frame) | 2 + 14 inside | 6, rounds to 1e-7 deg then float |
+| ground track (up to 240 points x 2 passes per frame) | `trackAt` + `project` = about 20 calls per point | `projectTrack`: 0 |
+| `Terrain::split` / `elevationE7` | 4 / 8 | 0 / 0 (float divide is exact, see below) |
+| `sim::TerrainSource::at` (per height sample) | `elevation(double)` | `elevationE7`, offsets in float |
+
+Findings:
+- The per-pixel relief loop and the road / town vertex loops were already float. The double work was per redraw
+  (about 100 calls, nothing next to 96000 pixels) and, the real hit, the **ground track on the map page**: every frame, up
+  to 240 points x 2 passes, each through `trackAt` + `latLonToUnit` (about 20 soft-double calls per point, thousands per frame).
+  It now goes straight from the stored e7 integers: `origin - point` is an exact integer difference, then float scales.
+- `Terrain::split`: `(float)((double)rem / (double)den2)` equals `(float)rem / (float)den2` when both fit in 24 bits
+  (a double has more than 2 x 24 + 2 bits, so double rounding cannot differ). `parseLayer` now rejects cell sizes
+  above 2^20 e7 units so this always holds. Relief output identical.
+- Kept double: the absolute lat/lon sum (`windowCentre`, `update`, window centre minus origin in `makeXform` /
+  `boxForWindow`, `toE7` for the public `elevation(double)` / `ceiling(double)` and `project(double)`). `relief()` still has 10
+  setup sites per call (centre to e7, `cosf` argument); left alone so its output stays bit-identical.
+- Verification: all `emu/out/*.pgm` and `out/sim/*.pgm` byte-identical to main (map renders included, 0 differing
+  pixels), replay digest of `host/xct_capture.log` (`--hz 3 --inject --thermal`) unchanged `1db49efae1a77476`, `box_vario_matches_alone` passes.
+  New test `test_map_float_maths`: unit error < 0.003 units (3 cm), pixel error < 0.004 px against the old double formulas.
+- Number text: `fmtFixed()` (`platform/util/numfmt.h`) formats `%.Nf` / `%+.Nf` (N 0..3) with integer maths on the exact
+  binary value (ties to even, "-0" kept, truncation like snprintf; |v| >= 1e9 falls back to snprintf). `fnum()` parses its
+  format and uses it; two remaining `snprintf("%.1f")` calls in the map page now go through `fnum()` too (a non-finite value
+  there now prints "--" instead of "nan"). `test_numfmt` compares 1.5 million strings with snprintf (ties, every
+  float of seven binades, random bit patterns, plausible readings): 0 differences.
+- Item 3 (libm in wind / thermal): skipped. There is no `expf` / `powf` / `logf` in the flight wind or thermal code;
+  those are in `core/sim.cpp` (the simulator tracer, not flight). What is left is one `atan2` (double) per sample for the wind
+  direction, bearing to home and thermal headings, about 3 per second: a fast `atan2` would change the digests for no
+  measurable gain.

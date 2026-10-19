@@ -69,6 +69,8 @@ class TerrainMap {
 
   // Pixel of a position in the cached window (continuous, may lie outside). False before the first render.
   bool project(double lat, double lon, float* x, float* y) const;
+  bool projectE7(int32_t lat_e7, int32_t lon_e7, float* x, float* y) const;   // no double
+  bool projectTrack(int i, float* x, float* y) const;                          // ground track point i, no double
   // Where the window is centred for p (the pilot shifted ahead).
   static void windowCentre(const Params& p, double mPerDeg, double* lat, double* lon);
 
