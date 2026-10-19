@@ -1,6 +1,7 @@
 #include "apps/vario/view/screens.h"
 #include "apps/vario/view/terrain_map.h"
 #include "apps/vario/view/prof.h"
+#include "platform/util/angle.h"
 #include "platform/gfx/gray.h"
 #include "platform/gfx/shapes.h"
 #include "platform/gfx/font.h"
@@ -261,7 +262,7 @@ static void compassDial(int cx, int cy, int R, float heading, HeadingSource src)
   char b[8];
   if (have) {
     if (src != HDG_NONE) text(cx, cy - 14, src == HDG_MAG ? "MAG" : "TRK", F9, AC);
-    text(cx, cy + 12, fnum(b, sizeof b, heading, "%.0f"), F18B, AC);
+    text(cx, cy + 12, bearingText(b, sizeof b, heading), F18B, AC);
   } else {
     text(cx, cy + 8, "--", F18B, AC);
   }

@@ -22,6 +22,7 @@
 #include "apps/vario/core/windekf.h"
 #include "apps/vario/core/xctrc.h"
 #include "mocks.h"
+#include "platform/util/angle.h"
 #include "platform/app_host.h"
 #include "apps/vario/view/prof.h"
 #include "apps/vario/view/screens.h"
@@ -41,6 +42,16 @@ static std::string line(const char* body) {   // add the checksum
   char buf[200];
   snprintf(buf, sizeof buf, "$%s*%02x", body, cs);
   return buf;
+}
+
+static void test_bearing_text() {
+  puts("bearing text");
+  struct C { float in; const char* want; } cs[] = {
+    {0, "0.0"}, {359.4f, "359.4"}, {359.6f, "359.6"}, {359.94f, "359.9"}, {359.96f, "0.0"}, {359.99f, "0.0"},
+    {360, "0.0"}, {-0.4f, "359.6"}, {0.4f, "0.4"}, {-0.04f, "0.0"}, {720.2f, "0.2"}, {90.4f, "90.4"},
+    {NAN, "--"}, {INFINITY, "--"}};
+  char b[8];
+  for (auto& c : cs) { bearingText(b, sizeof b, c.in); CHECK(strcmp(b, c.want) == 0); }
 }
 
 static void test_xctrc() {
@@ -1721,6 +1732,7 @@ static const TestEntry kTests[] = {
   {"test_command_decode", test_command_decode},
   {"test_show_raw", test_show_raw},
   {"test_prof", test_prof},
+  {"test_bearing_text", test_bearing_text},
   {"test_xctrc", test_xctrc},
   {"test_wind", test_wind},
   {"test_flight", test_flight},
