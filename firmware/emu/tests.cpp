@@ -1709,60 +1709,98 @@ static void test_app_host() {
   CHECK(!h.add(a));
 }
 
-int main() {
-  test_app_host();
-  { int ops = 0; gt::run(ops); printf("gfx: %d random canvas ops compared\n", ops); }
-  test_spsc_ring();
-  test_linediff();
-  test_sharp_pack();
-  test_devmatch();
-  test_command_decode();
-  test_show_raw();
-  test_prof();
-  test_xctrc();
-  test_wind();
-  test_flight();
-  test_wind_ekf();
-  test_wind_profile();
-  test_temp_profile();
-  test_flight_temperature();
-  test_app_temperature();
-  test_home();
-  test_ekf_seed_from_circle_fit();
-  test_ekf_wind_age();
-  test_home_at_speed_crossing();
-  test_air_trail();
-  test_thermal();
-  test_thermal_memory();
-  t3::run();
-  t3::runView();
-  test_compass();
-  test_heading_selector();
-  test_heading_smoother();
-  test_fused_smooth_cadence();
-  test_compass_chain();
-  test_ahrs();
-  test_mount();
-  test_button();
-  test_app();
-  test_app_heading();
-  test_app_fusion();
-  test_app_anim_cadence();
-  mt::run();
-  mt::runApp();
-  test_ambient();
-  tt::test_tetris();
-  bx::test_box();
-  terrain_tests::run();
-  storage_tests::run();
-  map_page_tests::run();
-  sim_tests::run();
-  wind_tests::run();
-  test_standalone_cadence();
-  test_fuzz_parser();
-  test_fuzz_app();
-  test_known_bug_nonfinite_position();
-  test_time_wrap();
+struct TestEntry { const char* name; void (*fn)(); };
+static void run_gfx() { int ops = 0; gt::run(ops); printf("gfx: %d random canvas ops compared\n", ops); }
+static const TestEntry kTests[] = {
+  {"test_app_host", test_app_host},
+  {"gfx", run_gfx},
+  {"test_spsc_ring", test_spsc_ring},
+  {"test_linediff", test_linediff},
+  {"test_sharp_pack", test_sharp_pack},
+  {"test_devmatch", test_devmatch},
+  {"test_command_decode", test_command_decode},
+  {"test_show_raw", test_show_raw},
+  {"test_prof", test_prof},
+  {"test_xctrc", test_xctrc},
+  {"test_wind", test_wind},
+  {"test_flight", test_flight},
+  {"test_wind_ekf", test_wind_ekf},
+  {"test_wind_profile", test_wind_profile},
+  {"test_temp_profile", test_temp_profile},
+  {"test_flight_temperature", test_flight_temperature},
+  {"test_app_temperature", test_app_temperature},
+  {"test_home", test_home},
+  {"test_ekf_seed_from_circle_fit", test_ekf_seed_from_circle_fit},
+  {"test_ekf_wind_age", test_ekf_wind_age},
+  {"test_home_at_speed_crossing", test_home_at_speed_crossing},
+  {"test_air_trail", test_air_trail},
+  {"test_thermal", test_thermal},
+  {"test_thermal_memory", test_thermal_memory},
+  {"t3_run", t3::run},
+  {"t3_runView", t3::runView},
+  {"test_compass", test_compass},
+  {"test_heading_selector", test_heading_selector},
+  {"test_heading_smoother", test_heading_smoother},
+  {"test_fused_smooth_cadence", test_fused_smooth_cadence},
+  {"test_compass_chain", test_compass_chain},
+  {"test_ahrs", test_ahrs},
+  {"test_mount", test_mount},
+  {"test_button", test_button},
+  {"test_app", test_app},
+  {"test_app_heading", test_app_heading},
+  {"test_app_fusion", test_app_fusion},
+  {"test_app_anim_cadence", test_app_anim_cadence},
+  {"mt_run", mt::run},
+  {"mt_runApp", mt::runApp},
+  {"test_ambient", test_ambient},
+  {"tt_test_tetris", tt::test_tetris},
+  {"bx_test_box", bx::test_box},
+  {"terrain_tests_run", terrain_tests::run},
+  {"storage_tests_run", storage_tests::run},
+  {"map_page_tests_run", map_page_tests::run},
+  {"sim_polar", []{ puts("sim"); sim_tests::polar(); }},
+  {"sim_turn_and_sink", sim_tests::turn_and_sink},
+  {"sim_stall", sim_tests::stall},
+  {"sim_tilt_map", sim_tests::tilt_map},
+  {"sim_height_cache", sim_tests::height_cache},
+  {"sim_air_model", sim_tests::air_model},
+  {"sim_ridge_lift", sim_tests::ridge_lift},
+  {"sim_landing", sim_tests::landing},
+  {"sim_voxel", sim_tests::voxel},
+  {"sim_sky_fx", sim_tests::sky_fx},
+  {"sim_topdown", sim_tests::topdown},
+  {"sim_game_mode", sim_tests::game_mode},
+  {"sim_time_scale", sim_tests::time_scale},
+  {"sim_app_logic", sim_tests::app_logic},
+  {"sim_air_playable", sim_tests::air_playable},
+  {"sim_tip_lift", sim_tests::tip_lift},
+  {"sim_wind_onto_slope", sim_tests::wind_onto_slope},
+  {"sim_playability", sim_tests::playability},
+  {"sim_day_settings", sim_tests::day_settings},
+  {"sim_in_the_box", sim_tests::in_the_box},
+  {"wind_tests_run", wind_tests::run},
+  {"test_standalone_cadence", test_standalone_cadence},
+  {"test_fuzz_parser", test_fuzz_parser},
+  {"test_fuzz_app", test_fuzz_app},
+  {"test_known_bug_nonfinite_position", test_known_bug_nonfinite_position},
+  {"test_time_wrap", test_time_wrap},
+};
+
+// ./tests              all tests in one process
+// ./tests --list       test names, one per line
+// ./tests --only NAME  one test (build.sh runs them in parallel, one process each, and adds the counts up)
+int main(int argc, char** argv) {
+  const char* only = nullptr;
+  if (argc > 1 && !strcmp(argv[1], "--list")) {
+    for (const TestEntry& t : kTests) puts(t.name);
+    return 0;
+  }
+  if (argc > 2 && !strcmp(argv[1], "--only")) only = argv[2];
+  bool found = !only;
+  for (const TestEntry& t : kTests)
+    if (!only || !strcmp(only, t.name)) { t.fn(); found = true; }
+  if (!found) { printf("unknown test %s\n", only); return 2; }
+  if (only) { printf("@@ %d %d %d\n", checks, failures, knownBugs); return failures ? 1 : 0; }  // build.sh adds these up
   if (knownBugs) printf("\n%d known firmware bugs hit (see BUG: comments in robust_tests.h)\n", knownBugs);
   printf("\n%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
