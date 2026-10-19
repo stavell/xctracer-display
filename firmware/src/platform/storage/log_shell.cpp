@@ -17,6 +17,21 @@ void LogShell::feed(uint8_t b, ITextOut& out) {
 }
 
 void LogShell::run(ITextOut& out) {
+  if (strcmp(line_, "TIME?") == 0) {
+    const int m = time_ ? time_->localMinutes() : -1;
+    if (m < 0) out.put("tm now unknown");
+    else { snprintf(buf_, sizeof buf_, "tm now %02d:%02d", m / 60, m % 60); out.put(buf_); }
+    return;
+  }
+  if (strncmp(line_, "TIME ", 5) == 0) {
+    char* end;
+    const long long epoch = strtoll(line_ + 5, &end, 10);
+    const long tz = strtol(end, nullptr, 10);
+    if (!time_ || tz < -24 * 60 || tz > 24 * 60 || !time_->setTime(epoch, (int)tz)) { out.put("tm err refused"); return; }
+    snprintf(buf_, sizeof buf_, "tm ok %lu tz=%ld", (unsigned long)epoch, tz);   // newlib-nano has no %lld
+    out.put(buf_);
+    return;
+  }
   if (strncmp(line_, "LOG", 3) != 0) return;
   if (strcmp(line_, "LOGINFO") == 0) {
     snprintf(buf_, sizeof buf_, "lg info state=%s used=%lu cap=%lu dropped=%lu", log_.stateName(), (unsigned long)log_.usedBytes(),

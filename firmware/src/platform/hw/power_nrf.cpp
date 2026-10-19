@@ -42,11 +42,35 @@ void PowerNrf::fullOff() {
 
 // The switch wakes the sleeping loop task (the GPIOTE interrupt calls this).
 static TaskHandle_t sleeper = nullptr;
+static volatile uint32_t switchIrqs = 0;   // edges seen by the switch interrupt (ring below)
 static void onSwitch() {
   BaseType_t woken = pdFALSE;
+  switchIrqs++;
   if (sleeper) vTaskNotifyGiveFromISR(sleeper, &woken);
   portYIELD_FROM_ISR(woken);
 }
+
+// A ring of what the sleep loop did (wake reason, draws), printed as "slp ..." lines whenever a terminal is attached while
+// it sleeps (plug in the cable, open the port) and again after the wake. For the bug "the sleeping clock does not advance":
+// the ring says whether the loop woke, why, and whether it drew. About 0.4 kB of RAM.
+namespace {
+constexpr uint32_t kRing = 8;                       // small on purpose: the diag image has only ~300 bytes of heap to spare
+struct SleepEv { uint32_t ms; int16_t minute; uint8_t ask64; char what; };   // what: E enter, T timeout, S switch, D draw, X exit
+SleepEv ring[kRing];
+uint32_t ringN = 0, nFeed = 0;                      // nFeed: the plain 4 s watchdog wake-ups (not logged one by one)
+void ringAdd(char what, uint32_t ms, uint32_t asked, int minute) {
+  if (what == 'T' && asked >= 4000) { nFeed++; return; }
+  SleepEv& e = ring[ringN++ % kRing];
+  e.ms = ms; e.ask64 = (uint8_t)(asked / 64 > 255 ? 255 : asked / 64); e.minute = (int16_t)minute; e.what = what;
+}
+void ringDump() {
+  Serial.printf("slp ring n=%lu feeds=%lu irqs=%lu now=%lu\n", (unsigned long)ringN, (unsigned long)nFeed, (unsigned long)switchIrqs, (unsigned long)millis());
+  for (uint32_t i = ringN > kRing ? ringN - kRing : 0; i < ringN; i++) {
+    const SleepEv& e = ring[i % kRing];
+    Serial.printf("slp %c ms=%lu ask=%u min=%d\n", e.what, (unsigned long)e.ms, (unsigned)e.ask64 * 64, (int)e.minute);
+  }
+}
+}  // namespace
 
 // Clock sleep, System ON; the radios are already off. The CPU sleeps in FreeRTOS's tickless idle (the RTC keeps
 // millis() running) until the next minute, a press of the switch, or the watchdog's feed time. The panel keeps its
@@ -61,9 +85,17 @@ void PowerNrf::clockSleep() {
   attachInterrupt(digitalPinToInterrupt(pin_), onSwitch, FALLING);
   ClockSleep sm;
   sm.begin();
+  ringN = 0;
+  nFeed = 0;
+  switchIrqs = 0;
+  ringAdd('E', millis(), 0, -1);
+  bool term = false;
   for (;;) {
     watchdog::feed();
     const uint32_t now = millis();
+    const bool t = Serial;                                   // a terminal was attached meanwhile: show what happened so far
+    if (t && !term) ringDump();
+    term = t;
     deps_.battery->update(now);
     SleepIn in;
     in.nowMs = now;
@@ -77,10 +109,15 @@ void PowerNrf::clockSleep() {
       panel_.setRotation(deps_.rotation);
       panel_.clear();
       Bitmap1 bm = panel_.bitmap();
-      clockview::draw(bm, in.localMinute, in.battPct, deps_.weather, st.bar, ClockSleep::kBarSteps);
+      char date[16];
+      long days;
+      const bool haveDate = deps_.clock->localDays(deps_.settings->tzMinutes(), now, &days);
+      if (haveDate) WallClock::formatDate(days, date, sizeof date);
+      clockview::draw(bm, in.localMinute, in.battPct, deps_.weather, st.bar, ClockSleep::kBarSteps, haveDate ? date : nullptr);
       panel_.invalidate();
       panel_.present();
       panel_.waitIdle();
+      ringAdd('D', now, 0, in.localMinute);
     } else if (st.act == SLEEP_WAKE) {
       break;
     } else if (st.act == SLEEP_OFF) {
@@ -91,11 +128,14 @@ void PowerNrf::clockSleep() {
       uint32_t ms = st.wakeAtMs - now;
       if ((int32_t)ms < 0) ms = 0;
       if (ms > kFeedMs) ms = kFeedMs;
-      ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(ms));
+      const uint32_t n = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(ms));
+      ringAdd(n ? 'S' : 'T', millis(), ms, in.localMinute);
     }
   }
   detachInterrupt(digitalPinToInterrupt(pin_));
   sleeper = nullptr;
+  ringAdd('X', millis(), 0, -1);
+  if (Serial) ringDump();
   waitRelease(pin_);                                         // the hold that woke us must not reach the app as a press
   radios_.resume();
   resumed_ = true;

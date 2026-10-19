@@ -52,16 +52,23 @@ class MockInput : public IInput {
     if (k != KEY_MAIN) pushEdge(KeyEdge{k, down, now});
   }
   bool keyDown(Key k) const { return level_[k]; }
-  ButtonEvent poll(uint32_t now) override {
+  // Like the device's 10 ms sampling timer: feeds the switch and QUEUES its event; poll() pops one. While the box sleeps
+  // nobody polls, so events pile up (a 1.2 s wake hold leaves a BTN_LONG) until flush().
+  void sample(uint32_t now) {
     bool down = level_[KEY_MAIN];
     for (auto& p : presses_) if (now - p.at < p.dur) down = true;   // unsigned difference: correct across the 49.7-day millis() wrap
     ButtonEvent e = fsm_.feed(down, now);
+    if (e != BTN_NONE && evHead_ - evTail_ < 8) events_[evHead_++ % 8] = e;
     if (fsm_.down() != mainDown_) {                                  // the same debounced edge the device queues
       mainDown_ = fsm_.down();
       pushEdge(KeyEdge{KEY_MAIN, mainDown_, now});
     }
-    return e;
   }
+  ButtonEvent poll(uint32_t now) override {
+    sample(now);
+    return evHead_ == evTail_ ? BTN_NONE : events_[evTail_++ % 8];
+  }
+  void flush() override { evTail_ = evHead_; tail_ = head_; }
   uint32_t heldMs(uint32_t now) override { return fsm_.heldMs(now); }
   bool popEdge(KeyEdge& out) override {
     if (head_ == tail_) return false;
@@ -78,6 +85,8 @@ class MockInput : public IInput {
   void pushEdge(const KeyEdge& e) { if (head_ - tail_ < EDGES) edges_[head_++ % EDGES] = e; }
   KeyEdge edges_[EDGES];
   unsigned head_ = 0, tail_ = 0;
+  ButtonEvent events_[8];
+  unsigned evHead_ = 0, evTail_ = 0;
 };
 
 class MockKeyStore : public IKeyStore {

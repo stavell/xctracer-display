@@ -199,6 +199,12 @@ def main():
         ser = serial.Serial(a.port or find_port(), 115200, timeout=0.1)
     try:
         box = Box(ser)
+        if not (a.port or "").startswith("exec:"):
+            try:
+                from settime import send_time
+                send_time(ser, 0.3)                       # free: the box learns the PC's time whenever we connect
+            except Exception:
+                pass
         line, state, used, cap, dropped = info(box)
         print(line)
         if state == "unformatted" and not a.erase:

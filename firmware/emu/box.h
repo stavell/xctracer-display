@@ -168,11 +168,11 @@ struct Box {
     r.tracer.pause();
   }
   void sleepTick(uint32_t now) {
-    r.input.poll(now);                                      // keeps the mock switch running; its events are not for any app
+    r.input.sample(now);                                    // the device's sampling timer keeps running; nobody pops the events
     const bool down = r.input.heldMs(now) > 0;
     if (sleep == SS_OFF) return;
     if (sleep == SS_RELEASE) {                           // the hold that woke the box must not reach the app as a press
-      if (!down) { sleep = SS_AWAKE; boot(now, true); }   // the wake plays the intro too (unless Off)
+      if (!down) { sleep = SS_AWAKE; r.input.flush(); boot(now, true); }   // main_box.cpp flushes too: the release must not skip the intro   // the wake plays the intro too (unless Off)
       return;
     }
     SleepIn in;
@@ -187,7 +187,11 @@ struct Box {
       r.panel.setRotation(1);
       r.panel.clear();
       Bitmap1 bm = r.panel.bitmap();
-      clockview::draw(bm, in.localMinute, in.battPct, &weather, st.bar, ClockSleep::kBarSteps);
+      char date[16];
+      long days;
+      const bool haveDate = clock.localDays(r.settings.tzMinutes(), now, &days);
+      if (haveDate) WallClock::formatDate(days, date, sizeof date);
+      clockview::draw(bm, in.localMinute, in.battPct, &weather, st.bar, ClockSleep::kBarSteps, haveDate ? date : nullptr);
       r.panel.invalidate();
       r.panel.present();
       if (st.bar < 0) clockDraws++; else barDraws++;

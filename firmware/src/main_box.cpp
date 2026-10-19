@@ -95,6 +95,15 @@ static AppArenaStore<kArenaBytes> arena;
 // The home screen and Settings > About ask about the pack without the vario running: the answers are copied from the
 // kit once at boot (the pack cannot change without a reboot).
 static PackService pack;
+// "TIME epoch tz" from the PC (host/settime.py, and load_pack.py / logdl.py on every connect): the wall clock and the time zone.
+static struct PcTime : storage::ITimeSink {
+  bool setTime(int64_t epoch, int tz) override {
+    if (!wallClock.setEpoch(epoch, millis())) return false;
+    boxSettings.setTzMinutes(tz);
+    return true;
+  }
+  int localMinutes() override { return wallClock.localMinutes(boxSettings.tzMinutes(), millis()); }
+} pcTime;
 struct BoxTerrain : ITerrainProvider, terrain::IPackStatus {
   TerrainKit* kit = nullptr;
   bool ok = false;
@@ -239,6 +248,7 @@ void setup() {
   laptop.begin();
 
   pack.begin();
+  pack.setTimeSink(&pcTime);
   boxTerrain.cacheStatus();
   launcher.setPack(&boxTerrain);
   settingsApp.setPack(&boxTerrain);
@@ -312,7 +322,7 @@ void loop() {
   weather.sample(now, baro);                       // one pressure sample per 10 min (a 10 ms read), so the history exists when the sleep starts
   uint32_t t0 = fastMicros();
   host.tick(now);
-  if (power.takeResumed()) startStartupApp(true);   // woke from the clock sleep: no reset, the wall clock survived; the intro plays too
+  if (power.takeResumed()) { button.flush(); startStartupApp(true); }   // woke from the clock sleep: no reset, the wall clock survived; the intro plays too
   uint32_t dt = fastMicros() - t0;   // not micros(): it once gave -67 s here (a 4.2e9 us 'worst tick')
   if (dt > worstTickUs) worstTickUs = dt;
   gameLog.tick(now, dt);

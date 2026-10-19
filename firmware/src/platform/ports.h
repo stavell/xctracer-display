@@ -45,6 +45,9 @@ class IInput {                      // the user switch (and, later, the front bu
   // Next key edge in order, false when there is none. Edges are queued by the sampling timer, so a tap that
   // starts and ends inside one slow redraw is still seen. Inputs without edge support deliver none.
   virtual bool popEdge(KeyEdge& out) { (void)out; return false; }
+  // Drops every queued event and edge. After a clock sleep: the sampling timer kept running, so the hold that woke the
+  // box left its release event (a BTN_LONG) in the queue, and the start-up animation would take it as a skip.
+  virtual void flush() {}
 };
 
 // A few persistent numbers for the box itself, kept in the nRF's flash: the start-up app, game high scores and

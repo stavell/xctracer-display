@@ -486,7 +486,8 @@ static void settings_store() {
   CHECK(wc.localMinutes(0, 5000 + 31000) == 10 * 60 + 39);           // 31 s later, past the minute
   CHECK(wc.localMinutes(180, 5000) == 13 * 60 + 38);
   CHECK(wc.localMinutes(-11 * 60, 5000) == 23 * 60 + 38);            // wraps over midnight
-  CHECK(wc.localMinutes(0, 5000 + 13u * 3600u * 1000u) == -1);       // stale after 12 h
+  CHECK(wc.localMinutes(0, 5000 + 13u * 3600u * 1000u) == 23 * 60 + 38);   // still valid after 13 h (was stale)
+  CHECK(wc.localMinutes(0, 5000 + 31u * 86400u * 1000u) == -1);      // stale after 30 days
   wc.set(86400, 0);                                                  // out of range: ignored
   CHECK(wc.localMinutes(0, 5000) == 10 * 60 + 38);
 }
@@ -906,8 +907,48 @@ static void clock_sleep_logic() {
   CHECK(wc.msToNextMinute(0) == -1);                                  // unknown
   wc.set(10 * 3600 + 38 * 60 + 50, 1000);                             // 10:38:50 at t = 1 s
   CHECK(wc.msToNextMinute(1000) == 10000 && wc.msToNextMinute(5000) == 6000 && wc.msToNextMinute(11000) == 60000);
-  CHECK(wc.msToNextMinute(1000 + 12u * 3600u * 1000u + 1) == -1);     // the 12 h rule applies to the sleep too
+  CHECK(wc.msToNextMinute(1000 + 12u * 3600u * 1000u + 1) > 0);       // valid for 30 days now (was 12 h)
+  CHECK(wc.msToNextMinute(1000 + WallClock::kValidMs + 1) == -1);
 
+  {  // the PC sets the time: valid for 30 days, then unknown; the wake-up is always finite and <= 60 s
+    WallClock pc;
+    CHECK(pc.setEpoch(1760875200LL, 5000));                           // 2025-10-19 12:00:00 UTC (a Sunday)
+    CHECK(!pc.setEpoch(12345, 5000));                                 // junk refused, the old time stays
+    CHECK(pc.localMinutes(0, 5000) == 12 * 60 && pc.localMinutes(180, 5000) == 15 * 60 && pc.localMinutes(-300, 5000) == 7 * 60);
+    long days = 0;
+    CHECK(pc.localDays(0, 5000, &days));
+    char ds[16];
+    WallClock::formatDate(days, ds, sizeof ds);
+    CHECK(strcmp(ds, "Sun 19 Oct") == 0);
+    CHECK(pc.localDays(720, 5000, &days) && (WallClock::formatDate(days, ds, sizeof ds), strcmp(ds, "Mon 20 Oct") == 0));   // +12 h: the next day
+    CHECK(pc.localMinutes(0, 5000 + 29u * 86400u * 1000u) == 12 * 60);                      // 29 days later, same minute of day
+    CHECK(pc.localMinutes(0, 5000 + WallClock::kValidMs + 1) == -1 && pc.msToNextMinute(5000 + WallClock::kValidMs + 1) == -1);
+    CHECK(!pc.localDays(0, 5000 + WallClock::kValidMs + 1, &days));
+    for (uint32_t t = 5000; t < 5000 + 3u * 3600u * 1000u; t += 7919) {                      // never infinite, never longer than a minute
+      const long ms = pc.msToNextMinute(t);
+      CHECK(ms >= 1 && ms <= 60000);
+      SleepIn si; si.nowMs = t; si.localMinute = pc.localMinutes(0, t); si.msToMinute = ms;
+      ClockSleep cs; cs.begin();
+      cs.step(si);                                                                           // first step draws
+      const SleepStep w = cs.step(si);
+      CHECK(w.act == SLEEP_WAIT && w.wakeAtMs - t >= 1 && w.wakeAtMs - t <= ClockSleep::kMaxSleepMs);
+    }
+    {  // unknown time: still a finite wait
+      SleepIn si; si.nowMs = 1000; si.localMinute = -1; si.msToMinute = -1;
+      ClockSleep cs; cs.begin();
+      cs.step(si);
+      const SleepStep w = cs.step(si);
+      CHECK(w.act == SLEEP_WAIT && w.wakeAtMs - 1000 <= ClockSleep::kMaxSleepMs && w.wakeAtMs > 1000);
+    }
+    // A GPS fix overrides the PC and keeps the date; across midnight the date follows.
+    pc.setEpoch(1760918400LL - 10, 0);                                // 2025-10-19 23:59:50 UTC
+    pc.set(0, 20000);                                                 // GPS says 00:00:00 twenty seconds later: it is the 20th
+    CHECK(pc.localDays(0, 20000, &days) && (WallClock::formatDate(days, ds, sizeof ds), strcmp(ds, "Mon 20 Oct") == 0));
+    WallClock g;
+    g.set(3600, 0);
+    CHECK(!g.localDays(0, 0, &days) && g.localMinutes(0, 0) == 60);   // GPS alone has no date
+    CHECK(g.localMinutes(0, 12u * 3600u * 1000u + 1) == 60 + 720);    // and the 12 h rule is gone: 30 days
+  }
   auto in = [](uint32_t t, bool down, int batt, int min, long toMin) {
     SleepIn i; i.nowMs = t; i.down = down; i.battPct = batt; i.localMinute = min; i.msToMinute = toMin; return i;
   };
@@ -1096,14 +1137,14 @@ static void clock_sleep_box() {
   CHECK(b.r.power.requests == 1);                                     // the wake hold did not count as another power-off
   (void)vf;
 
-  // After 12 h without a tracer fix the clock reads "--:--" (never a stale time): the screen changes once more.
+  // After 30 days without a tracer fix the clock reads "--:--" (never a stale time): the screen changes once more.
   b.boot(u.now);
   u.off();
   CHECK(b.sleep == Box::SS_CLOCK);
   u.run(500);
   const int dBefore = b.clockDraws;
-  for (uint32_t e = u.now + 13u * 3600u * 1000u; u.now < e; u.now += 500) b.tick(u.now);   // a sleeping box needs no 10 ms steps
-  CHECK(b.clockDraws > dBefore + 600 && b.clock.localMinutes(180, u.now) == -1);
+  for (uint32_t e = u.now + 31u * 86400u * 1000u; u.now < e; u.now += 5000) b.tick(u.now);   // a sleeping box needs no 10 ms steps
+  CHECK(b.clockDraws > dBefore + 40000 && b.clock.localMinutes(180, u.now) == -1);
   b.r.panel.dump("out/sleep_unknown.pgm");
 
   // Low battery: the sleep ends in System OFF (and stays there until a reset).

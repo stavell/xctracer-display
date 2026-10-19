@@ -491,6 +491,17 @@ chain over 3 KB. It cannot see indirect calls it cannot resolve (function pointe
 other tasks' stacks (BLE callbacks run on a 3 KB task), so it is a guard, not a proof. Its first run found a 1.8 KB
 frame in the wind fit (three `double[64]` locals): the worst chain was 3.5 KB of 4 KB; now 2.6 KB.
 
+### Setting the clock
+
+The box has no battery-backed clock; its time comes from the tracer's GPS (time of day) or from the computer:
+
+    python host/settime.py [--port /dev/cu.usbmodemXXXX]     # sends the Mac's UTC time and its UTC offset (box image)
+
+`host/load_pack.py` and `host/logdl.py` send the same `TIME <utc epoch> <minutes east of UTC>` line whenever they connect.
+The box sets its wall clock and its time zone (Settings > Time zone is overwritten). `TIME?` answers `tm now HH:MM`. A time
+from the computer or the GPS stays valid for 30 days (the 32 kHz crystal drifts at most about 2 s/day), after which the
+clock reads `--:--`. A GPS fix always overrides; a time set from the computer also gives the date shown on the sleep clock.
+
 ## Flight log and the gyro dead-reckoning test
 
 While the vario app is open and the tracer is sending, the box records every parsed tracer line (receive time, the line's own

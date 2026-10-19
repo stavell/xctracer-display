@@ -155,6 +155,21 @@ static void testShellAndView() {
   CHECK(out.v.size() == 1 && out.v[0].rfind("lg err", 0) == 0);   // beyond what is written
   send("hello there");
   CHECK(out.v.empty());
+  {  // TIME epoch tz: the PC sets the clock over the same shell
+    struct Sink : ITimeSink { long long e = 0; int tz = 0; bool setTime(int64_t ep, int z) override { if (ep < 1000000000LL) return false; e = ep; tz = z; return true; } } sink;
+    send("TIME 1760000000 180");
+    CHECK(out.v.size() == 1 && out.v[0] == "tm err refused" && sink.e == 0);       // no sink wired (the vario-only image)
+    sh.setTimeSink(&sink);
+    send("TIME 1760000000 180");
+    CHECK(out.v.size() == 1 && out.v[0] == "tm ok 1760000000 tz=180" && sink.e == 1760000000LL && sink.tz == 180);
+    send("TIME 5 0");
+    CHECK(out.v.size() == 1 && out.v[0] == "tm err refused");
+    send("TIME 1760000000 99999");
+    CHECK(out.v.size() == 1 && out.v[0] == "tm err refused" && sink.tz == 180);
+    send("TIME?");
+    CHECK(out.v.size() == 1 && out.v[0] == "tm now unknown");
+    sh.setTimeSink(nullptr);
+  }
   send("LOGERASE");
   CHECK(out.v.size() == 1 && out.v[0] == "lg ok erase started" && R.log.erasing());
   for (int i = 0; i < 1000 && R.log.erasing(); i++) R.log.service(30000 + i);

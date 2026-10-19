@@ -31,6 +31,11 @@ class ButtonGpio : public IInput {
     return e;
   }
   bool popEdge(KeyEdge& out) override { return edges_.pop(out); }
+  void flush() override {
+    ButtonEvent e; KeyEdge k;
+    while (events_.pop(e)) {}
+    while (edges_.pop(k)) {}
+  }
   uint32_t heldMs(uint32_t now) override {
     if (!held_.load(std::memory_order_acquire)) return 0;
     int32_t d = (int32_t)(now - pressedAt_.load(std::memory_order_relaxed));

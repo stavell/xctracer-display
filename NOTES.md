@@ -1285,3 +1285,18 @@ contour layers under swelling clouds, the same white-out and name.
 - Log: 23 B per tracer line + yaw at 25 Hz as 8-bit steps (28 B/s) = about 100 B/s at 3 lines/s, 360 kB/h. The nRF internal filesystem is only 28 kB (7 pages of 4 kB, 128 B blocks): 3 minutes. So the log lives in the last 256 kB of the QSPI flash (pack limit 1.82 MB, enforced by `ReservedTailFlash`), about 40 minutes. Page programs only in flight (0.5-3 ms, once per ~2.5 s); the erase happens only on the host's command (`logdl.py --erase`) because the chip cannot be read while erasing.
 - Found on the bench: a QSPI chip left in deep power-down (clock sleep) answered nothing after a reset (`pack hdr=noflash jedec=000000`); `QspiFlash::begin` now sends the release command first.
 - Bench (box on USB, igc_replay for 88 s): 88 lines, 2205 yaw samples (25 Hz), 5632 B, 0 dropped; still box yaw within +-0.15 deg/s.
+
+
+## Clock setting, intro skip, sleep ring (2026-10-19)
+
+- `TIME <epoch> <tz>` / `TIME?` on the USB text shell (`LogShell`, ITimeSink in main_box.cpp) set/read WallClock and the time zone;
+  `host/settime.py`, and load_pack.py / logdl.py on connect. WallClock validity 12 h -> 30 days (`kValidMs`; crystal +-20 ppm = 1.7 s/day).
+  WallClock now keeps the date when the PC set it (GPS set() picks the nearest day); the sleep clock draws "Mon 19 Oct". newlib-nano has no `%lld`
+  (printed "ld"), so the reply prints the epoch as unsigned long.
+- Intro skipped after the clock-sleep wake: the 10 ms button timer keeps sampling while the loop sleeps, so the 1.0-1.5 s wake hold's release left a
+  BTN_LONG in the event ring, and the intro skips on any KEY_MAIN event. Fix: `IInput::flush()` (ButtonGpio drops events and edges), called in
+  main_box.cpp after `takeResumed()`. The emulator's MockInput now queues events like the device (sample() vs poll()), so the box test catches it.
+- Clock sleep not advancing: NOT reproduced on the bench (USB attached, and with USB soft-disconnected: wakes every 4 s, redraws on every minute for
+  3 minutes). Do not use `tud_disconnect()` in a bench build: the board leaves USB until a double-tap reset. `PowerNrf::clockSleep()` now keeps a ring of
+  its wake reasons / draws (`slp E/T/S/D/X ms ask min` lines): plug in the cable while it sleeps (a terminal opening dumps it) or read it after the wake.
+  After an unexplained wake check `rst=` in the `dev` line (0x2 = watchdog).

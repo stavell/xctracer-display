@@ -22,6 +22,7 @@
 
 class PackService {
  public:
+  void setTimeSink(storage::ITimeSink* t) { shell_.setTimeSink(t); }   // the TIME command of the USB shell
   PackService() : packView_(flash_, storage::kLogBytes), reader_(packView_), loader_(packView_), shell_(log_) {}
   void begin();
   void service(uint32_t nowMs);

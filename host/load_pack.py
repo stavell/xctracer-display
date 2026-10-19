@@ -221,6 +221,12 @@ def main():
         import serial
         ser = serial.Serial(port or find_port(), 115200, timeout=0.1)
     try:
+        if not (port or "").startswith("exec:"):
+            try:
+                from settime import send_time
+                send_time(ser, 0.3)                       # free: the box learns the PC's time whenever we connect
+            except Exception:
+                pass
         link = Link(ser)
         if a.status:
             return 0 if status(link) else 1
