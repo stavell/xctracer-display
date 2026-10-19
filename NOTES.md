@@ -221,8 +221,11 @@ project is and how to run it; this file says what we found and why things are th
 
 ## Clock sleep: power off that keeps the time (2026-10-19, emulator and builds only, NOT flashed, NOT measured)
 
-Design. The box image's default "power off" (Settings > Power off, `SLOT_POWER_MODE`, 0 = Clock, 1 = Off) no longer enters
-System OFF: `PowerNrf::shutdown()` stops the radios as before (disconnect, 150 ms, stop advertising / scanning, 800 ms), then
+Design. The box image's power-off (the 3 s hold) is two steps (the Settings "Power off" row and its slot are gone; the slot stays reserved as
+`SLOT_POWER_MODE_UNUSED`): it no longer enters System OFF at once, but starts the clock sleep; holding on 3 s more
+(`ClockSleep::kOffHoldMs`, counted from the start of the sleep, i.e. after the ~1 s radio stop; a 12-step bar under the clock, `clockview::countdown`) goes to System OFF.
+The hold that powered off is released first before a wake hold counts, so the continued hold never wakes. Release early: the clock is redrawn without the bar.
+The clock sleep: `PowerNrf::shutdown()` stops the radios as before (disconnect, 150 ms, stop advertising / scanning, 800 ms), then
 `clockSleep()` switches the compass off, puts the QSPI flash into deep power-down (not while a map load runs; any later flash
 operation wakes it by itself), draws the clock and sleeps in System ON. Why System ON: a reset loses the WallClock (it only
 ever comes from the tracer's GPS time), and a wake without reset lets the start-up app restart tracer and sensors through

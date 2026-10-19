@@ -65,7 +65,7 @@ right is worse than no data.
 - **Flight safety of the box image.** The box boots straight into the start-up app (default: the vario, stored in the
   key store). The launcher opens only on a deliberate gesture from inside an app: the vario's device list has an
   "Home" row (long press, one short press to the row, long press), a long press on the Tetris pause screen, the compass
-  tool's "Home" row, the Settings "Home" row, 3 s hold of the switch in games and tools, A + B held 1.5 s on the
+  tool's "Home" row, the Settings "Home" row, 3 s hold of the switch in games and tools (in the box the 3 s hold powers off into the clock sleep; holding 3 s more goes to System OFF), A + B held 1.5 s on the
   six-button hardware. The vario menu holds only flying things (tracer choice, Home); compass calibration is the
   Settings app's and runs the sensors only while its screen is open. Leaving the vario stops the tracer scan and link and the compass sensors
   (`App::end`, `ITracer::pause`); entering it again restarts them. Games never run unless chosen. The vario-only image

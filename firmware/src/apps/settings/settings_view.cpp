@@ -11,8 +11,8 @@ void SettingsView::drawList(const Bitmap1& bm, const SettingsModel& m) {
     const DrawMode ink = on ? DRAW_SET : DRAW_CLEAR;
     if (on) roundFill(bm, 4, y, W - 8, ROW_H - 4, 6, DRAW_CLEAR);
     else bm.hspan(14, y + ROW_H - 2, W - 28, DRAW_CLEAR);
-    drawText(bm, 14, y + 17, m.title[i], f_.mid, ink);
-    drawText(bm, 14, y + 31, m.sub[i], f_.small, ink);
+    drawText(bm, 14, y + 19, m.title[i], f_.mid, ink);
+    drawText(bm, 14, y + 33, m.sub[i], f_.small, ink);
   }
   const int fy = ROW_Y + m.count * ROW_H + 6;
   bm.hspan(0, fy, W, DRAW_CLEAR);

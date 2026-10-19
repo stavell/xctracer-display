@@ -147,8 +147,7 @@ struct Box {
     host.tick(now);
     if (r.power.requests != seenRequests_) {                // the app asked to power off
       seenRequests_ = r.power.requests;
-      if (r.settings.powerOffMode() == POWER_OFF_CLOCK) enterSleep();
-      else sleep = SS_OFF;                               // System OFF: nothing runs until the PC player restarts the box
+      enterSleep();                                       // the 3 s hold: the clock; holding on goes to System OFF
     }
   }
 
@@ -157,6 +156,7 @@ struct Box {
   // start-up app without a reset (the wall clock survives).
   enum SleepState { SS_AWAKE, SS_CLOCK, SS_RELEASE, SS_OFF } sleep = SS_AWAKE;
   ClockSleep sleeper;
+  int barDraws = 0;                                         // countdown bar frames (the hold that powered off went on)
   int clockDraws = 0;                                       // clock screens drawn since the box started
   void enterSleep() {
     sleep = SS_CLOCK;
@@ -183,10 +183,10 @@ struct Box {
       r.panel.setRotation(1);
       r.panel.clear();
       Bitmap1 bm = r.panel.bitmap();
-      clockview::draw(bm, in.localMinute, in.battPct);
+      clockview::draw(bm, in.localMinute, in.battPct, st.bar, ClockSleep::kBarSteps);
       r.panel.invalidate();
       r.panel.present();
-      clockDraws++;
+      if (st.bar < 0) clockDraws++; else barDraws++;
     } else if (st.act == SLEEP_WAKE) {
       sleep = SS_RELEASE;
     } else if (st.act == SLEEP_OFF) {

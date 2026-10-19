@@ -57,7 +57,7 @@ enum StoreSlot : uint8_t {
   SLOT_TZ,                                     // minutes east of UTC, as int32
   SLOT_MAG_VALID, SLOT_MAG_X, SLOT_MAG_Y, SLOT_MAG_Z, SLOT_MAG_R,   // hard-iron offsets and radius (float bits)
   SLOT_MIGRATED,                               // 1 once the values older firmware kept elsewhere were imported
-  SLOT_POWER_MODE,                             // what a power-off does: 0 clock (default), 1 fully off (PowerOffMode)
+  SLOT_POWER_MODE_UNUSED,                      // was the Power off setting; the slot stays so stored slots keep their place
   SLOT_INTRO_OFF,                              // 1 = no start-up animation (an unset slot reads as 0 = the animation plays)
   SLOT_COUNT
 };

@@ -561,14 +561,6 @@ static void settings_app() {
   b.r.input.setKey(KEY_LEFT, true, u.now); u.run(50); b.r.input.setKey(KEY_LEFT, false, u.now); u.run(50);
   CHECK(b.r.settings.tzMinutes() == -12 * 60);
 
-  // Power off: long press toggles clock / off (stored), the sub line says which.
-  u.shortp();
-  CHECK(b.settings.selected() == SettingsApp::ROW_POWER);
-  CHECK(b.r.settings.powerOffMode() == POWER_OFF_CLOCK);               // the default: unset reads as the clock
-  u.longp();
-  CHECK(b.r.settings.powerOffMode() == POWER_OFF_FULL && b.keys.v[SLOT_POWER_MODE] == 1);
-  u.longp();
-  CHECK(b.r.settings.powerOffMode() == POWER_OFF_CLOCK);
   // About: long press opens, any press goes back. Then Home.
   u.shortp();
   CHECK(b.settings.selected() == SettingsApp::ROW_ABOUT);
@@ -587,13 +579,13 @@ static void settings_app() {
   b.host.start(Box::APP_SETTINGS, u.now);
   u.run(100);
   auto tap = [&](Key k) { b.r.input.setKey(k, true, u.now); u.run(50); b.r.input.setKey(k, false, u.now); u.run(50); };
-  tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN);
+  tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN);
   CHECK(b.settings.selected() == SettingsApp::ROW_ABOUT);
   tap(KEY_ACTION);
   CHECK(b.settings.screen() == SettingsApp::S_ABOUT);
   tap(KEY_B);
   CHECK(b.settings.screen() == SettingsApp::S_LIST && b.host.active() == &b.settings);
-  tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP);
+  tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP);
   tap(KEY_ACTION);                                                   // the Compass row
   CHECK(b.settings.calibrating());
   tap(KEY_B);                                                        // cancels
@@ -946,9 +938,27 @@ static void clock_sleep_logic() {
   CHECK(s.step(in(61000, false, 80, 5, 3000)).act == SLEEP_DRAW);     // the clock went from stale to ...: whatever it reads is drawn
   // The switch still down from the power-off hold: no wake until it was released once.
   s.begin();
-  CHECK(s.step(in(0, true, 80, 100, 5000)).act == SLEEP_WAIT);
-  CHECK(s.step(in(3000, true, 80, 100, 5000)).act == SLEEP_WAIT);
-  CHECK(s.step(in(3100, false, 80, 100, 5000)).act == SLEEP_DRAW);
+  CHECK(s.step(in(0, true, 80, 100, 5000)).act == SLEEP_DRAW);
+  CHECK(s.step(in(2000, true, 80, 100, 5000)).act != SLEEP_WAKE);
+  CHECK(s.step(in(2100, false, 80, 100, 5000)).act == SLEEP_DRAW);
+  // The 3 s hold goes on after the sleep began: a bar fills, 3 s later System OFF; never a wake.
+  s.begin();
+  st = s.step(in(0, true, 80, 100, 5000));
+  CHECK(st.act == SLEEP_DRAW && st.bar == 0);                         // clock + empty bar at once
+  CHECK(s.step(in(100, true, 80, 100, 5000)).act == SLEEP_WAIT);
+  st = s.step(in(1500, true, 80, 100, 5000));
+  CHECK(st.act == SLEEP_DRAW && st.bar == 6);
+  CHECK(s.step(in(2900, true, 80, 100, 5000)).act != SLEEP_WAKE);     // far beyond the 1 s wake hold, still no wake
+  CHECK(s.step(in(2999, true, 80, 100, 5000)).act != SLEEP_OFF);
+  CHECK(s.step(in(3000, true, 80, 100, 5000)).act == SLEEP_OFF);      // 6 s in all
+  // Released at 1.5 s: the clock stays, redrawn without the bar; the continued hold did not arm a wake.
+  s.begin();
+  s.step(in(0, true, 80, 100, 5000));
+  s.step(in(1500, true, 80, 100, 5000));
+  st = s.step(in(1600, false, 80, 100, 5000));
+  CHECK(st.act == SLEEP_DRAW && st.bar == -1);
+  CHECK(s.step(in(1600, false, 80, 100, 5000)).act == SLEEP_WAIT);
+  CHECK(s.step(in(20000, false, 80, 101, 40000)).act == SLEEP_DRAW);
   // A nearly empty battery (two readings) ends in System OFF; one noisy reading does not.
   s.begin();
   s.step(in(0, false, 80, 100, 5000));
@@ -1034,14 +1044,28 @@ static void clock_sleep_box() {
   u.run(3000);
   CHECK(b.sleep == Box::SS_OFF);                                      // a hold does not bring it back
 
-  // Mode "Off" is today's System OFF: no clock.
+  // Two-step hold: the 3 s hold gives the clock, holding on for 3 s more System OFF; releasing early keeps the clock.
   Box c;
   BoxRun v(c);
-  c.r.settings.setPowerOffMode(POWER_OFF_FULL);
+  c.r.settings.setIntroEnabled(false);
+  c.clock.set(9 * 3600, 0);
   c.boot(0);
   v.run(300);
-  v.off();
-  CHECK(c.sleep == Box::SS_OFF && c.clockDraws == 0);
+  c.r.input.press(v.now + 10, 3000 + 1800);          // power-off at 3 s, released 1.8 s into the countdown
+  v.run(3000 + 400);
+  CHECK(c.sleep == Box::SS_CLOCK && countInk(c.r.panel) > 2000);
+  c.r.panel.dump("out/sleep_released.pgm");
+  v.run(2000);
+  CHECK(c.sleep == Box::SS_CLOCK && c.host.active() == &c.vario);
+  c.sleep = Box::SS_AWAKE;
+  c.boot(v.now);
+  v.run(300);
+  c.r.input.press(v.now + 10, 3000 + 5000);
+  v.run(3000 + 1200);                                 // mid countdown: the bar is on the panel
+  CHECK(c.sleep == Box::SS_CLOCK);
+  c.r.panel.dump("out/sleep_countdown.pgm");
+  v.run(2500);
+  CHECK(c.sleep == Box::SS_OFF && countInk(c.r.panel) == 0);
 }
 
 // BLE (the laptop link) is off while a game runs and back when it is left; the vario's own tracer logic is untouched.

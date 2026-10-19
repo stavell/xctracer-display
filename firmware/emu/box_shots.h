@@ -74,10 +74,7 @@ static void shots(const char* dir) {
   // Settings list with the new row, then the clock sleep: known time, a low battery, unknown time.
   b.host.start(Box::APP_SETTINGS, now);
   run(300);
-  press(120); press(120); press(120); press(120);  // down to Power off
-  press(900);                                     // -> Off, then back to Clock
-  dump(b, dir, "settings_power_off");
-  press(900);
+  dump(b, dir, "settings_list");
   b.r.settings.setTzMinutes(180);
   b.clock.set(10 * 3600 + 38 * 60, now);
   b.r.battery.pct = 76;

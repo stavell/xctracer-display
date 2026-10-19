@@ -26,7 +26,7 @@ void PowerNrf::shutdown() {
   watchdog::feed();
   delay(800);
   watchdog::feed();
-  if (clockSleep_ && deps_.settings->powerOffMode() == POWER_OFF_CLOCK) clockSleep();
+  if (clockSleep_) clockSleep();
   else fullOff();
 }
 
@@ -75,7 +75,7 @@ void PowerNrf::clockSleep() {
       panel_.setRotation(deps_.rotation);
       panel_.clear();
       Bitmap1 bm = panel_.bitmap();
-      clockview::draw(bm, in.localMinute, in.battPct);
+      clockview::draw(bm, in.localMinute, in.battPct, st.bar, ClockSleep::kBarSteps);
       panel_.invalidate();
       panel_.present();
       panel_.waitIdle();

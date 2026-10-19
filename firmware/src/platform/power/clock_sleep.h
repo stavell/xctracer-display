@@ -7,12 +7,13 @@
 //   SLEEP_DRAW  draw the clock screen now (platform/power/clock_view.h) and ask again
 //   SLEEP_WAIT  sleep until wakeAtMs (or until the switch moves), then ask again
 //   SLEEP_WAKE  the switch was held long enough: leave the sleep and restart the box's apps
-//   SLEEP_OFF   the battery is nearly empty: go to System OFF
+//   SLEEP_OFF   the battery is nearly empty, or the power-off hold went on long enough: go to System OFF
+// The power-off is two steps: the 3 s hold starts this sleep; if the switch is KEPT down, a bar fills under the clock
+// (SleepStep::bar of kBarSteps) and after kOffHoldMs more the box goes to System OFF. Releasing before that keeps the
+// clock; the continued hold never wakes the box.
 // A hold shorter than kHoldMs (a pocket press) only redraws. The screen is redrawn once per minute, when the local
 // minute changes; with the time unknown ("--:--") only on a tap.
 #include <stdint.h>
-
-enum PowerOffMode : uint8_t { POWER_OFF_CLOCK = 0, POWER_OFF_FULL = 1 };
 
 enum SleepAction : uint8_t { SLEEP_WAIT, SLEEP_DRAW, SLEEP_WAKE, SLEEP_OFF };
 
@@ -27,10 +28,13 @@ struct SleepIn {
 struct SleepStep {
   SleepAction act = SLEEP_WAIT;
   uint32_t wakeAtMs = 0;        // SLEEP_WAIT: absolute time of the next step()
+  int bar = -1;                 // SLEEP_DRAW: countdown bar fill 0..kBarSteps-1, -1 = no bar
 };
 
 class ClockSleep {
  public:
+  static const uint32_t kOffHoldMs = 3000;     // holding on after the sleep began: System OFF
+  static const int kBarSteps = 12;             // the bar redraws this often during the countdown
   static const uint32_t kHoldMs = 1000;        // same anti-pocket hold as the wake from System OFF (PowerNrf::gateOnWake)
   static const uint32_t kPollMs = 20;          // while the switch is down
   static const int kLowPct = 2;                // at or below this on two readings in a row: System OFF
@@ -40,8 +44,19 @@ class ClockSleep {
 
   SleepStep step(const SleepIn& in) {
     SleepStep r;
-    if (in.down && !armed_) { r.wakeAtMs = in.nowMs + kPollMs; return r; }    // still the hold that powered off: wait for the release
-    armed_ = true;
+    if (in.down && !armed_) {                                                 // still the hold that powered off
+      if (!carry_) { carry_ = true; startAt_ = in.nowMs; }
+      const uint32_t el = in.nowMs - startAt_;
+      if (el >= kOffHoldMs) { r.act = SLEEP_OFF; return r; }
+      const int bar = (int)(el * kBarSteps / kOffHoldMs);
+      if (first_ || bar != bar_) {
+        first_ = false; bar_ = bar; minute_ = in.localMinute;
+        r.act = SLEEP_DRAW; r.bar = bar;
+      }
+      r.wakeAtMs = in.nowMs + kPollMs;
+      return r;
+    }
+    if (!armed_) { armed_ = true; if (carry_) redraw_ = true; }                // released early: the clock without the bar
     if (in.down) {
       if (!down_) { down_ = true; pressAt_ = in.nowMs; }
       if (in.nowMs - pressAt_ >= kHoldMs) { r.act = SLEEP_WAKE; return r; }
@@ -73,8 +88,8 @@ class ClockSleep {
   }
 
  private:
-  bool armed_ = false, first_ = true, redraw_ = false, down_ = false, checkBatt_ = true;
-  int minute_ = -2;
+  bool armed_ = false, carry_ = false, first_ = true, redraw_ = false, down_ = false, checkBatt_ = true;
+  int minute_ = -2, bar_ = -1;
   int low_ = 0;
-  uint32_t pressAt_ = 0, battAt_ = 0;
+  uint32_t startAt_ = 0, pressAt_ = 0, battAt_ = 0;
 };

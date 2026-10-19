@@ -132,17 +132,17 @@ On the PC: `firmware/emu/build.sh play box --igc f.igc --pack bulgaria.pack` (de
 | Short press (under 0.7 s) | Flight screen: switch page. Lists and calibration: see below. |
 | Hold 0.7 to 1.5 s, then release | Flight screen: open the device list. |
 | Hold past 1.5 s | "Keep holding to power off" banner with a progress bar. Releasing before 3 s cancels. |
-| Hold to 3 s | Powers off. Vario-only image: System OFF. Box image: the **clock sleep** (default) or System OFF, see below. |
+| Hold to 3 s | Powers off. Vario-only image: System OFF. Box image: the **clock sleep**; keep holding 3 s more (a bar fills under the clock) for System OFF, see below. |
 | Power on (System OFF) | Hold the switch about 1 s. A shorter tap puts the box back to sleep. |
 | Wake (clock sleep) | Hold the switch about 1 s. A shorter press only refreshes the clock. |
 
-**Clock sleep** (box image, Settings > Power off = Clock, the default): the box stops the tracer link, the laptop link, the
+**Clock sleep** (box image; the 3 s hold, a two-step power-off): the box stops the tracer link, the laptop link, the
 compass sensors and the map flash, and shows only the local time (HH:MM, big) and the battery on the panel, redrawn once
 a minute. The time is the tracer's GPS time carried on by the box's own clock; with no GPS time yet, or none for 12 h,
 it shows `--:--` (never a guess). Holding the switch for 1 s wakes the box without a reset into the start-up app,
 which restarts its tracer link and sensors as after a power-on; the clock stays valid across the sleep. When the battery is
-nearly empty the sleep falls into System OFF. Settings > Power off = Off gives the old behaviour (System OFF: nothing
-runs, the clock is lost). The sleep current is not measured yet (see NOTES.md).
+nearly empty the sleep falls into System OFF. Keeping the switch down after the sleep began fills a bar under the clock; at the end (3 s) the box goes to System OFF (nothing
+runs, the clock is lost); releasing before that keeps the clock. That continued hold never wakes the box. The sleep current is not measured yet (see NOTES.md).
 
 ### Flight screen
 
@@ -434,7 +434,6 @@ tile, long press (0.7-1.5 s) = open, 3 s hold = power off. Six buttons: arrows m
 (index 0..23, long press = +1, or the arrows), Start-up app (long press cycles the apps that may start the box; Settings
 and the home screen are not offered), Time zone (long press = +1 h, arrows = 30 min; `ctl.py tz` sets any value),
 Intro (long press toggles the start-up animation On / Off, default On),
-Power off (long press toggles Clock / Off: what the 3 s hold does, see "The switch"),
 About (firmware version, map pack and its area, the pack's Copernicus and OpenStreetMap credits), Home.
 
 **Getting to the home screen** (a deliberate gesture from inside an app, nothing that a flight can trigger by accident):

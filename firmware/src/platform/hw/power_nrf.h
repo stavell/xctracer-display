@@ -34,7 +34,7 @@ class PowerNrf : public IPower {
       : panel_(panel), radios_(radios), pin_(buttonPin) {}
   void shutdown() override;
 
-  // Box image: with the stored mode "Clock", shutdown() sleeps in System ON with the clock on the panel instead of
+  // Box image: shutdown() sleeps in System ON with the clock on the panel instead of
   // System OFF (platform/power/clock_sleep.h) and RETURNS once the switch has been held; the loop then restarts the
   // start-up app (takeResumed()). Without this call (the vario-only image) shutdown() is always System OFF.
   void enableClockSleep(const ClockSleepDeps& d) { deps_ = d; clockSleep_ = true; }

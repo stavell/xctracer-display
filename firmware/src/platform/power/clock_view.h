@@ -25,7 +25,16 @@ inline void digit(const Bitmap1& bm, int x, int y, int w, int h, int t, int d) {
 }
 
 // bm is a white canvas. minute: local minutes of the day, < 0 unknown. battPct < 0: no battery shown.
-inline void draw(const Bitmap1& bm, int minute, int battPct) {
+// bar >= 0: the power-off countdown bar under the battery, filled bar/(steps-1)... of its width (steps = bar total).
+inline void countdown(const Bitmap1& bm, int bar, int steps) {
+  const int w = 160, h = 14, x = (ui::W - w) / 2, y = 358;
+  ui::roundFill(bm, x, y, w, h, 7, DRAW_CLEAR);
+  ui::roundFill(bm, x + 2, y + 2, w - 4, h - 4, 5, DRAW_SET);
+  const int f = (w - 8) * (bar + 1) / steps;
+  if (f > 0) ui::roundFill(bm, x + 4, y + 4, f, h - 8, 3, DRAW_CLEAR);
+}
+
+inline void draw(const Bitmap1& bm, int minute, int battPct, int bar = -1, int steps = 12) {
   const int DW = 42, DH = 92, T = 10, GAP = 6, COLON = 20;
   const int total = 4 * DW + 4 * GAP + COLON;
   int x = (ui::W - total) / 2;
@@ -53,6 +62,7 @@ inline void draw(const Bitmap1& bm, int minute, int battPct) {
     bm.fillRect(bx + 10, by + sh - 6, 4, 4, DRAW_CLEAR);
     for (int i = 0; i < sh - 4; i++) bm.fillRect(bx + 11 - i * 9 / (sh - 4), by + 2 + i, 2, 1, DRAW_CLEAR);
   }
+  if (bar >= 0) countdown(bm, bar, steps);
 }
 
 }  // namespace clockview

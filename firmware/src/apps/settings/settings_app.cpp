@@ -13,7 +13,6 @@ void SettingsApp::begin(uint32_t nowMs) {
   model_.title[ROW_STARTUP] = "Start-up app";
   model_.title[ROW_INTRO] = "Intro";
   model_.title[ROW_TZ] = "Time zone";
-  model_.title[ROW_POWER] = "Power off";
   model_.title[ROW_ABOUT] = "About";
   model_.title[ROW_HOME] = "Home";
   battery_.update(nowMs);
@@ -36,8 +35,6 @@ void SettingsApp::refresh() {
   const int tz = settings_.tzMinutes();
   const int a = tz < 0 ? -tz : tz;
   snprintf(model_.sub[ROW_TZ], sizeof model_.sub[0], "UTC%c%02d:%02d", tz < 0 ? '-' : '+', a / 60, a % 60);
-  snprintf(model_.sub[ROW_POWER], sizeof model_.sub[0], "%s",
-           settings_.powerOffMode() == POWER_OFF_CLOCK ? "clock, hold 1 s to wake" : "off completely");
   snprintf(model_.sub[ROW_ABOUT], sizeof model_.sub[0], "version, map pack, credits");
   snprintf(model_.sub[ROW_HOME], sizeof model_.sub[0], "back to the home screen");
 }
@@ -99,9 +96,6 @@ void SettingsApp::change(int dir) {
       settings_.setTzMinutes(tz);
       break;
     }
-    case ROW_POWER:
-      settings_.setPowerOffMode(settings_.powerOffMode() == POWER_OFF_CLOCK ? POWER_OFF_FULL : POWER_OFF_CLOCK);
-      break;
     default: return;
   }
   refresh();

@@ -15,8 +15,6 @@ class BoxSettings {
   void setTzMinutes(int minutes);                  // kept within +-24 h (ctl.py may send any int16)
 
   // What "power off" does in the box image: show the clock in a low-power sleep (default) or switch off completely.
-  PowerOffMode powerOffMode() const { return s_.get(SLOT_POWER_MODE) == POWER_OFF_FULL ? POWER_OFF_FULL : POWER_OFF_CLOCK; }
-  void setPowerOffMode(PowerOffMode m) { s_.set(SLOT_POWER_MODE, (uint32_t)m); }
 
   // The start-up animation (apps/intro): on unless switched off. Stored inverted so that a fresh store means "on".
   bool introEnabled() const { return s_.get(SLOT_INTRO_OFF) == 0; }
