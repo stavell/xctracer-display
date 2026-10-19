@@ -1053,3 +1053,14 @@ draw overlaps the panel DMA, north-up map (no re-render on turns; 4 px stale thr
 steps, integer HUD numbers. Left: 3D still ~31 fps (voxel 11, sprite 4.6, sky 3-4, hud 2.5 need about 7 ms more), map rings (30 per frame, 6 ms),
 glider symbol 2.9 ms, HUD windBox 1 ms, `build.sh simbench` not recalibrated, BLE not stopped in the sim, scripts/check.sh not run on the final state
 (emulator build.sh passed: 137010 checks, 0 failures).
+
+## CPU options pass (2026-10-19) — no board on USB, so no device timing
+
+The task was to measure compiler options, RAM functions and DSP intrinsics on the device. No board was attached (`/dev/cu.usbmodem*` absent),
+so only build-side numbers exist; nothing that needs a timing to justify itself was kept.
+
+| Step (feather_sense_box) | flash | `bl sqrtf` | loop stack | heap | verdict |
+| baseline -O2 | 403776 | 47 | 2628 B | 82480 | |
+| `-fno-math-errno` | 401840 | 1 | 2628 B | 82480 | KEPT (pure win: sqrtf inlines to vsqrt, NaN still propagates; semantics same except errno, unused) |
+| `-flto` (whole image) | link error | - | - | - | DROPPED: undefined refs in QspiFlash / FlashKeyStore (hw/ code) under LTO; needs per-symbol fixes, then a device timing |
+| `-O3` hot files, `.ramfunc`, SMLAD/UADD8 | not tried | | | | need the device to measure; do next with a board attached |
