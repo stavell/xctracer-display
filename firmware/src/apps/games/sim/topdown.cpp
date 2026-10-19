@@ -1,3 +1,5 @@
+#include "platform/util/hot.h"
+HOT_FILE_O3
 #include "apps/games/sim/topdown.h"
 #include <math.h>
 #include <string.h>

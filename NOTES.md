@@ -1062,5 +1062,17 @@ so only build-side numbers exist; nothing that needs a timing to justify itself 
 | Step (feather_sense_box) | flash | `bl sqrtf` | loop stack | heap | verdict |
 | baseline -O2 | 403776 | 47 | 2628 B | 82480 | |
 | `-fno-math-errno` | 401840 | 1 | 2628 B | 82480 | KEPT (pure win: sqrtf inlines to vsqrt, NaN still propagates; semantics same except errno, unused) |
-| `-flto` (whole image) | link error | - | - | - | DROPPED: undefined refs in QspiFlash / FlashKeyStore (hw/ code) under LTO; needs per-symbol fixes, then a device timing |
-| `-O3` hot files, `.ramfunc`, SMLAD/UADD8 | not tried | | | | need the device to measure; do next with a board attached |
+| `-flto` (whole image) | link error | - | - | - | DROPPED: not just QspiFlash; with the Arduino core / FreeRTOS / Adafruit_GFX archives nearly every symbol is undefined (needs ar plugin / lib flags work) |
+
+Device (SIM_BENCH, avg of ~20 s of `gm` lines; map view is capped at 50 fps by the sim, 3D is the one that moves):
+
+| Step | map fps / draw ms | 3D fps | 3D draw | voxel | sky | sprite | flash | heap |
+| baseline (-O2, -fno-math-errno) | 49.9 / 12.2 | 36.9 | 21.7 | 11.7 | 3.4 | 4.3 | 401840 | 82480 |
+| + per-file -O3 (`platform/util/hot.h` `HOT_FILE_O3`: voxel, sky3d, chase, glider, topdown, sim_hud, bitmap1, shapes, gray, fastmem, sharp_frame, linediff) | 49.9 / 11.8 | 40.7 | 19.6 | 9.8 | 3.5 | 4.0 | 410368 | 82480 |
+| + voxel render/fillSpan/sky and fastmem in RAM (`.data.ramfn`, long_call) | 49.8 / 11.9 | 30.2 | 26.5 | 16.7 | 3.4 | 4.0 | 410244 | 80368 |
+
+Kept: -O3 for those files (+8.5 kB flash, 3D 37 -> 41 fps, voxel -16%). Dropped: code in RAM; the flash cache already gives zero-wait fetches, RAM fetches
+contend with the data loads on the same bus (voxel +70% slower, fastmem no change in blit 2.3 ms). Not done: DSP intrinsics. The voxel inner loop is float
+(single-cycle FPU MACs); an integer SMLAD bilinear would not be bit-identical with the float result and so would change the renders; the other hot
+loops (fastmem, pack, diff) are already word-wise memory-bound. Not worth a second code path. Note -O3 allows different FMA contraction than -O2 on the
+device; renders on the PC are unaffected (the pragma is ARM only).

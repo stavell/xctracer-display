@@ -1,3 +1,5 @@
+#include "platform/util/hot.h"
+HOT_FILE_O3
 #include "platform/util/fastmem.h"
 #include "platform/panel/sharp_frame.h"
 #include <string.h>

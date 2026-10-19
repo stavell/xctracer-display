@@ -1,3 +1,5 @@
+#include "platform/util/hot.h"
+HOT_FILE_O3
 #include "platform/gfx/gray.h"
 
 const uint8_t kBayer8[64] = {

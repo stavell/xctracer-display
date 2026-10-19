@@ -1,3 +1,5 @@
+#include "platform/util/hot.h"
+HOT_FILE_O3
 #include "platform/util/fastmem.h"
 
 // The loops below are what memset / memcpy are, so the compiler must not turn them back into calls to them.

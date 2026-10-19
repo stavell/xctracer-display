@@ -277,8 +277,7 @@ Sim leftovers:
 - Recalibrate `build.sh simbench` against the device numbers.
 - Map view edge strips (<= 4 px) can show blank until the next north-up picture swaps in.
 
-CPU options (NOTES "CPU options pass"): `-fno-math-errno` done (47 -> 1 `bl sqrtf`, -1.9 kB). Still to measure on the device: `-O3` on sim/gfx files,
-LTO (fails to link today: QspiFlash / FlashKeyStore), `.ramfunc` for voxel / fastmem / blit / pack, DSP intrinsics with a portable fallback + bit-identity test.
+CPU options (NOTES "CPU options pass"): done `-fno-math-errno`, per-file `-O3` (3D 37 -> 41 fps). Dropped: code in RAM (slower), LTO (archives do not link), DSP intrinsics (float inner loops, would change renders).
 
 Other open items: measure the clock-sleep current (PPK2), wire the six buttons, print the case test plate, loader
 speed-up (pump the loader in a tight loop during a load), QSPI deep power-down measurement, launcher footer polish.

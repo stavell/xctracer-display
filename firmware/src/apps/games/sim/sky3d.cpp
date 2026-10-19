@@ -1,3 +1,5 @@
+#include "platform/util/hot.h"
+HOT_FILE_O3
 #include "apps/games/sim/sky3d.h"
 #include <math.h>
 #include "apps/games/sim/sim_math.h"
