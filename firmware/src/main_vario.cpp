@@ -56,6 +56,7 @@ void setup() {
   // watchdog::start(8000);
   Serial.begin(115200);
   button.begin();
+  TerrainMap::setClock(fastMicros);           // the map picture job spends a time budget per loop pass
   config.begin();                             // mounts the filesystem
   keys.begin();
   config.migrateTo(boxSettings);              // first start after the update: calibration, mounting, time zone move over

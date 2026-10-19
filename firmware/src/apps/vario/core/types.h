@@ -9,6 +9,8 @@ struct Sample {
   float alt = NAN, speedKmh = NAN, course = NAN, vario = NAN, pressure = NAN;
   int battPct = -1;
   uint8_t hh = 0, mm = 0, ss = 0;   // UTC time of day from the vario
+  uint16_t year = 0;                // UTC date from the vario; 0 = not known (the sun position needs it)
+  uint8_t month = 0, day = 0;
 };
 
 // One entry per data second, for averages, circling detection and the wind fit.

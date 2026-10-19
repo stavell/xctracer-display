@@ -67,9 +67,9 @@ struct ViewModel {
   bool terrainOn = false;
   float agl = NAN;                 // GNSS altitude minus the terrain model's elevation under the fix; NaN: no fix, no data
   float clearance = NAN;           // GNSS altitude minus the highest terrain around the fix (for warnings)
+  bool credits = false;               // the once-per-boot map credits banner is up
   TerrainMap* map = nullptr;          // the map page's cached picture and ground track
   float mapMPerPx = 100;           // map page scale
-  bool mapAbout = false;           // first seconds on the map page: attribution and the AGL caveat
 
   // ambient air, NaN without a reading or when the last one is older than 10 s
   float ambientC = NAN;

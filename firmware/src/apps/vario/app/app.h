@@ -40,7 +40,6 @@ struct AppConfig {
   static constexpr float MAP_HALF_PIXEL_RAD = 0.5f / MAP_HALF_RADIUS_PX;
   bool mapHeadingUp = false;         // map page: north up (default, cheap to cache) or heading up (re-renders every 5 degrees)
   float mapMPerPx = 100.0f;          // map page scale (ground metres per pixel): the window shows 22 x 38 km
-  uint32_t mapAboutMs = 10000;       // the map page shows its attribution and the AGL caveat this long after it opens
   bool standalone = false;           // the compass & weather tool: no tracer, no page switching, always the compass page
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
   float gpsHeadingOnKmh = 4.0f;      // GPS track counts as a heading above this speed ...
@@ -66,6 +65,10 @@ class App {
   void begin(uint32_t nowMs);
   void end();                                        // leaving for another app: radios and sensors off
   void tick(uint32_t nowMs);
+  static void forgetCreditsShown();                  // tests: the banner is once per boot, this is a new boot
+  // Map picture job statistics for the status line: step() calls since the last call, the longest one (us), a job
+  // running, the shown picture is sun-shaded. Resets the counters.
+  void takeMapStats(uint32_t* steps, uint32_t* maxUs, bool* building, bool* sun);
   void onInput(ButtonEvent ev) { ev_ = ev; }         // the switch event, acted on by the next tick() (a missed one is dropped)
   void onHeld(uint32_t heldMs) { held_ = heldMs; }
   bool wantsFrame(uint32_t nowMs) const;
@@ -106,6 +109,9 @@ class App {
   void updateMap(uint32_t now);
   ViewModel::Page nextPage(ViewModel::Page p) const;   // the page cycle: compass, thermal, centring, [map], profile, home
   void prepareMapPage(const ViewModel& vm, uint32_t now);   // renders the cached relief when the pilot left its window                     // thermal page, once per tick: scale glide, moving flag
+  void updateCredits(uint32_t now, ButtonEvent ev);
+  void updateSun(const ViewModel& vm, uint32_t now);
+  void stepMapPicture();
   bool hasData(uint32_t now) const;   // a valid sample arrived recently
   void drawCalibrateScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held);
   void drawLiveScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held);
@@ -160,7 +166,12 @@ class App {
   ViewModel::Page page_ = ViewModel::PAGE_COMPASS;
   ViewModel::Page lastPage_ = ViewModel::PAGE_COMPASS;
   TerrainKit* kit_ = nullptr;
-  uint32_t mapEntryMs_ = 0;          // when the map page was opened (for its about overlay)
+  static constexpr uint32_t kMapStepUs = 5000;      // the map picture job's share of one loop pass
+  bool creditsOn_ = false;           // the once-per-boot credits banner is up
+  uint32_t creditsUntil_ = 0;
+  float sunAz_ = NAN, sunEl_ = NAN;                 // the sun for the map's shading (NaN: unknown)
+  uint32_t sunAtMs_ = 0;
+  bool sunKnown_ = false;
   bool wasLocal_ = true;
   bool listOpen_ = false;
   int listSel_ = 0;

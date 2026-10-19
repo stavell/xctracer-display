@@ -52,6 +52,7 @@ bool FlightSim::step(uint32_t now, Sample& out) {
   s.pressure = 1013.25f * powf(1 - (float)alt_ / 44330.0f, 5.255f);
   s.battPct = 80;
   uint32_t secs = 12 * 3600 + (now - t0_) / 1000;
+  s.year = 2026; s.month = 10; s.day = 19;     // a fixed autumn day: the map page shades by the sun of that afternoon
   s.hh = (secs / 3600) % 24; s.mm = (secs / 60) % 60; s.ss = secs % 60;
   out = s;
   return true;

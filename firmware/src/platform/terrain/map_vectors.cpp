@@ -61,43 +61,65 @@ UnitBox MapVectors::boxFromLatLon(double latS, double latN, double lonW, double 
   return b;
 }
 
+void MapVectors::latLonToUnitE7(int32_t lat_e7, int32_t lon_e7, float* x, float* y) const {
+  // Integer differences to the origin are exact; one float scale each, no double.
+  const float k = (float)info_.mPerDeg * 1e-7f / (float)info_.unitM;
+  *y = (float)(info_.originLat_e7 - lat_e7) * k;
+  *x = (float)(lon_e7 - info_.originLon_e7) * (k * info_.cos0);
+}
+
+namespace {
+constexpr float kD2Rf = 0.017453292f;
+
+// Window centre relative to the pack origin in degrees (north, east of the origin): the only double work, then float.
+void originOffsetDeg(const PackInfo& I, const Window& win, float* dLat, float* dLon) {
+  *dLat = (float)(win.lat - I.originLat_e7 * 1e-7);
+  *dLon = (float)(win.lon - I.originLon_e7 * 1e-7);
+}
+}  // namespace
+
 UnitBox MapVectors::boxForWindow(const Window& win) const {
-  const double mpd = info_.mPerDeg;
-  const double cosLat = cos(win.lat * 0.017453292519943295);
-  const double th = win.headingDeg * 0.017453292519943295, ct = cos(th), sn = sin(th);
-  double xmin = 1e30, xmax = -1e30, ymin = 1e30, ymax = -1e30;
+  const float mpd = (float)info_.mPerDeg, u = (float)info_.unitM;
+  const float cosLat = cosf((float)win.lat * kD2Rf);
+  const float th = win.headingDeg * kD2Rf, ct = cosf(th), sn = sinf(th);
+  float dLat, dLon;
+  originOffsetDeg(info_, win, &dLat, &dLon);
+  const float xc = dLon * info_.cos0 * mpd / u, yc = -dLat * mpd / u;   // window centre in units
+  const float kx = info_.cos0 / (cosLat * u), ky = 1.0f / u;                          // units per metre east / north
+  float xmin = 1e30f, xmax = -1e30f, ymin = 1e30f, ymax = -1e30f;
   for (int k = 0; k < 4; k++) {
-    const double sx = (k & 1 ? 0.5 : -0.5) * win.w, sy = (k & 2 ? 0.5 : -0.5) * win.h;
-    const double east = (sx * ct + sy * sn) * win.mPerPx, north = (sy * ct - sx * sn) * win.mPerPx;
-    double x, y;
-    latLonToUnit(win.lat + north / mpd, win.lon + east / (mpd * cosLat), &x, &y);
+    const float sx = (k & 1 ? 0.5f : -0.5f) * win.w, sy = (k & 2 ? 0.5f : -0.5f) * win.h;
+    const float east = (sx * ct + sy * sn) * win.mPerPx, north = (sy * ct - sx * sn) * win.mPerPx;
+    const float x = xc + east * kx, y = yc - north * ky;
     if (x < xmin) xmin = x;
     if (x > xmax) xmax = x;
     if (y < ymin) ymin = y;
     if (y > ymax) ymax = y;
   }
   UnitBox b;
-  b.x0 = (int32_t)floor(xmin) - 1; b.y0 = (int32_t)floor(ymin) - 1;
-  b.x1 = (int32_t)ceil(xmax) + 1; b.y1 = (int32_t)ceil(ymax) + 1;
+  b.x0 = (int32_t)floorf(xmin) - 1; b.y0 = (int32_t)floorf(ymin) - 1;
+  b.x1 = (int32_t)ceilf(xmax) + 1; b.y1 = (int32_t)ceilf(ymax) + 1;
   return b;
 }
 
 VecXform MapVectors::makeXform(const Window& win) const {
-  const double mpd = info_.mPerDeg, u = info_.unitM;
-  const double cosLat = cos(win.lat * 0.017453292519943295);
-  const double th = win.headingDeg * 0.017453292519943295, ct = cos(th), sn = sin(th);
-  const double ex = u * cosLat / info_.cos0;                       // east metres per x unit
-  const double e0 = (info_.originLon_e7 * 1e-7 - win.lon) * mpd * cosLat;
-  const double ny = -u;                                           // north metres per y unit
-  const double n0 = (info_.originLat_e7 * 1e-7 - win.lat) * mpd;
-  const double s = win.mPerPx;
+  const float mpd = (float)info_.mPerDeg, u = (float)info_.unitM;
+  const float cosLat = cosf((float)win.lat * kD2Rf);
+  const float th = win.headingDeg * kD2Rf, ct = cosf(th), sn = sinf(th);
+  float dLat, dLon;
+  originOffsetDeg(info_, win, &dLat, &dLon);
+  const float ex = u * cosLat / info_.cos0;                        // east metres per x unit
+  const float e0 = -dLon * mpd * cosLat;                           // origin east of the centre, metres
+  const float ny = -u;                                             // north metres per y unit
+  const float n0 = -dLat * mpd;
+  const float s = win.mPerPx;
   VecXform t;
-  t.a = (float)(ex * ct / s);
-  t.b = (float)(-ny * sn / s);
-  t.c = (float)(win.w * 0.5 + (e0 * ct - n0 * sn) / s);
-  t.d = (float)(-ex * sn / s);
-  t.e = (float)(-ny * ct / s);
-  t.f = (float)(win.h * 0.5 - (e0 * sn + n0 * ct) / s);
+  t.a = ex * ct / s;
+  t.b = -ny * sn / s;
+  t.c = win.w * 0.5f + (e0 * ct - n0 * sn) / s;
+  t.d = -ex * sn / s;
+  t.e = -ny * ct / s;
+  t.f = win.h * 0.5f - (e0 * sn + n0 * ct) / s;
   return t;
 }
 

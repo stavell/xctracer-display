@@ -4,6 +4,7 @@
 #include "platform/input/button_fsm.h"
 #include "apps/vario/core/home.h"
 #include "platform/sensors/mount.h"
+#include "platform/sensors/sun.h"
 #include "apps/vario/core/xctrc.h"
 #include "apps/vario/view/prof.h"
 #include "apps/vario/view/screens.h"
@@ -290,8 +291,8 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   vm.agl = NAN;
   vm.clearance = NAN;
   vm.map = nullptr;
+  vm.credits = creditsOn_;
   vm.mapMPerPx = cfg_.mapMPerPx;
-  vm.mapAbout = false;
   if (vm.terrainOn) {
     // GNSS altitude (the tracer's GPS height, which is what the DEM's heights are comparable to), never the
     // barometric one: the study found the baro altitude 64-80 m off. Only with a fresh fix and a lookup that worked.
@@ -301,7 +302,6 @@ const ViewModel& App::buildViewModel(uint32_t now) {
       if (kit_->terrain.ceiling(vm.s.lat, vm.s.lon, &c)) vm.clearance = vm.s.alt - c;
     }
     vm.map = &kit_->map;
-    vm.mapAbout = page_ == ViewModel::PAGE_MAP && now - mapEntryMs_ < cfg_.mapAboutMs;
   }
   vm.trailCount = 0;
   vm.markCount = 0;
@@ -373,7 +373,57 @@ void App::prepareMapPage(const ViewModel& vm, uint32_t now) {
   p.headingDeg = cfg_.mapHeadingUp ? vm.heading : NAN;   // NaN (also: no heading yet) = north up
   p.mPerPx = cfg_.mapMPerPx;
   mapPageSize(panel_.gfx().width(), panel_.gfx().height(), p.w, p.h);
+  updateSun(vm, now);
+  p.sunAz = sunAz_;
+  p.sunEl = sunEl_;
   kit_->map.update(kit_->terrain, kit_->vec, p, viewFont(viewGfxFont(1), TerrainMap::kCacheRotation), now);
+}
+
+// The sun for the map's shading, from the GPS date and time and the position; it moves 15 degrees an hour, so a
+// look every half minute is plenty. NaN (no date from the tracer yet) means the fixed light.
+// The map credits banner: once per boot (the box builds a new App on every entry, so the flag is a static), up to 3 s,
+// gone at the first press or the first fix. Never later.
+static bool gCreditsDone = false;
+void App::forgetCreditsShown() { gCreditsDone = false; }
+void App::updateCredits(uint32_t now, ButtonEvent ev) {
+  if (!creditsOn_) {
+    if (gCreditsDone || !hasTerrain()) return;
+    gCreditsDone = true;
+    creditsOn_ = true;
+    creditsUntil_ = now + 3000;
+    redraw_ = true;
+    return;
+  }
+  if (now - creditsUntil_ < 0x80000000u || ev != BTN_NONE || (flight_.hasData() && flight_.last().fix)) {
+    creditsOn_ = false;
+    redraw_ = true;
+  }
+}
+
+void App::updateSun(const ViewModel& vm, uint32_t now) {
+  if (sunKnown_ && now - sunAtMs_ < 30000u) return;
+  sunAtMs_ = now;
+  sunKnown_ = true;
+  sunAz_ = sunEl_ = NAN;
+  const Sample& s = vm.s;
+  if (s.year == 0) return;
+  float az, el;
+  if (sunPosition(s.year, s.month, s.day, s.hh * 3600 + s.mm * 60 + s.ss, s.lat, s.lon, &az, &el)) { sunAz_ = az; sunEl_ = el; }
+}
+
+// A few milliseconds of the map picture job per loop pass (see view/terrain_map.h): never the whole picture at once.
+void App::takeMapStats(uint32_t* steps, uint32_t* maxUs, bool* building, bool* sun) {
+  const bool k = hasTerrain();
+  *steps = k ? kit_->map.steps() : 0;
+  *maxUs = k ? kit_->map.maxStepUs() : 0;
+  *building = k && kit_->map.building();
+  *sun = k && kit_->map.sunLit();
+  if (k) kit_->map.resetStepStats();
+}
+
+void App::stepMapPicture() {
+  if (!hasTerrain() || page_ != ViewModel::PAGE_MAP || mode() != M_LIVE || !kit_->map.building()) return;
+  if (kit_->map.step(kit_->terrain, kit_->vec, viewFont(viewGfxFont(1), TerrainMap::kCacheRotation), kMapStepUs)) redraw_ = true;
 }
 
 void App::drawLiveScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t held) {
@@ -435,10 +485,11 @@ void App::tick(uint32_t now) {
   laptop_.service(now);
   updateHeading(now);
   if (page_ != lastPage_) {                          // a page change, from the switch or the laptop
-    if (page_ == ViewModel::PAGE_MAP) mapEntryMs_ = now;
     lastPage_ = page_;
   }
   updateMap(now);
+  stepMapPicture();
+  updateCredits(now, ev);
 
   bool local = !laptop_.hostDrawing(now);
   if (local != wasLocal_) {

@@ -2,6 +2,7 @@
 #include "apps/vario/view/terrain_map.h"
 #include "apps/vario/view/prof.h"
 #include "platform/util/angle.h"
+#include "platform/util/numfmt.h"
 #include "platform/gfx/gray.h"
 #include "platform/gfx/shapes.h"
 #include "platform/gfx/font.h"
@@ -113,8 +114,10 @@ static int textW(const char* s, const GFXfont* f) {
 
 // The one place a float becomes text: anything that is not a finite number prints "--".
 static const char* fnum(char* b, size_t n, float v, const char* fmt) {
+  int dec;
+  bool plus;
   if (!isfinite(v)) snprintf(b, n, "--");
-  else snprintf(b, n, fmt, v);
+  else if (!fmtFixedSpec(fmt, &dec, &plus) || !fmtFixed(b, n, v, dec, plus)) snprintf(b, n, fmt, v);   // integer maths, same text
   return b;
 }
 
@@ -518,7 +521,7 @@ static void drawThermalMap(const ViewModel& vm, const Bitmap1* bm, int mx, int m
                         hx + (int)lroundf(6 * qx), hy + (int)lroundf(6 * qy),
                         hx - (int)lroundf(6 * qx), hy - (int)lroundf(6 * qy), WHT);
         float dist = hypotf(gMr[0], gMu[0]);
-        if (dist >= 1000) snprintf(lb, sizeof lb, "%.1f km", dist / 1000.0f);
+        if (dist >= 1000) { fnum(lb, sizeof lb, dist / 1000.0f, "%.1f"); strncat(lb, " km", sizeof lb - strlen(lb) - 1); }
         else snprintf(lb, sizeof lb, "%d m", (int)(dist + 0.5f));
         int lx = ex - (int)lroundf(ux * 34), ly = ey - (int)lroundf(uy * 22);
         lx = lx < mx + 28 ? mx + 28 : (lx > mx + mw - 28 ? mx + mw - 28 : lx);
@@ -531,7 +534,7 @@ static void drawThermalMap(const ViewModel& vm, const Bitmap1* bm, int mx, int m
   int lxs[ViewModel::MARKS_MAX], lys[ViewModel::MARKS_MAX], nl = 0;
   for (int i = 0; i < nm; i++) {
     if (!gIn[i]) continue;
-    snprintf(lb, sizeof lb, "%+.1f", vm.marks[i].avgClimb);
+    fnum(lb, sizeof lb, vm.marks[i].avgClimb, "%+.1f");
     int w = textW(lb, F9), rad = i == 0 ? 10 : 7;
     int lx = gSx[i] + rad + 3, ly = gSy[i] + 5;                 // right of the ring, baseline
     if (lx + w > mx + mw - 4) lx = gSx[i] - rad - 3 - w;        // no room: left of it
@@ -799,6 +802,70 @@ static void mapScaleBar(int x, int y, float mPerPx) {
   text(x - len, y - 7, b, F9);
 }
 
+// The pilot on the map: a bold paper-plane arrow seen from above, nose along the track (th: radians clockwise from
+// the map's up). Two faces meet in a ridge from the nose to the notch in the tail: the left one lit (dark-mid grey), the
+// right one in shade (solid black), a black outline around both and a white halo ~3.5 px wide outside it, so it
+// reads over black contours and white plains alike. Drawn pixel by pixel; the edge distances of a pixel are
+// linear in its position, so the row loop only adds. The box clips it to the map area.
+static void pilotPlane(const Bitmap1& bm, int ax, int ay, float th, int cx0, int cy0, int cx1, int cy1) {
+  if (!isfinite(th)) return;
+  static const float V[4][2] = {{0, 25}, {-18, -16}, {0, -6}, {18, -16}};      // nose, left tip, notch, right tip (x right, y forward)
+  static const int F[2][3] = {{0, 1, 2}, {0, 2, 3}};                           // counter-clockwise (y up)
+  const float c = cosf(th), s = sinf(th);
+  // distance (pixels, inside positive) of the pixel at offset (dx, dy) from the edge k of face f: A dx + B dy - C
+  float A[2][3], B[2][3], C[2][3];
+  for (int f = 0; f < 2; f++)
+    for (int k = 0; k < 3; k++) {
+      const float* a = V[F[f][k]];
+      const float* b = V[F[f][(k + 1) % 3]];
+      const float ex = b[0] - a[0], ey = b[1] - a[1], inv = 1.0f / sqrtf(ex * ex + ey * ey);
+      const float nx = -ey * inv, ny = ex * inv;                                // inward normal in the plane's frame
+      A[f][k] = c * nx + s * ny;                                                // lx = dx c + dy s, ly = dx s - dy c
+      B[f][k] = s * nx - c * ny;
+      C[f][k] = a[0] * nx + a[1] * ny;
+    }
+  const float kHalo = 3.5f;
+  const int R = 30;
+  for (int dy = -R; dy <= R; dy++) {
+    const int y = ay + dy;
+    if (y < cy0 || y > cy1) continue;
+    float d[2][3];
+    for (int f = 0; f < 2; f++)
+      for (int k = 0; k < 3; k++) d[f][k] = -R * A[f][k] + dy * B[f][k] - C[f][k];
+    for (int dx = -R; dx <= R; dx++) {
+      float m0 = d[0][0] < d[0][1] ? d[0][0] : d[0][1];
+      if (d[0][2] < m0) m0 = d[0][2];
+      float m1 = d[1][0] < d[1][1] ? d[1][0] : d[1][1];
+      if (d[1][2] < m1) m1 = d[1][2];
+      for (int f = 0; f < 2; f++)
+        for (int k = 0; k < 3; k++) d[f][k] += A[f][k];                          // next pixel
+      const int x = ax + dx;
+      if (x < cx0 || x > cx1) continue;
+      const float in = m0 > m1 ? m0 : m1;                                       // >= 0 inside the plane
+      if (in < -kHalo) continue;
+      if (in < 0) {                                                             // near it: the true distance to the outline
+        const float lx = dx * c + dy * s, ly = dx * s - dy * c;
+        float best = 1e9f;
+        for (int k = 0; k < 4; k++) {
+          const float* a = V[k];
+          const float* b = V[(k + 1) & 3];
+          const float ex = b[0] - a[0], ey = b[1] - a[1];
+          float t = ((lx - a[0]) * ex + (ly - a[1]) * ey) / (ex * ex + ey * ey);
+          t = t < 0 ? 0 : (t > 1 ? 1 : t);
+          const float qx = lx - (a[0] + t * ex), qy = ly - (a[1] + t * ey);
+          const float dd = qx * qx + qy * qy;
+          if (dd < best) best = dd;
+        }
+        if (best <= kHalo * kHalo) bm.pixel(x, y, DRAW_SET);
+        continue;
+      }
+      if (m0 >= 1.0f) bm.pixel(x, y, bayer8(x, y) < 4 * 6 ? DRAW_SET : DRAW_CLEAR);        // lit face
+      else if (m1 >= 1.0f) bm.pixel(x, y, DRAW_CLEAR);                                    // shaded face: solid
+      else bm.pixel(x, y, DRAW_CLEAR);                                                       // outline and ridge
+    }
+  }
+}
+
 // Ground track (white casing, black core) then the pilot, in the cached window's frame. The window can be a few
 // pixels behind the pilot (it is re-rendered only after ~10 px or ~5 degrees), the arrow shows the true spot.
 static void mapTrackAndPilot(const ViewModel& vm, int mx, int my, int mw, int mh, float px, float py, float th) {
@@ -812,8 +879,7 @@ static void mapTrackAndPilot(const ViewModel& vm, int mx, int my, int mw, int mh
     have = false;
     for (int i = 0; i <= n; i++) {                                // the points, then the pilot as the last one
       float x, y;
-      double la, lo;
-      if (i < n) { if (!m.trackAt(i, &la, &lo) || !m.project(la, lo, &x, &y)) { have = false; continue; } }
+      if (i < n) { if (!m.projectTrack(i, &x, &y)) { have = false; continue; } }
       else { x = px; y = py; }
       x += mx; y += my;
       if (have) {
@@ -830,9 +896,7 @@ static void mapTrackAndPilot(const ViewModel& vm, int mx, int my, int mw, int mh
   }
   const int ax = mx + (int)lroundf(px), ay = my + (int)lroundf(py);
   if (ax < mx + 8 || ax > mx + mw - 8 || ay < my + 8 || ay > my + mh - 8) return;
-  fillDisc(*bm, ax, ay, 13, DRAW_SET);                            // white badge, so the arrow reads over any relief
-  circle(*bm, ax, ay, 13, DRAW_CLEAR);
-  drawArrow(ax, ay, th, 9, 7);
+  pilotPlane(*bm, ax, ay, th, mx + 1, my + 1, mx + mw - 2, my + mh - 2);
 }
 
 static void drawMapPage(const ViewModel& vm, const Bitmap1* bm) {
@@ -876,15 +940,6 @@ static void drawMapPage(const ViewModel& vm, const Bitmap1* bm) {
   mapScaleBar(mx + mw - 8, by - 8, m->mPerPx());
 
   if (m->noData()) mapNotice(mx, my, mw, mh, "OUTSIDE MAP", "no terrain data here");
-  if (vm.mapAbout) {                                               // first seconds on the page: attribution, caveat
-    const int bx = mx + 6, bw = mw - 12, ty = my + 62;
-    d->fillRect(bx, ty, bw, 84, WHT);
-    d->drawRect(bx, ty, bw, 84, BLK);
-    text(bx + 6, ty + 17, "(c) OpenStreetMap", F9);
-    text(bx + 6, ty + 34, "Copernicus DEM", F9);
-    text(bx + 6, ty + 51, "AGL: terrain model,", F9);
-    text(bx + 6, ty + 68, "+-10 m, 80 at peaks", F9);
-  }
 }
 
 // ---- CENTRING PAGE -------------------------------------------------------------
@@ -1238,6 +1293,17 @@ static void powerBanner(uint32_t heldMs) {
   hbar(bx + 14, by + 38, bw - 28, 18, (heldMs - 1500) / 1500.0f);
 }
 
+// Once per boot, a few seconds after the vario starts: who made the map data. A centred rounded box over the screen.
+static void creditsBanner() {
+  const int bw = 208, bh = 76, bx = (W - bw) / 2, by = (H - bh) / 2;
+  d->fillRoundRect(bx, by, bw, bh, 10, WHT);
+  d->drawRoundRect(bx, by, bw, bh, 10, BLK);
+  d->drawRoundRect(bx + 1, by + 1, bw - 2, bh - 2, 9, BLK);
+  textMid(W / 2, by + 28, "OpenStreetMap", F12B);
+  textMid(W / 2, by + 48, "(c) contributors", F9);
+  textMid(W / 2, by + 66, "Copernicus DEM", F9);
+}
+
 void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm) {
   begin(g, bm);
   PROF_BEGIN(P_LIVE);
@@ -1249,6 +1315,7 @@ void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitma
   else if (vm.fresh) drawLiveBody(vm, bm);
   else drawStandalone(vm, bm);
   powerBanner(heldMs);
+  if (vm.credits) creditsBanner();
   PROF_END(P_LIVE);
 }
 

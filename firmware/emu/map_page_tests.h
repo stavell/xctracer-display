@@ -6,6 +6,10 @@
 #include <string>
 #include <vector>
 #include "apps/vario/app/terrain_kit.h"
+#include "platform/util/numfmt.h"
+#include "platform/sensors/sun.h"
+#include "apps/vario/core/xctrc.h"
+#include <random>
 
 namespace map_page_tests {
 using namespace terrain;
@@ -94,7 +98,7 @@ static void test_agl() {
     Session s(nullptr);                                    // no pack: nothing at all
     s.fly(lat, lon, 1000.0, 90, 3);
     const ViewModel& vm = s.app.buildViewModel(s.now);
-    CHECK(!vm.terrainOn && std::isnan(vm.agl) && std::isnan(vm.clearance) && vm.map == nullptr && !vm.mapAbout);
+    CHECK(!vm.terrainOn && std::isnan(vm.agl) && std::isnan(vm.clearance) && vm.map == nullptr);
   }
   {
     Session s(&gClosed);                                   // a kit whose pack was rejected counts as no pack
@@ -215,7 +219,7 @@ static void test_map_cache() {
   const double cosLat = cos(p.lat * D2R);
   const Font1* font = nullptr;
   uint32_t t = 1000;
-  CHECK(m.update(gKit.terrain, gKit.vec, p, font, t) == TerrainMap::RENDERED);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, p, font, t) == TerrainMap::RENDERED);
   CHECK(m.valid() && !m.noData() && m.dataPixels() == 218 * 376);
   uint32_t n0 = m.renders();
   float x, y;
@@ -229,9 +233,9 @@ static void test_map_cache() {
   // moving less than 10 px keeps the layer; more re-renders
   TerrainMap::Params q = p;
   q.lat = p.lat + 800 / mpd;                               // 8 px
-  CHECK(m.update(gKit.terrain, gKit.vec, q, font, t + 100) == TerrainMap::KEPT && m.renders() == n0);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, q, font, t + 100) == TerrainMap::KEPT && m.renders() == n0);
   q.lat = p.lat + 1100 / mpd;                              // 11 px
-  CHECK(m.update(gKit.terrain, gKit.vec, q, font, t + 200) == TerrainMap::RENDERED && m.renders() == n0 + 1);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, q, font, t + 200) == TerrainMap::RENDERED && m.renders() == n0 + 1);
   // after the re-render the pilot is back at its place
   CHECK(m.project(q.lat, q.lon, &x, &y));
   NEAR(x, 109, 0.6); NEAR(y, 188 + 0.12 * 376, 0.6);
@@ -239,13 +243,13 @@ static void test_map_cache() {
   q = p;
   q.lat = p.lat + 1100 / mpd; q.headingDeg = 4;
   uint32_t n1 = m.renders();
-  CHECK(m.update(gKit.terrain, gKit.vec, q, font, t + 300) == TerrainMap::KEPT);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, q, font, t + 300) == TerrainMap::KEPT);
   q.headingDeg = 6;
-  CHECK(m.update(gKit.terrain, gKit.vec, q, font, t + 400) == TerrainMap::RENDERED && m.renders() == n1 + 1);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, q, font, t + 400) == TerrainMap::RENDERED && m.renders() == n1 + 1);
   NEAR(m.headingDeg(), 6, 1e-4);
   // heading east: east is up. 5 km east of the pilot is 50 px above it
   q.headingDeg = 90;
-  CHECK(m.update(gKit.terrain, gKit.vec, q, font, t + 500) == TerrainMap::RENDERED);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, q, font, t + 500) == TerrainMap::RENDERED);
   CHECK(m.project(q.lat, q.lon + 5000 / (mpd * cos(q.lat * D2R)), &x, &y));
   NEAR(x, 109, 1.0); NEAR(y, 188 + 0.12 * 376 - 50, 1.0);
   // a small change shows only once the picture is old enough
@@ -253,29 +257,29 @@ static void test_map_cache() {
   TerrainMap::Params s2 = q;
   s2.lat += 300 / mpd;                                     // 3 px: below the 10 px rule
   s2.headingDeg = 90;
-  CHECK(m.update(gKit.terrain, gKit.vec, s2, font, t + 600) == TerrainMap::KEPT && m.renders() == n2);
-  CHECK(m.update(gKit.terrain, gKit.vec, s2, font, t + 500 + TerrainMap::kRefreshMs + 10) == TerrainMap::RENDERED);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, s2, font, t + 600) == TerrainMap::KEPT && m.renders() == n2);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, s2, font, t + 500 + TerrainMap::kRefreshMs + 10) == TerrainMap::RENDERED);
   // a new scale re-renders and changes the projection
   q = s2; q.mPerPx = 50;
-  CHECK(m.update(gKit.terrain, gKit.vec, q, font, t + 20000) == TerrainMap::RENDERED);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, q, font, t + 20000) == TerrainMap::RENDERED);
   CHECK(m.project(q.lat + 0.0, q.lon + 2500 / (mpd * cos(q.lat * D2R)), &x, &y));
   NEAR(y, 188 + 0.12 * 376 - 50, 1.5);
   // no heading: north up, the pilot in the centre
   q.headingDeg = NAN; q.mPerPx = 100;
-  CHECK(m.update(gKit.terrain, gKit.vec, q, font, t + 30000) == TerrainMap::RENDERED && m.headingDeg() == 0);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, q, font, t + 30000) == TerrainMap::RENDERED && m.headingDeg() == 0);
   CHECK(m.project(q.lat, q.lon, &x, &y));
   NEAR(x, 109, 0.6); NEAR(y, 188, 0.6);
   // north up does not re-render for a turn, only for movement
   const uint32_t n3 = m.renders();
   q.headingDeg = NAN;
   q.lat += 500 / mpd;
-  CHECK(m.update(gKit.terrain, gKit.vec, q, font, t + 30100) == TerrainMap::KEPT && m.renders() == n3);
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, q, font, t + 30100) == TerrainMap::KEPT && m.renders() == n3);
 
   // identical params into two layers: identical bytes
   static TerrainMap other;
-  other.update(gKit.terrain, gKit.vec, q, font, t + 40000);
+  other.updateSync(gKit.terrain, gKit.vec, q, font, t + 40000);
   m.invalidate();
-  m.update(gKit.terrain, gKit.vec, q, font, t + 40000);
+  m.updateSync(gKit.terrain, gKit.vec, q, font, t + 40000);
   CHECK(memcmp(m.cache().buf, other.cache().buf, TerrainMap::kStride * 218) == 0);
 
   // ground track: one point per 5 flight seconds, oldest first, a ring
@@ -296,12 +300,176 @@ static void test_map_cache() {
   CHECK(m.trackCount() == 0);
 }
 
+// Sun position against values worked out by hand (equinox / solstice noon) and the shading direction.
+static void test_credits() {
+  puts("map credits banner: once per boot, closes at a press or a fix");
+  CHECK(setup());
+  App::forgetCreditsShown();
+  {
+    Session s(&gKit);
+    s.run(500);
+    CHECK(s.app.buildViewModel(s.now).credits);
+    s.run(3000);
+    CHECK(!s.app.buildViewModel(s.now).credits);          // timed out
+  }
+  {
+    Session s(&gKit);                                      // a later entry in the same boot
+    s.run(500);
+    CHECK(!s.app.buildViewModel(s.now).credits);
+  }
+  App::forgetCreditsShown();
+  {
+    Session s(&gKit);
+    s.run(500);
+    CHECK(s.app.buildViewModel(s.now).credits);
+    s.fly(42.62, 24.85, 1300.0, 40, 1);
+    CHECK(!s.app.buildViewModel(s.now).credits);          // a fix closes it at once
+  }
+  App::forgetCreditsShown();
+  {
+    Session s(&gKit);
+    s.run(500);
+    s.press();
+    CHECK(!s.app.buildViewModel(s.now).credits);
+  }
+  Session n(nullptr);                                      // no pack: nothing to credit
+  App::forgetCreditsShown();
+  n.run(500);
+  CHECK(!n.app.buildViewModel(n.now).credits);
+}
+
+static void test_sun() {
+  puts("sun: position formula, light vector, shading by the sun");
+  float az, el;
+  // equator, prime meridian, 2026-06-21 12:00 UTC: sun 66.5 degrees high, in the north (equation of time ~ -1.7 min, 0.4 deg)
+  CHECK(sunPosition(2026, 6, 21, 12 * 3600, 0.0, 0.0, &az, &el));
+  NEAR(el, 66.5, 0.6); CHECK(az < 8.0f || az > 352.0f);
+  // Sofia (42.7 N, 23.3 E), 2026-12-21: noon sun ~ 23.9 degrees, due south; 06:00 UTC is a good night-time-ish low sun
+  CHECK(sunPosition(2026, 12, 21, (int)((12 - 23.3 / 15.0 - 0.03) * 3600), 42.7, 23.3, &az, &el));
+  NEAR(el, 90 - 42.7 - 23.44, 0.6); NEAR(az, 180, 3.0);
+  CHECK(sunPosition(2026, 9, 22, (int)((6 - 23.3 / 15.0) * 3600), 42.7, 23.3, &az, &el));   // equinox sunrise: due east, at the horizon
+  NEAR(el, 0, 2.5); NEAR(az, 90, 5.0);
+  CHECK(sunPosition(2026, 8, 16, 0, 42.6, 24.8, &az, &el) && el < -20);                        // local night
+  CHECK(!sunPosition(2026, 13, 1, 0, 0, 0, &az, &el) && !sunPosition(2026, 1, 1, 90000, 0, 0, &az, &el));
+  CHECK(!sunPosition(2026, 1, 1, 0, 95, 0, &az, &el) && !sunPosition(2026, 1, 1, 0, NAN, 0, &az, &el));
+  // the light vector in screen axes: sun in the south, window north up: the light comes from the bottom of the screen
+  ReliefStyle st;
+  st.setSun(180, 30, 0);
+  NEAR(st.lightX, 0, 1e-4); NEAR(st.lightY, -0.8660, 1e-3); NEAR(st.lightZ, 0.5, 1e-4);
+  st.setSun(90, 30, 0);                                    // east: from the right
+  NEAR(st.lightX, 0.866, 1e-3); NEAR(st.lightY, 0, 1e-4);
+  st.setSun(90, 30, 90);                                   // east is up when heading east: the light comes from the top
+  NEAR(st.lightX, 0, 1e-3); NEAR(st.lightY, 0.866, 1e-3);
+  // the date of a tracer line reaches the sample; a bad date is "unknown", not an error
+  Sample smp;
+  CHECK(xctrcParse(xc(5, 42.0, 25.0, 1000).c_str(), smp) && smp.year == 2026 && smp.month == 8 && smp.day == 16);
+  CHECK(xctrcParse(line("XCTRC,xx,8,16,10,38,5,0,42.0,25.0,1000,30,90,0.1,,,,967.62,85").c_str(), smp) && smp.year == 0);
+
+  // the shaded map differs from the fixed light, and a sun below kSunMinEl gives the fixed-light picture exactly
+  CHECK(setup());
+  TerrainMap& m = gKit.map;
+  static TerrainMap fixedMap;
+  TerrainMap::Params p;
+  p.lat = 42.62; p.lon = 24.85; p.headingDeg = NAN; p.mPerPx = 100;
+  m.invalidate(); fixedMap.invalidate();
+  CHECK(fixedMap.updateSync(gKit.terrain, gKit.vec, p, nullptr, 0) == TerrainMap::RENDERED && !fixedMap.sunLit());
+  p.sunAz = 260; p.sunEl = 15;
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, p, nullptr, 0) == TerrainMap::RENDERED && m.sunLit());
+  CHECK(memcmp(m.cache().buf, fixedMap.cache().buf, TerrainMap::kStride * 218) != 0);
+  p.sunEl = 1.0f;                                          // too low: twilight
+  m.invalidate();
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, p, nullptr, 0) == TerrainMap::RENDERED && !m.sunLit());
+  CHECK(memcmp(m.cache().buf, fixedMap.cache().buf, TerrainMap::kStride * 218) == 0);
+  // the sun moving a little keeps the picture; a lot (or setting) re-shades
+  p.sunAz = 200; p.sunEl = 40;
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, p, nullptr, 10) == TerrainMap::RENDERED && m.sunLit());
+  p.sunAz = 203; p.sunEl = 38;
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, p, nullptr, 20) == TerrainMap::KEPT);
+  p.sunAz = 212;
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, p, nullptr, 30) == TerrainMap::RENDERED);
+  p.sunEl = NAN;
+  CHECK(m.updateSync(gKit.terrain, gKit.vec, p, nullptr, 40) == TerrainMap::RENDERED && !m.sunLit());
+}
+
+// reliefStrip in pieces gives exactly the bytes of relief(); the map job in small steps gives exactly the bytes of the
+// synchronous render, the shown picture does not change while it runs, and no step does more than its unit budget.
+static void test_map_incremental() {
+  puts("terrain: relief strips and the incremental map job");
+  CHECK(setup());
+  Window win;
+  win.lat = 42.62; win.lon = 24.85; win.mPerPx = 100; win.w = 218; win.h = 376; win.headingDeg = 37;
+  static uint8_t g1[218 * 376], c1[218 * 376], g2[64 * 7], c2[64 * 7];
+  const ReliefStyle st = ReliefStyle::light();
+  gKit.terrain.relief(win, st, 0, 0, 376, g1, c1);
+  const int sw = gKit.terrain.stripWidth(win);
+  CHECK(sw >= 16 && sw <= kMaxStrip);
+  int bad = 0, total = 0;
+  for (int xs = 0; xs < 218; xs += sw) {
+    const int xe = xs + sw < 218 ? xs + sw : 218;
+    for (int y = 0; y < 376; y += 7) {                     // 7 rows at a time, resuming the strip
+      const int y1 = y + 7 < 376 ? y + 7 : 376;
+      total += gKit.terrain.reliefStrip(win, st, 0, xs, xe, y, y1, g2, c2) >= 0;
+      for (int yy = y; yy < y1; yy++)
+        for (int x = xs; x < xe; x++) {
+          bad += g2[(yy - y) * (xe - xs) + (x - xs)] != g1[yy * 218 + x];
+          bad += c2[(yy - y) * (xe - xs) + (x - xs)] != c1[yy * 218 + x];
+        }
+    }
+  }
+  CHECK(total > 0 && bad == 0);
+  // a strip interrupted by another render restarts cleanly (no stale rows)
+  gKit.terrain.reliefStrip(win, st, 0, 0, sw, 0, 7, g2, c2);
+  gKit.terrain.relief(win, st, 0, 100, 110, g1, c1);
+  gKit.terrain.reliefStrip(win, st, 0, 0, sw, 7, 14, g2, c2);
+  gKit.terrain.relief(win, st, 0, 0, 376, g1, c1);
+  bad = 0;
+  for (int yy = 7; yy < 14; yy++) for (int x = 0; x < sw; x++) bad += g2[(yy - 7) * sw + x] != g1[yy * 218 + x];
+  CHECK(bad == 0);
+
+  TerrainMap& m = gKit.map;
+  static TerrainMap ref;
+  TerrainMap::Params p;
+  p.lat = 42.62; p.lon = 24.85; p.headingDeg = NAN; p.mPerPx = 100; p.sunAz = 230; p.sunEl = 35;
+  m.invalidate(); ref.invalidate();
+  CHECK(ref.updateSync(gKit.terrain, gKit.vec, p, nullptr, 0) == TerrainMap::RENDERED);
+  CHECK(m.update(gKit.terrain, gKit.vec, p, nullptr, 0) == TerrainMap::STARTED && !m.valid() && m.building());
+  int calls = 0;
+  while (m.building() && calls < 100000) { m.step(gKit.terrain, gKit.vec, nullptr, 1000); calls++; }
+  CHECK(!m.building() && m.valid() && calls > 5);
+  CHECK(memcmp(m.cache().buf, ref.cache().buf, TerrainMap::kStride * 218) == 0);
+  printf("  map job: %d steps of %d units to build a picture\n", calls, TerrainMap::kUnitsNoClock);
+  // the pilot moves on: the old picture stays byte for byte while the new one is built, then it is swapped
+  static uint8_t shown[TerrainMap::kStride * TerrainMap::kMaxW];
+  memcpy(shown, m.cache().buf, sizeof shown);
+  const double mpd = gKit.terrain.info().mPerDeg;
+  p.lat += 1200 / mpd;                                    // 12 px north
+  CHECK(m.update(gKit.terrain, gKit.vec, p, nullptr, 100) == TerrainMap::STARTED);
+  float x, y;
+  CHECK(m.project(p.lat, p.lon, &x, &y) && fabsf(y - 188) > 11 && fabsf(y - 188) < 13);   // still the old window: the pilot is 12 px off its centre
+  bool swapped = false;
+  int n = 0;
+  while (m.building()) {
+    CHECK(memcmp(m.cache().buf, shown, sizeof shown) == 0);
+    swapped = m.step(gKit.terrain, gKit.vec, nullptr, 1000);
+    CHECK(m.update(gKit.terrain, gKit.vec, p, nullptr, 100 + n) == (swapped ? TerrainMap::KEPT : TerrainMap::STARTED));
+    n++;
+    if (n > 100000) break;
+  }
+  CHECK(swapped && memcmp(m.cache().buf, shown, sizeof shown) != 0);
+  CHECK(m.project(p.lat, p.lon, &x, &y)); NEAR(y, 188, 0.6);
+  // a pilot far from the picture's window (a long pause on another page): the picture is dropped, not shown wrong
+  p.lat += 12000 / mpd;
+  CHECK(m.update(gKit.terrain, gKit.vec, p, nullptr, 500) == TerrainMap::STARTED && !m.valid());
+  m.invalidate();
+  CHECK(!m.building() && !m.step(gKit.terrain, gKit.vec, nullptr, 1000));
+}
+
 static void test_map_cost() {
   puts("terrain: map render cost on the PC (informational)");
   CHECK(setup());
   printf("  RAM: TerrainKit %zu B (Terrain %zu, MapVectors %zu, TerrainMap %zu: cache %d + bands %d + track %zu)\n", sizeof(TerrainKit),
          sizeof(Terrain), sizeof(MapVectors), sizeof(TerrainMap), TerrainMap::kStride * TerrainMap::kMaxW,
-         2 * TerrainMap::kMaxW * TerrainMap::kBand, 8 * (size_t)TerrainMap::kTrackMax);
+         2 * terrain::kMaxStrip * TerrainMap::kRows, 8 * (size_t)TerrainMap::kTrackMax);
   TerrainMap& m = gKit.map;
   TerrainMap::Params p;
   p.lat = 42.62; p.lon = 24.85; p.mPerPx = 100;
@@ -311,7 +479,7 @@ static void test_map_cost() {
       gKit.terrain.flush();
       m.invalidate();
       auto t0 = std::chrono::steady_clock::now();
-      m.update(gKit.terrain, gKit.vec, p, nullptr, 0);
+      m.updateSync(gKit.terrain, gKit.vec, p, nullptr, 0);
       double ms = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() * 1e3;
       printf("  map render 218x376 @%.0f m/px heading %.0f (cold tile cache, no labels): %.1f ms\n", sc, hd, ms);
     }
@@ -338,7 +506,7 @@ static void test_map_cost_real() {
       real.terrain.flush();
       real.map.invalidate();
       auto t0 = std::chrono::steady_clock::now();
-      real.map.update(real.terrain, real.vec, p, font, 0);
+      real.map.updateSync(real.terrain, real.vec, p, font, 0);
       double ms = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() * 1e3;
       printf("  real pack, %s, heading %.0f, 100 m/px, roads + towns + labels: %.1f ms, %d px with data, %u tile decodes\n", sp.name, hd, ms,
              real.map.dataPixels(), (unsigned)real.terrain.tileDecodes());
@@ -346,13 +514,103 @@ static void test_map_cost_real() {
     }
 }
 
+// fmtFixed must give the very string snprintf gives, for every format the views use.
+static void test_numfmt() {
+  const char* fmts[] = {"%.0f", "%.1f", "%+.0f", "%+.1f", "%.2f", "%.3f", "%+.3f"};
+  long bad = 0, n = 0;
+  auto one = [&](float v) {
+    for (const char* f : fmts) {
+      int dec; bool plus;
+      CHECK(fmtFixedSpec(f, &dec, &plus));
+      char a[32], b[32];
+      snprintf(a, sizeof a, f, v);
+      const bool ok = fmtFixed(b, sizeof b, v, dec, plus);
+      n++;
+      if (!ok) { if (!(fabsf(v) >= 1e9f)) { bad++; printf("  numfmt refused %g\n", v); } continue; }
+      if (strcmp(a, b) != 0) { if (bad++ < 10) printf("  numfmt %s of %.9g: snprintf '%s', fmtFixed '%s'\n", f, v, a, b); }
+    }
+  };
+  // ties, rounding edges, signs, zero, tiny, large
+  for (int i = -4000; i <= 4000; i++) {
+    one(i * 0.5f); one(i * 0.25f); one(i * 0.125f); one(i * 0.05f); one(i * 0.1f); one(i * 0.01f); one(i * 0.001f);
+    one(i * 0.05f + 0.0001f); one(i * 0.05f - 0.0001f);
+  }
+  one(0.0f); one(-0.0f); one(-0.04f); one(-0.4f); one(-0.5f); one(0.5f); one(1.5f); one(2.5f); one(0.95f); one(0.05f);
+  one(9.95f); one(99.95f); one(999999.5f); one(123456789.0f); one(999999999.0f); one(1e-30f); one(-1e-30f);
+  one(1e-45f); one(1.17549435e-38f); one(8388607.5f); one(16777216.0f); one(0.99999994f); one(-0.99999994f);
+  // every float of a few binades by consecutive bit patterns, and random bit patterns
+  for (uint32_t bitsBase : {0x3F7FFF00u, 0x3F000000u, 0x41200000u, 0x4B7FFF00u, 0x00000000u, 0x80000000u, 0xBF7FFF00u}) {
+    for (uint32_t k = 0; k < 4096; k++) {
+      uint32_t bits = bitsBase + k;
+      float v; memcpy(&v, &bits, 4);
+      if (isfinite(v)) one(v);
+    }
+  }
+  std::mt19937 rng(12345);
+  for (int i = 0; i < 40000; i++) {
+    uint32_t bits = rng();
+    float v; memcpy(&v, &bits, 4);
+    if (isfinite(v)) one(v);
+    one((float)((int)(rng() % 2000001) - 1000000) / 1000.0f);        // plausible readings: +-1000 with 3 decimals
+    one((float)((int)(rng() % 20000001) - 10000000) / 100.0f);
+  }
+  printf("  numfmt: %ld strings compared with snprintf, %ld differences\n", n, bad);
+  CHECK(bad == 0);
+  char s[4];
+  CHECK(fmtFixed(s, sizeof s, 12345.0f, 1, false) && strcmp(s, "123") == 0);   // truncates like snprintf
+  CHECK(!fmtFixed(s, sizeof s, NAN, 1, false) && !fmtFixed(s, sizeof s, 2e9f, 0, false));
+  { int dd; bool pp; CHECK(!fmtFixedSpec("%d", &dd, &pp) && !fmtFixedSpec("%.4f", &dd, &pp)); }
+}
+
+// The float map maths against the double formulas they replaced.
+static void test_map_float_maths() {
+  if (!setup()) { CHECK(false); return; }
+  const MapVectors& vec = gKit.vec;
+  const PackInfo& I = gKit.terrain.info();
+  double worstUnit = 0, worstXf = 0;
+  std::mt19937 rng(7);
+  for (int i = 0; i < 2000; i++) {
+    const double lat = 41.3 + (rng() % 29000) * 1e-4, lon = 22.4 + (rng() % 60000) * 1e-4;
+    const int32_t la = (int32_t)llround(lat * 1e7), lo = (int32_t)llround(lon * 1e7);
+    double ux, uy;
+    vec.latLonToUnit(la * 1e-7, lo * 1e-7, &ux, &uy);
+    float fx, fy;
+    vec.latLonToUnitE7(la, lo, &fx, &fy);
+    worstUnit = fmax(worstUnit, fmax(fabs(fx - ux), fabs(fy - uy)));
+    // transform against the double formulas (the old code) for a random window
+    Window w; w.lat = lat; w.lon = lon; w.mPerPx = 25.0f + (rng() % 200); w.headingDeg = (rng() % 3600) / 10.0f;
+    const VecXform t = vec.makeXform(w);
+    const double mpd = I.mPerDeg, u = I.unitM, cosLat = cos(w.lat * 0.017453292519943295);
+    const double th = w.headingDeg * 0.017453292519943295, ct = cos(th), sn = sin(th);
+    const double ex = u * cosLat / I.cos0, e0 = (I.originLon_e7 * 1e-7 - w.lon) * mpd * cosLat, ny = -u,
+                 n0 = (I.originLat_e7 * 1e-7 - w.lat) * mpd, s = w.mPerPx;
+    const double a = ex * ct / s, b = -ny * sn / s, c = w.w * 0.5 + (e0 * ct - n0 * sn) / s;
+    const double d = -ex * sn / s, e = -ny * ct / s, f = w.h * 0.5 - (e0 * sn + n0 * ct) / s;
+    // pixel error over the whole window, from units up to +-3000 away from the centre
+    for (int k = 0; k < 4; k++) {
+      const double x = ux + (k & 1 ? 3000 : -3000), y = uy + (k & 2 ? 3000 : -3000);
+      worstXf = fmax(worstXf, fmax(fabs(t.px((float)x, (float)y) - (a * x + b * y + c)),
+                                   fabs(t.py((float)x, (float)y) - (d * x + e * y + f))));
+    }
+    (void)I;
+  }
+  printf("  float map maths: worst unit error %.4f units (10 m), worst pixel error %.4f px\n", worstUnit, worstXf);
+  CHECK(worstUnit < 0.01);
+  CHECK(worstXf < 0.05);
+}
+
 static void run() {
   test_agl();
   test_page_cycle();
   test_screens();
   test_map_cache();
+  test_credits();
+  test_sun();
+  test_map_incremental();
   test_map_cost();
   test_map_cost_real();
+  test_numfmt();
+  test_map_float_maths();
 }
 
 }  // namespace map_page_tests

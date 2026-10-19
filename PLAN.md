@@ -261,13 +261,11 @@ Lessons from the sim speed pass (NOTES "sim speed"): on this chip libm (`expf` 1
 the clock (64 MHz, cache on). Shared platform fixes (word-wise clear / pack / diff) already reach the vario.
 
 Vario, by expected gain (measure on the device first; `box_vario_matches_alone` and replay digests must not change):
-1. **Map page maths**: soft `double` in the per-pixel / per-point path (`terrain::MapVectors::makeXform`,
-   `boxForWindow`, `latLonToUnit`, `TerrainMap::update` / `windowCentre` / `project` / `feedTrack`, `Terrain::relief`,
-   `elevation` / `ceiling` for AGL). Keep `double` only for the absolute lat/lon origin, do the rest in float relative to it.
-   Biggest win: faster map redraws, smoother map page, less battery.
-2. **Number text**: `fnum()` and other `snprintf("%.Nf")` calls -> integer formatting (as the sim HUD does now).
-3. **libm in wind / thermal code** (`expf`, `powf`, `logf`, `atan2f` per sample): fast versions where precision allows.
-   Small gain (about 3 samples per second).
+1. **Map page maths**: DONE (NOTES "Float map maths and integer number text"): ground track, makeXform, boxForWindow,
+   windowCentre, update, split, sim TerrainSource now float relative to the double origin; renders byte-identical. Still to
+   measure on the device (map page redraw and frame time with a long track).
+2. **Number text**: DONE: `fnum()` uses `fmtFixed` (integer maths, tested against snprintf). Device timing still open.
+3. **libm in wind / thermal code**: dropped, the premise does not hold (NOTES, same section).
 
 Sim leftovers:
 - 3D at ~31 fps, needs ~7 ms more for 50 (voxel 11, sprite 4.6, sky 3-4, HUD 2.5 ms); map ~30 thermal rings ~6 ms,
@@ -281,3 +279,20 @@ CPU options (NOTES "CPU options pass"): done `-fno-math-errno`, per-file `-O3` (
 
 Other open items: measure the clock-sleep current (PPK2), wire the six buttons, print the case test plate, loader
 speed-up (pump the loader in a tight loop during a load), QSPI deep power-down measurement, launcher footer polish.
+
+User additions (2026-10-19):
+- **Flight sim HUD: flight time and distance from takeoff** (straight-line from the takeoff point, km with one decimal;
+  flight time from the sim clock, so x3 time shows sim minutes). Visual, no extra text labels beyond the standard units.
+- **A 3D compass** instead of the flat dial: a tilted, perspective compass card / globe that rolls and pitches with the
+  box (AHRS), shaded with the gray dither. RAM is not the limit: the compass tool lives in the shared app arena
+  (91 kB block, the tool uses 43 kB) and the heap has ~80 kB. Put it in the Compass & weather tool first; the vario's
+  compass page stays the flat, readable dial unless the user wants it there too (flight rule: practical, eye candy in
+  the tools / games). Same 0.0..359.9 heading text.
+- **Start-up animation** that shows off the box's graphics and sets expectations (user, 2026-10-19): a short (~2-3 s,
+  skippable with any press, 50 fps) intro at power-on and on wake from System OFF. Storyboard (user): the sim's chase cam
+  behind a paraglider thermaling tight just under cloudbase over the real 3D terrain from the map pack, climbing into the
+  cloud; the cloud fills the screen as dithered white (the end frame, with the logo / name showing through), and the
+  white-out is the transition into the start-up app. Rules: never delays the vario beyond the animation (tracer scan starts in parallel),
+  runs from the shared arena (freed before the start-up app is built), falls back to a 2D logo animation without a
+  map pack, off in the vario-only image. A Settings row to turn it off.
+- **Sun shading on the vario's map page**: done 2026-10-19 (see NOTES.md, "Map page: no more 1.9 s stall"); the sim's top-down map could still use the same sun.
