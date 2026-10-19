@@ -75,7 +75,7 @@ right is worse than no data.
   In the box image NO app is static: the vario (`VarioBox`: App + adapter + terrain kit), Tetris, the compass tool and the flight sim (`SimBox`) share one
   `AppArena` through `LazyApp` (`platform/lazy_app.h`); leaving the vario loses its flight state. What must outlive it (radios + their queues, settings, wall clock) stays static; BLE callbacks never touch App. Big new objects go there or into a port. `scripts/ram_check.py`
   (in check.sh) fails below 48 KB of heap.
-- **Start-up animation.** The box image plays `apps/intro` at a power-on / System OFF wake (not after the clock sleep), unless Settings >
+- **Start-up animation.** The box image plays `apps/intro` at a power-on, System OFF wake and wake from the clock sleep, unless Settings >
   Intro is off. It is an arena app (freed before the start-up app is built, never larger than the sim so the arena does not grow),
   any press skips it, the start-up app's radios are not held back by it, and it must not change the sim files' look or behaviour. The
   vario-only image has none. A scripted, step-counted path keeps it deterministic (test `box_intro`).

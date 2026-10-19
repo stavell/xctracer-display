@@ -415,7 +415,7 @@ coming back starts fresh and reconnects the tracer. The radios, settings and the
 
 ![Home screen, Settings, compass calibration, About, the vario menu with its Home row](docs/screens/box.png)
 
-**Start-up animation** (`apps/intro`, box image only). At power-on and on wake from System OFF (not on the way out of the clock sleep)
+**Start-up animation** (`apps/intro`, box image only). At power-on, on wake from System OFF and on the way out of the clock sleep
 the box plays a 2.8 s intro at 50 fps before the start-up app: the flight sim's chase camera behind a paraglider thermaling tight
 under a cumulus over the real terrain of the map pack, climbing into the cloud, which fills the screen as dithered white with
 "stavl.com" dissolving in as the end frame; the white is the hand-over to the start-up app. Any press skips it (the press is used up,

@@ -227,7 +227,7 @@ System OFF: `PowerNrf::shutdown()` stops the radios as before (disconnect, 150 m
 operation wakes it by itself), draws the clock and sleeps in System ON. Why System ON: a reset loses the WallClock (it only
 ever comes from the tracer's GPS time), and a wake without reset lets the start-up app restart tracer and sensors through
 its normal begin() (`App::end()` pauses the tracer, `begin()` resumes it). Hence `shutdown()` RETURNS in this mode and the
-loop restarts the start-up app (`PowerNrf::takeResumed()` -> `startStartupApp()`).
+loop restarts the start-up app, with the intro (`PowerNrf::takeResumed()` -> `startStartupApp(true)`; Settings > Intro Off disables it).
 - Logic (pure, `platform/power/clock_sleep.h`, `ClockSleep::step()`): draw / wait until / wake / System OFF. Draws on the
   first step, when the local minute changes (the wait is to the next minute boundary + 50 ms, `WallClock::msToNextMinute`)
   and after a tap; with unknown time it only looks once a minute. A press must last 1 s to wake (the same anti-pocket rule as

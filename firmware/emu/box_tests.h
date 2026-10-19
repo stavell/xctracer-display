@@ -824,8 +824,28 @@ static void box_intro() {
     b.boot(0, true);
     CHECK(b.host.active() == &b.vario && !b.introApp.alive());
     b.r.settings.setIntroEnabled(true);
-    b.boot(0);                                                        // the way out of the clock sleep never plays it
+    b.boot(0);                                                        // plain boot without the flag: no intro
     CHECK(b.host.active() == &b.vario);
+  }
+  {
+    std::unique_ptr<Box> pb(new Box());                               // intro after the clock sleep (unless Off)
+    Box& b = *pb;
+    BoxRun u(b);
+    b.boot(0);
+    u.run(300);
+    u.off();
+    CHECK(b.sleep == Box::SS_CLOCK);
+    b.r.input.press(u.now + 10, 1200);
+    u.run(2500);
+    CHECK(b.sleep == Box::SS_AWAKE && b.host.active() == &b.introApp && b.introApp.alive());
+    CHECK(!b.r.tracer.paused);                                        // scan in parallel
+    u.run(3200);
+    CHECK(b.host.active() == &b.vario && !b.introApp.alive());
+    b.r.settings.setIntroEnabled(false);
+    u.off();
+    b.r.input.press(u.now + 10, 1200);
+    u.run(2500);
+    CHECK(b.sleep == Box::SS_AWAKE && b.host.active() == &b.vario && !b.introApp.alive());
   }
   {
     std::unique_ptr<Box> pb(new Box());                               // the Settings row
@@ -949,6 +969,7 @@ static void clock_sleep_box() {
   static Box b;
   BoxRun u(b);
   b.r.settings.setTzMinutes(180);
+  b.r.settings.setIntroEnabled(false);                                // the wake into the vario is checked bare here
   b.clock.set(10 * 3600 + 38 * 60 + 50, 0);                           // 13:38:50 local
   b.boot(0);
   u.run(500);

@@ -129,7 +129,7 @@ struct Box {
   }
 
   // Boot like main_box.cpp: straight into the start-up app (the vario unless the launcher chose another). withIntro = a power-on
-  // (not the way out of the clock sleep): the start-up animation plays first unless Settings turned it off. A start-up app other
+  // or the way out of the clock sleep: the start-up animation plays first unless Settings turned it off. A start-up app other
   // than the vario keeps the tracer off as before; the vario's own scan runs from the start, in parallel with the animation.
   void boot(uint32_t now, bool withIntro = false) {
     const int first = registry.startupApp(keys);
@@ -137,6 +137,7 @@ struct Box {
     if (withIntro && r.settings.introEnabled()) {
       introNext = first;
       host.start(APP_INTRO, now);
+      if (first == APP_VARIO) r.tracer.resume();            // as main_box.cpp: ending the old vario paused it, the scan runs during the animation
     } else {
       host.start(first, now);
     }
@@ -168,7 +169,7 @@ struct Box {
     const bool down = r.input.heldMs(now) > 0;
     if (sleep == SS_OFF) return;
     if (sleep == SS_RELEASE) {                           // the hold that woke the box must not reach the app as a press
-      if (!down) { sleep = SS_AWAKE; boot(now); }
+      if (!down) { sleep = SS_AWAKE; boot(now, true); }   // the wake plays the intro too (unless Off)
       return;
     }
     SleepIn in;

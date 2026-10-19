@@ -189,7 +189,7 @@ static char* scratchBuf() { size_t c; return diagnosticsScratch(&c); }
 static GameLog gameLog(host, panel, fastMicros, &probe, scratchBuf(), 560);    // the "gm ..." line while a game runs; forwards clear / present to the vario probe
 
 // Boot, and the way out of the clock sleep: straight into the start-up app (its begin() restarts what it needs).
-// withIntro: a power-on or a wake from System OFF (both reset the chip), not the way out of the clock sleep. The animation hands over
+// withIntro: a power-on, a wake from System OFF or the way out of the clock sleep (Settings > Intro Off disables all). The animation hands over
 // to the start-up app when it ends or on any press; the vario's tracer scan keeps running meanwhile (it started in setup()).
 static void startStartupApp(bool withIntro = false) {
 #ifdef SIM_BENCH
@@ -201,7 +201,8 @@ static void startStartupApp(bool withIntro = false) {
   if (boot != APP_VARIO) tracer.pause();      // the vario is not the first app: do not scan until it is opened
   if (withIntro && boxSettings.introEnabled()) {
     introNext = boot;
-    host.start(APP_INTRO, millis());
+    host.start(APP_INTRO, millis());          // ends the active app (the vario pauses the tracer) ...
+    if (boot == APP_VARIO) tracer.resume();   // ... but the scan must run during the animation (no-op at boot)
     return;
   }
   host.start(boot, millis());
@@ -300,7 +301,7 @@ void loop() {
   pack.service(now);
   uint32_t t0 = fastMicros();
   host.tick(now);
-  if (power.takeResumed()) startStartupApp();   // woke from the clock sleep: no reset, the wall clock survived
+  if (power.takeResumed()) startStartupApp(true);   // woke from the clock sleep: no reset, the wall clock survived; the intro plays too
   uint32_t dt = fastMicros() - t0;   // not micros(): it once gave -67 s here (a 4.2e9 us 'worst tick')
   if (dt > worstTickUs) worstTickUs = dt;
   gameLog.tick(now, dt);
