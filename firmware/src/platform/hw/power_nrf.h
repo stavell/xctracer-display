@@ -3,6 +3,7 @@
 #include "platform/ports.h"
 #include "platform/hw/panel_sharp.h"
 #include "platform/power/clock_sleep.h"
+#include "platform/power/weather.h"
 
 class BoxSettings;
 class WallClock;
@@ -25,6 +26,9 @@ struct ClockSleepDeps {
   ICompass* compass;          // switched off for the sleep
   PackService* pack;          // its QSPI flash goes to deep power-down (not while a map load runs)
   uint8_t rotation;           // panel rotation of the clock screen
+  WeatherLog* weather;        // the 24 h pressure log and last temperature / humidity, drawn on the clock screen
+  IThermo* thermo;            // single-shot reads, once per redraw
+  IBaro* baro;
 };
 
 // Power off. System OFF: blank the panel, stop radios and VCOM, wake on the user switch (a wake is a reset).

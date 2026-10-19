@@ -31,6 +31,8 @@
 #include "platform/hw/panel_sharp.h"
 #include "platform/hw/power_nrf.h"
 #include "platform/hw/thermo_sht.h"
+#include "platform/hw/baro_bmp.h"
+#include "platform/power/weather.h"
 #include "apps/vario/hw/tracer_ble.h"
 #include "apps/vario/hw/vario_radios.h"
 #include "platform/hw/watchdog.h"
@@ -52,6 +54,8 @@ static ButtonGpio button(PIN_BUTTON1);
 static BatteryAdc battery;
 static CompassLis compassHw;
 static ThermoSht thermo;
+static BaroBmp baro;                          // the board barometer: only the sleeping clock reads it
+static WeatherLog weather;                    // 24 h pressure history (288 B), sampled awake and asleep
 static TracerBle tracer(config);
 static LaptopBle laptop(panel);
 static VarioRadios radios(laptop, tracer);
@@ -219,6 +223,7 @@ void setup() {
   panel.begin();
   compassHw.begin();                          // starts Wire
   thermo.begin();                             // SHT30 on the same bus
+  baro.begin();                               // BMP280 too
   Wire.setClock(400000);
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
@@ -253,7 +258,7 @@ void setup() {
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
   registry.add("Settings", "setup", "compass, mounting, time, about", APP_SETTINGS, ICON_SETTINGS, false);
   registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
-  power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION});
+  power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION, &weather, &thermo, &baro});
   startStartupApp(true);
 }
 
@@ -299,6 +304,7 @@ void loop() {
   }
 #endif
   pack.service(now);
+  weather.sample(now, baro);                       // one pressure sample per 10 min (a 10 ms read), so the history exists when the sleep starts
   uint32_t t0 = fastMicros();
   host.tick(now);
   if (power.takeResumed()) startStartupApp(true);   // woke from the clock sleep: no reset, the wall clock survived; the intro plays too

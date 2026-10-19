@@ -16,6 +16,7 @@
 #include "platform/clock.h"
 #include "platform/lazy_app.h"
 #include "platform/power/clock_view.h"
+#include "platform/power/weather.h"
 
 // Tilt of the box for the flight sim: the PC player drives it from the mouse, tests set it directly.
 struct MockTilt : sim::ITilt {
@@ -145,6 +146,7 @@ struct Box {
   void tick(uint32_t now) {
     if (sleep != SS_AWAKE) { sleepTick(now); return; }
     host.tick(now);
+    weather.sample(now, r.baro);                            // as main_box.cpp: sampled while awake too
     if (r.power.requests != seenRequests_) {                // the app asked to power off
       seenRequests_ = r.power.requests;
       enterSleep();                                       // the 3 s hold: the clock; holding on goes to System OFF
@@ -156,6 +158,7 @@ struct Box {
   // start-up app without a reset (the wall clock survives).
   enum SleepState { SS_AWAKE, SS_CLOCK, SS_RELEASE, SS_OFF } sleep = SS_AWAKE;
   ClockSleep sleeper;
+  WeatherLog weather;                                       // the 24 h pressure history of the clock screen
   int barDraws = 0;                                         // countdown bar frames (the hold that powered off went on)
   int clockDraws = 0;                                       // clock screens drawn since the box started
   void enterSleep() {
@@ -180,10 +183,11 @@ struct Box {
     in.msToMinute = clock.msToNextMinute(now);
     const SleepStep st = sleeper.step(in);
     if (st.act == SLEEP_DRAW) {
+      if (st.bar <= 0) weatherRefresh(weather, now, r.thermo, r.baro);
       r.panel.setRotation(1);
       r.panel.clear();
       Bitmap1 bm = r.panel.bitmap();
-      clockview::draw(bm, in.localMinute, in.battPct, st.bar, ClockSleep::kBarSteps);
+      clockview::draw(bm, in.localMinute, in.battPct, &weather, st.bar, ClockSleep::kBarSteps);
       r.panel.invalidate();
       r.panel.present();
       if (st.bar < 0) clockDraws++; else barDraws++;

@@ -972,6 +972,83 @@ static void clock_sleep_logic() {
   CHECK(s.step(in(2000, false, 0, 100, 5000)).act == SLEEP_OFF);
 }
 
+#include "platform/sensors/bmp280.h"
+// The weather station of the sleeping clock: BMP280 maths, the 24 h ring, tendency, forecast, chart scale, and the box reading
+// the sensors once per minute redraw only.
+static void weather_station() {
+  puts("weather station: BMP280 datasheet example, ring, tendency, forecast, chart scale, sensor reads per minute");
+  {
+    Bmp280Cal c;                                                   // the datasheet's example (section 3.12)
+    const uint8_t raw[24] = {0x70, 0x6B, 0x43, 0x67, 0x18, 0xFC, 0x7D, 0x8E, 0x43, 0xD6, 0xD0, 0x0B, 0x27, 0x0B, 0x8C, 0x00,
+                             0xF9, 0xFF, 0x8C, 0x3C, 0xF8, 0xC6, 0x70, 0x17};
+    c.parse(raw);
+    CHECK(c.t1 == 27504 && c.p1 == 36477 && c.p9 == 6000 && c.p2 == -10685);
+    const uint32_t pa = c.pressurePa(519888, 415148);
+    CHECK(pa >= 100650 && pa <= 100656);                           // 100653 Pa
+  }
+  static WeatherLog w;
+  w.clear();
+  int cls = 9, lo = 0, hi = 0;
+  CHECK(w.count() == 0 && w.latest() == 0 && !w.tendency(cls) && w.forecast() == FC_NONE && !w.chartRange(lo, hi));
+  w.push(NAN); w.push(50.0f); w.push(2000.0f);
+  CHECK(w.count() == 0);                                           // junk is ignored
+  for (int i = 0; i < 18; i++) w.push(1010.0f);
+  CHECK(w.count() == 18 && !w.tendency(cls));                      // 3 h of history needs 19 samples
+  w.push(1010.0f);
+  CHECK(w.tendency(cls) && cls == 0 && w.forecast() == FC_SUN_CLOUD);
+  auto fcOf = [&](float d) { w.clear(); for (int i = 0; i < 18; i++) w.push(1010.0f); w.push(1010.0f + d); return w.forecast(); };
+  CHECK(fcOf(+1.2f) == FC_SUN && fcOf(+0.9f) == FC_SUN_CLOUD && fcOf(-0.9f) == FC_SUN_CLOUD);
+  CHECK(fcOf(-1.5f) == FC_CLOUD && fcOf(-3.6f) == FC_RAIN && fcOf(-6.5f) == FC_STORM);
+  fcOf(+4.0f); CHECK(w.tendency(cls) && cls == 2);
+  fcOf(+2.0f); CHECK(w.tendency(cls) && cls == 1);
+  fcOf(-4.0f); CHECK(w.tendency(cls) && cls == -2);
+  // The ring keeps 24 h: 144 samples, the oldest drop out; ages count back from the newest.
+  w.clear();
+  for (int i = 0; i < 200; i++) w.push(900.0f + i * 0.1f);
+  CHECK(w.count() == WeatherLog::kN && w.get(0) == 9199);
+  CHECK(w.get(143) == 9056 && w.get(144) == 0);
+  CHECK(w.chartRange(lo, hi) && lo % 10 == 0 && hi % 10 == 0 && hi - lo >= 40 && lo <= w.get(143) && hi >= w.get(0));
+  w.clear(); w.push(1013.2f); w.push(1013.4f);
+  CHECK(w.chartRange(lo, hi) && hi - lo == 40 && lo <= 10132 && hi >= 10134);   // a flat day still gets a 4 hPa scale
+  CHECK(chartY(hi, lo, hi, 62) == 0 && chartY(lo, lo, hi, 62) == 61 && chartX(0, 184) == 183 && chartX(143, 184) == 0);
+  // Sampling every 10 min, a failed read retried after a minute.
+  MockBaro bo;
+  w.clear();
+  w.sample(1000, bo); w.sample(1000 + 599000, bo);
+  CHECK(w.count() == 1 && bo.reads == 1);
+  w.sample(1000 + 600000, bo);
+  CHECK(w.count() == 2);
+  bo.present = false;
+  w.sample(1000 + 1200000, bo); w.sample(1000 + 1230000, bo);
+  CHECK(w.count() == 2 && bo.reads == 3);                          // one failed read, then it waits a minute
+  bo.present = true;
+  w.sample(1000 + 1260000, bo);
+  CHECK(w.count() == 3);
+
+  // In the box: the sensors are read at the minute redraws (single shots), not while the power-off hold counts down.
+  static Box b;
+  BoxRun u(b);
+  b.r.settings.setIntroEnabled(false);
+  b.clock.set(10 * 3600 + 38 * 60 + 50, 0);
+  b.r.thermo.set(19.6f, 63);
+  b.boot(0);
+  u.run(500);
+  const int awake = b.r.baro.reads;
+  CHECK(awake == 1 && b.weather.count() == 1);                     // sampled while awake, so the history starts before the sleep
+  b.r.input.press(u.now + 10, 3000 + 600);
+  u.run(3000 + 900);
+  CHECK(b.sleep == Box::SS_CLOCK && b.r.thermo.reads >= 1 && isfinite(b.weather.tempC) && lroundf(b.weather.rhPct) == 63);
+  const int th = b.r.thermo.reads;
+  u.run(30000);
+  CHECK(b.r.thermo.reads == th + 1);                               // the minute change: one single shot
+  u.run(5 * 60 * 1000);
+  CHECK(b.r.thermo.reads == th + 6);
+  b.r.thermo.present = false;
+  u.run(60000);
+  CHECK(!isfinite(b.weather.tempC));                               // a missing sensor reads "--", never the last value
+  CHECK(b.r.baro.reads <= awake + 2);                              // pressure: only the 10 min cadence
+}
+
 static int countInk(MockPanel& p) { return blackPixels(p); }
 
 static void clock_sleep_box() {
@@ -1094,6 +1171,7 @@ static void box_links_off_in_games() {
 
 static void test_box() {
   clock_sleep_logic();
+  weather_station();
   clock_sleep_box();
   combo_and_debounce();
   host_frame_loop();

@@ -222,9 +222,25 @@ class MockThermo : public IThermo {
     rh = rhPct;
     return true;
   }
+  bool readNow(float& t, float& rh) override {
+    reads++;
+    if (!present) return false;
+    t = tempC;
+    rh = rhPct;
+    return true;
+  }
+  int reads = 0;
   void set(float t, float rh = 50) { tempC = t; rhPct = rh; fresh = true; }   // a new reading becomes available
   float tempC = 15, rhPct = 50;
   bool present = true, fresh = false;
+};
+
+class MockBaro : public IBaro {
+ public:
+  bool readNow(float& h) override { reads++; if (!present) return false; h = hPa; return true; }
+  float hPa = 1013.2f;
+  bool present = true;
+  int reads = 0;
 };
 
 class MockPower : public IPower {
@@ -274,5 +290,6 @@ struct Rig {
   BoxSettings settings{keys};
   MockCompass compass;
   MockThermo thermo;
+  MockBaro baro;
   MockPower power;
 };

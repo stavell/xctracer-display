@@ -6,6 +6,7 @@ class ThermoSht : public IThermo {
  public:
   bool begin();                                     // after Wire is started; false if the sensor is missing
   bool read(float& tempC, float& rhPct) override;
+  bool readNow(float& tempC, float& rhPct) override;
   bool present() const { return have_; }
 
  private:

@@ -95,6 +95,15 @@ class IThermo {
  public:
   virtual ~IThermo() {}
   virtual bool read(float& tempC, float& rhPct) = 0;   // true when a new reading is available; both values finite
+  // One measurement now (about 15 ms), whatever the 2 s cadence says; the sensor idles in between. The sleeping clock uses it.
+  virtual bool readNow(float& tempC, float& rhPct) { (void)tempC; (void)rhPct; return false; }
+};
+
+// Barometer (the board's BMP280), read on demand: one forced measurement, then the sensor sleeps by itself.
+class IBaro {
+ public:
+  virtual ~IBaro() {}
+  virtual bool readNow(float& hPa) = 0;                // false when the sensor is missing or the reading is invalid
 };
 
 // The radio links that only the vario and the tools need (the laptop link). The host switches them off while a game

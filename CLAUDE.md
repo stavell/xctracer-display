@@ -16,6 +16,7 @@ right is worse than no data.
 
     firmware/src/platform/   reusable by every app (pure code compiles on the PC, only hw/ touches hardware)
       gfx/       1-bit renderer: Bitmap1, gray dither, glyph atlas, font, shapes, icons, ui (title bar, rounded boxes)
+      power/     clock sleep state machine, its screen (clock + weather station), pressure log (weather.h)
       sensors/   compass tilt + hard-iron, AHRS, heading smoother, mount table
       panel/     pure panel helpers: line diff, Sharp frame packing
       input/     button state machine, A+B combo hold, key debounce

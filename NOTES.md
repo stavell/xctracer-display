@@ -254,6 +254,27 @@ current (about 1-10 uA). Expect roughly 50-250 uA, i.e. one to several weeks on 
 same panel-less leakage. To check on the device with a PPK2: sleep current with the panel, without the QSPI power-down
 (`powerDown()` is untested in the field: NOTES "Deep power-down" above), and that tickless idle really is entered (a
 current of about 1 mA would mean it is not).
+- Weather station (the sleep screen, user: "the sleep mode as a clock / weather station"). Layout, top to bottom: battery (small),
+  the time, temperature (integer C) and humidity (%) in big digits, the pressure in hPa with a 3 h tendency arrow (up / sideways
+  / down, doubled when fast) and a forecast pictogram, a 24 h pressure chart (scale: its hi / lo hPa; ticks at -6/-12/-18/-24 h;
+  dotted middle line; open dot = now). No fonts, no words (`platform/power/clock_view.h`, seven-segment glyphs and shapes). Unknown
+  values read `--` (never the last good value: a missing sensor blanks), an empty chart with no data. Data (`platform/power/weather.h`,
+  pure and tested): `WeatherLog`, 144 x int16 hPa*10 (288 B of RAM, lost at reset / System OFF), one sample per 10 min, taken by the
+  loop while awake (`weather.sample()` in main_box.cpp, so the history exists when the sleep starts) and at every minute redraw
+  of the sleep. Temperature and humidity: one SHT30 single shot (`IThermo::readNow`, ~15 ms) per redraw. Pressure: the board's
+  BMP280 (`platform/hw/baro_bmp.cpp`, no library: forced mode, x4 pressure, ~10 ms, then it sleeps; compensation in
+  `platform/sensors/bmp280.h`, tested with the datasheet example; I2C 0x77, then 0x76; NOT tested on the hardware). The countdown
+  frames of the power-off hold do not read the sensors (only the first one does).
+  Forecast rule (a rough barometer forecast, NOT a weather service): from the change d over the last 3 h (needs 3 h of history):
+  d >= +1.0 hPa sun; |d| < 1.0 sun + cloud; -3.5 < d <= -1.0 cloud; -6.0 < d <= -3.5 rain; d <= -6.0 storm. Arrow: |d| <= 1.0
+  steady, <= 3.5 slow, above that fast. The classic Zambretti rule also uses the sea-level pressure; the box measures station
+  pressure and does not know its height, so the absolute level is deliberately not used.
+  Added sleep current, estimated from datasheets, NOT measured: once per minute SHT30 single shot (about 15 ms at 0.6-1.5 mA
+  typ. 0.8 mA = 12 uC) + BMP280 forced read on 1 minute in 10 (about 11 ms at 0.7 mA = 8 uC, 1 uC per minute averaged) + I2C
+  transfers and a few ms of CPU on top of the redraw that already happens each minute (delay() yields to idle: about 5 ms
+  at 4 mA = 20 uC) = about 35 uC per minute = 0.6 uA average; the sensors' idle currents (SHT30 about 0.2 uA, BMP280 sleep
+  0.1 uA) add 0.3 uA. About 1 uA in all, under 1 % of the estimated 50-250 uA sleep current. Check with the PPK2 together with
+  the rest.
 Open risks: GPIOTE wake and tickless idle under Bluefruit are untested on the hardware; if the loop task misses an
 edge, the 20 ms poll after the next wake still catches a hold; `radios_.resume()` restarts only the laptop advertising.
 

@@ -138,7 +138,9 @@ On the PC: `firmware/emu/build.sh play box --igc f.igc --pack bulgaria.pack` (de
 
 **Clock sleep** (box image; the 3 s hold, a two-step power-off): the box stops the tracer link, the laptop link, the
 compass sensors and the map flash, and shows only the local time (HH:MM, big) and the battery on the panel, redrawn once
-a minute. The time is the tracer's GPS time carried on by the box's own clock; with no GPS time yet, or none for 12 h,
+a minute, plus a small weather station: temperature and humidity (SHT30), the pressure in hPa with a 3 h tendency
+arrow, a rough barometer forecast pictogram (sun / sun and cloud / cloud / rain / storm) and a 24 h pressure chart (the
+board's BMP280, one sample per 10 min, kept in RAM: a reset or the full power-off clears the history). The time is the tracer's GPS time carried on by the box's own clock; with no GPS time yet, or none for 12 h,
 it shows `--:--` (never a guess). Holding the switch for 1 s wakes the box without a reset into the start-up app,
 which restarts its tracer link and sensors as after a power-on; the clock stays valid across the sleep. When the battery is
 nearly empty the sleep falls into System OFF. Keeping the switch down after the sleep began fills a bar under the clock; at the end (3 s) the box goes to System OFF (nothing

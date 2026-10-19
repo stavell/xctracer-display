@@ -25,3 +25,13 @@ bool ThermoSht::read(float& tempC, float& rhPct) {
   rhPct = rh;
   return true;
 }
+
+// Single shot on demand (the sleeping clock, once a minute): the SHT30 idles at well under 1 uA in between.
+bool ThermoSht::readNow(float& tempC, float& rhPct) {
+  if (!have_) return false;
+  float t = NAN, rh = NAN;
+  if (!sht.readBoth(&t, &rh) || !isfinite(t) || !isfinite(rh)) return false;
+  tempC = t;
+  rhPct = rh;
+  return true;
+}

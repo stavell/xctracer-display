@@ -80,6 +80,14 @@ static void shots(const char* dir) {
   b.r.battery.pct = 76;
   b.host.start(Box::APP_VARIO, now);
   run(300);
+  // A synthetic day: steady 1018 hPa, a slow dip, then a fall of 4.5 hPa in the last 3 h (the forecast turns to rain).
+  auto history = [&](float last, auto shape) {
+    b.weather.clear();
+    for (int i = 0; i < WeatherLog::kN; i++) b.weather.push(shape(i - (WeatherLog::kN - 1)));   // i - 143 = minus samples ago
+    b.r.baro.hPa = last;
+  };
+  history(1013.3f, [](int k) { return k > -18 ? 1017.8f + (k + 18) * 0.25f : 1017.8f + 2.0f * sinf(k * 0.05f) ; });
+  b.r.thermo.set(21.4f, 58);
   b.r.input.press(now + 10, 3300);
   run(4500);
   dump(b, dir, "sleep_clock");
@@ -88,10 +96,34 @@ static void shots(const char* dir) {
   run(40000);
   dump(b, dir, "sleep_clock_low");
   b.clock = WallClock();                          // never set: "--:--"
+  b.r.baro.present = false;
+  b.r.thermo.present = false;
+  b.weather.clear();                              // no sensors, no history: every value reads "--"
   press(150);                                     // a tap redraws
   dump(b, dir, "sleep_clock_unknown");
+  b.r.baro.present = true;
+  b.r.thermo.present = true;
   b.r.input.press(now + 10, 1500);                // wake
   run(3000);
+  // The other forecasts: rising (sun), steady (sun + cloud), a deep fall (storm), a sub-zero temperature.
+  const struct { const char* name; float d3h, t, rh; Forecast f; } fc[] = {
+    {"rising", 4.0f, 24.0f, 41, FC_SUN}, {"steady", 0.2f, 12.0f, 77, FC_SUN_CLOUD},
+    {"cloudy", -2.0f, 6.0f, 88, FC_CLOUD}, {"storm", -7.0f, -3.0f, 100, FC_STORM}};
+  for (const auto& c : fc) {
+    b.sleep = Box::SS_AWAKE;
+    b.clock.set(15 * 3600 + 12 * 60, now);
+    b.host.start(Box::APP_VARIO, now);
+    run(300);
+    const float end = 1004.6f;
+    history(end, [&](int k) { return k > -18 ? end - c.d3h + (k + 18) * c.d3h / 18.0f : end - c.d3h + 3.0f * sinf(k * 0.04f); });
+    b.r.thermo.set(c.t, c.rh);
+    b.r.input.press(now + 10, 3300);
+    run(4500);
+    char nm[48];
+    snprintf(nm, sizeof nm, "sleep_station_%s", c.name);
+    dump(b, dir, nm);
+    if (b.weather.forecast() != c.f) fprintf(stderr, "forecast mismatch for %s\n", c.name);
+  }
 
   static std::vector<uint8_t> bytes;
   static terrain::MemReader rd;

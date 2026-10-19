@@ -5,6 +5,7 @@
 #include "platform/hw/pack_service.h"
 #include "platform/clock.h"
 #include "platform/power/clock_view.h"
+#include "platform/power/weather.h"
 #include "platform/settings/box_settings.h"
 
 static void waitRelease(uint8_t pin) {
@@ -72,10 +73,11 @@ void PowerNrf::clockSleep() {
     in.msToMinute = deps_.clock->msToNextMinute(now);
     const SleepStep st = sm.step(in);
     if (st.act == SLEEP_DRAW) {
+      if (st.bar <= 0) weatherRefresh(*deps_.weather, now, *deps_.thermo, *deps_.baro);   // not while the hold counts down
       panel_.setRotation(deps_.rotation);
       panel_.clear();
       Bitmap1 bm = panel_.bitmap();
-      clockview::draw(bm, in.localMinute, in.battPct, st.bar, ClockSleep::kBarSteps);
+      clockview::draw(bm, in.localMinute, in.battPct, deps_.weather, st.bar, ClockSleep::kBarSteps);
       panel_.invalidate();
       panel_.present();
       panel_.waitIdle();
