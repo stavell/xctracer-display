@@ -549,7 +549,7 @@ static void settings_app() {
   b.r.settings.setMountIndex(5);
 
   // Time zone: +1 h per long press and wraps from +14:00 to -12:00; the arrows move by 30 minutes.
-  u.shortp(); u.shortp();
+  u.shortp(); u.shortp(); u.shortp();                                // Start-up app, Intro, Time zone
   CHECK(b.settings.selected() == SettingsApp::ROW_TZ);
   u.longp();
   CHECK(b.r.settings.tzMinutes() == 60);
@@ -587,13 +587,13 @@ static void settings_app() {
   b.host.start(Box::APP_SETTINGS, u.now);
   u.run(100);
   auto tap = [&](Key k) { b.r.input.setKey(k, true, u.now); u.run(50); b.r.input.setKey(k, false, u.now); u.run(50); };
-  tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN);
+  tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_DOWN);
   CHECK(b.settings.selected() == SettingsApp::ROW_ABOUT);
   tap(KEY_ACTION);
   CHECK(b.settings.screen() == SettingsApp::S_ABOUT);
   tap(KEY_B);
   CHECK(b.settings.screen() == SettingsApp::S_LIST && b.host.active() == &b.settings);
-  tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP);
+  tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP); tap(KEY_UP);
   tap(KEY_ACTION);                                                   // the Compass row
   CHECK(b.settings.calibrating());
   tap(KEY_B);                                                        // cancels
@@ -748,6 +748,143 @@ static void box_lazy_apps() {
   CHECK(b.tetris.alive() && !b.flightSim.alive() && b.tetris->game().highScore() == 4321);
   b.host.start(Box::APP_VARIO, u.now);
   CHECK(!b.tetris.alive());
+}
+
+
+// The start-up animation: plays at a power-on, any press skips it (and is used up), it never outlives its arena slot, and the
+// start-up app comes next with its radios as before.
+static uint32_t panelHash(Box& b) {
+  uint32_t h = 2166136261u;
+  const uint8_t* p = b.r.panel.raw();
+  for (int i = 0; i < 400 * 240 / 8; i++) h = (h ^ p[i]) * 16777619u;
+  return h;
+}
+static void box_intro() {
+  puts("box: start-up animation (length, skip, arena, off, no pack, with pack, settings row)");
+  CHECK(sizeof(intro::IntroApp) <= sizeof(sim::SimBox));              // the arena stays as big as the sim: no heap lost to the intro
+  {
+    std::unique_ptr<Box> pb(new Box());                               // no map pack: the 2D version
+    Box& b = *pb;
+    BoxRun u(b);
+    CHECK(b.r.settings.introEnabled());                               // default on
+    b.boot(0, true);
+    CHECK(b.host.active() == &b.introApp && b.introApp.alive() && b.arena.busy());
+    CHECK(b.introApp->mode() == intro::IntroApp::Mode::FLAT && b.introApp->site() < 0);
+    CHECK(b.host.gameMode() && !b.r.tracer.paused);                    // 50 fps frame mode; the vario's scan runs in parallel
+    u.run(1000);                                                      // length: 140 steps of 20 ms in real time
+    CHECK(b.introApp->stepsDone() >= 48 && b.introApp->stepsDone() <= 51);
+    u.run(1600);
+    CHECK(b.host.active() == &b.introApp && b.introApp->stepsDone() >= 125);
+    u.run(600);
+    CHECK(b.host.active() == &b.vario && b.vario.alive() && !b.introApp.alive() && !b.r.tracer.paused);
+  }
+  {
+    std::unique_ptr<Box> pb(new Box());                               // a press skips it and does not reach the vario
+    Box& b = *pb;
+    BoxRun u(b);
+    b.boot(0, true);
+    u.run(600);
+    b.r.input.press(u.now + 10, 120);
+    u.run(500);
+    CHECK(b.host.active() == &b.vario && !b.introApp.alive());
+    CHECK(b.varioCore().buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);
+  }
+  {
+    std::unique_ptr<Box> pb(new Box());                               // the 3 s hold only skips: no home screen
+    Box& b = *pb;
+    BoxRun u(b);
+    b.boot(0, true);
+    u.run(300);
+    b.r.input.press(u.now + 10, 3400);
+    u.run(3800);
+    CHECK(b.host.active() == &b.vario);
+    std::unique_ptr<Box> pc(new Box());
+    Box& c = *pc;
+    BoxRun w(c);
+    c.boot(0, true);
+    w.run(300);
+    c.r.input.setKey(KEY_ACTION, true, w.now);                        // the D-pad / A / B keys skip on their press
+    w.run(100);
+    CHECK(c.host.active() == &c.vario);
+  }
+  {
+    std::unique_ptr<Box> pb(new Box());                               // another start-up app: the tracer stays off
+    Box& b = *pb;
+    b.keys.set(SLOT_BOOT_APP, Box::APP_TETRIS);
+    BoxRun u(b);
+    b.boot(0, true);
+    CHECK(b.r.tracer.paused);
+    u.run(3200);
+    CHECK(b.host.active() == &b.tetris && b.tetris.alive() && !b.introApp.alive());
+  }
+  {
+    std::unique_ptr<Box> pb(new Box());                               // Settings > Intro off: straight to the start-up app
+    Box& b = *pb;
+    b.r.settings.setIntroEnabled(false);
+    b.boot(0, true);
+    CHECK(b.host.active() == &b.vario && !b.introApp.alive());
+    b.r.settings.setIntroEnabled(true);
+    b.boot(0);                                                        // the way out of the clock sleep never plays it
+    CHECK(b.host.active() == &b.vario);
+  }
+  {
+    std::unique_ptr<Box> pb(new Box());                               // the Settings row
+    Box& b = *pb;
+    BoxRun u(b);
+    b.host.start(Box::APP_SETTINGS, 0);
+    u.run(300);
+    for (int i = 0; i < SettingsApp::ROW_INTRO; i++) u.shortp();
+    CHECK(b.settings.selected() == SettingsApp::ROW_INTRO);
+    u.longp();
+    CHECK(!b.r.settings.introEnabled());
+    u.longp();
+    CHECK(b.r.settings.introEnabled());
+  }
+  {
+    // With the Sopot pack: the 3D scene, the same on every run, ending on the white name.
+    std::vector<uint8_t> bytes;
+    FILE* pf = fopen("fixtures/sopot.pack", "rb");
+    CHECK(pf != nullptr);
+    if (!pf) return;
+    fseek(pf, 0, SEEK_END);
+    bytes.resize((size_t)ftell(pf));
+    fseek(pf, 0, SEEK_SET);
+    CHECK(fread(bytes.data(), 1, bytes.size(), pf) == bytes.size());
+    fclose(pf);
+    static terrain::MemReader rd;
+    static TerrainKit kit;
+    rd = terrain::MemReader(bytes.data(), (uint32_t)bytes.size());
+    CHECK(kit.open(&rd));
+    uint32_t mid[2] = {0, 0}, last[2] = {0, 0};
+    for (int run = 0; run < 2; run++) {
+      std::unique_ptr<Box> pb(new Box());
+      Box& b = *pb;
+      b.setTerrain(&kit);
+      BoxRun u(b);
+      b.boot(0, true);
+      CHECK(b.introApp.alive() && b.introApp->mode() == intro::IntroApp::Mode::TERRAIN && b.introApp->site() >= 0);
+      CHECK(b.introApp->world().cache().complete());                 // the window was filled in begin()
+      while (b.host.active() == &b.introApp && b.introApp->stepsDone() < 70) u.run(10);
+      mid[run] = panelHash(b);
+      while (b.host.active() == &b.introApp && b.introApp->stepsDone() < 139) u.run(10);
+      last[run] = panelHash(b);
+      u.run(300);
+      CHECK(b.host.active() == &b.vario && !b.introApp.alive());
+    }
+    CHECK(mid[0] == mid[1] && last[0] == last[1] && mid[0] != last[0]);   // deterministic
+    // the end frame is the name on white: mostly white pixels
+    std::unique_ptr<Box> pb(new Box());
+    Box& b = *pb;
+    b.setTerrain(&kit);
+    BoxRun u(b);
+    b.boot(0, true);
+    while (b.host.active() == &b.introApp && b.introApp->stepsDone() < 139) u.run(10);
+    int white = 0;
+    Bitmap1 bm = b.r.panel.bitmap();
+    for (int y = 0; y < 400; y++)
+      for (int x = 0; x < 240; x++) white += bm.getPixel(x, y);
+    CHECK(white > 240 * 400 * 85 / 100 && white < 240 * 400 * 99 / 100);
+  }
 }
 
 // The clock sleep: the pure state machine, the wall clock helper, the screen, and the whole box going to sleep and waking.
@@ -926,6 +1063,7 @@ static void test_box() {
   box_tetris_home();
   lazy_app_slots();
   box_lazy_apps();
+  box_intro();
 }
 
 }  // namespace bx

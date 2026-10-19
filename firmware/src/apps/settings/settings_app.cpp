@@ -11,6 +11,7 @@ void SettingsApp::begin(uint32_t nowMs) {
   model_.title[ROW_COMPASS] = "Compass";
   model_.title[ROW_MOUNT] = "Board mounting";
   model_.title[ROW_STARTUP] = "Start-up app";
+  model_.title[ROW_INTRO] = "Intro";
   model_.title[ROW_TZ] = "Time zone";
   model_.title[ROW_POWER] = "Power off";
   model_.title[ROW_ABOUT] = "About";
@@ -31,6 +32,7 @@ void SettingsApp::refresh() {
   const int cur = apps_.startupApp(keys_);
   const AppEntry* e = apps_.find(cur);
   snprintf(model_.sub[ROW_STARTUP], sizeof model_.sub[0], "now: %s", e ? e->title : "-");
+  snprintf(model_.sub[ROW_INTRO], sizeof model_.sub[0], "%s", settings_.introEnabled() ? "on: animation at power-on" : "off: straight to the app");
   const int tz = settings_.tzMinutes();
   const int a = tz < 0 ? -tz : tz;
   snprintf(model_.sub[ROW_TZ], sizeof model_.sub[0], "UTC%c%02d:%02d", tz < 0 ? '-' : '+', a / 60, a % 60);
@@ -84,6 +86,9 @@ void SettingsApp::change(int dir) {
       break;
     case ROW_STARTUP:
       if (dir > 0) keys_.set(SLOT_BOOT_APP, (uint32_t)apps_.nextStartup(apps_.startupApp(keys_)));
+      break;
+    case ROW_INTRO:
+      settings_.setIntroEnabled(!settings_.introEnabled());
       break;
     case ROW_TZ: {
       int tz = settings_.tzMinutes();

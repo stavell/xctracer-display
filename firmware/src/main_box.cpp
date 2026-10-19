@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <bluefruit.h>
 #include "apps/games/sim/sim_box.h"
+#include "apps/intro/intro_app.h"
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/settings/settings_app.h"
@@ -73,12 +74,12 @@ static AppConfig appConfig(bool tool) {
   return c;
 }
 // App indices in the host; the home screen lists all but itself.
-enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM };
+enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO };
 
 // The apps that are not the start-up app share ONE RAM block (see platform/lazy_app.h): each is built when it is opened
 // and destroyed when it is left. Statically they cost 93 + 44 kB of .bss and left the image with 2 kB of heap, too little
 // for FreeRTOS to start any task (no USB, blank screen). The block is as big as the biggest of them.
-static constexpr size_t kArenaBytes = maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(CompassTool), sizeof(TetrisApp))));
+static constexpr size_t kArenaBytes = maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(CompassTool), sizeof(TetrisApp)))));
 static AppArenaStore<kArenaBytes> arena;
 
 // The map pack lives in the QSPI flash (platform/hw/pack_service.h). The vario is an arena app like the others: the App
@@ -170,6 +171,15 @@ static sim::SimBox* makeSim(void* mem, void*) {
   return s;
 }
 static LazyApp<sim::SimBox> simApp(arena, "flightsim", makeSim);
+// The start-up animation (apps/intro): an arena app like the others, gone before the start-up app is built. It reads the pack by itself.
+static int introNext = APP_VARIO;
+static intro::IntroApp* makeIntro(void* mem, void*) {
+  intro::IntroApp* i = new (mem) intro::IntroApp(pack.reader());
+  i->setNext(introNext);
+  i->setClock(fastMicros);                    // begin() timings in the "gm" line
+  return i;
+}
+static LazyApp<intro::IntroApp> introApp(arena, "intro", makeIntro);
 static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);
 static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, FW_VERSION);
 
@@ -179,13 +189,21 @@ static char* scratchBuf() { size_t c; return diagnosticsScratch(&c); }
 static GameLog gameLog(host, panel, fastMicros, &probe, scratchBuf(), 560);    // the "gm ..." line while a game runs; forwards clear / present to the vario probe
 
 // Boot, and the way out of the clock sleep: straight into the start-up app (its begin() restarts what it needs).
-static void startStartupApp() {
+// withIntro: a power-on or a wake from System OFF (both reset the chip), not the way out of the clock sleep. The animation hands over
+// to the start-up app when it ends or on any press; the vario's tracer scan keeps running meanwhile (it started in setup()).
+static void startStartupApp(bool withIntro = false) {
 #ifdef SIM_BENCH
   const int boot = APP_SIM;                   // bench build: straight into the sim, no operator needed
+  withIntro = false;
 #else
   const int boot = registry.startupApp(keys);
 #endif
   if (boot != APP_VARIO) tracer.pause();      // the vario is not the first app: do not scan until it is opened
+  if (withIntro && boxSettings.introEnabled()) {
+    introNext = boot;
+    host.start(APP_INTRO, millis());
+    return;
+  }
   host.start(boot, millis());
 }
 
@@ -224,6 +242,7 @@ void setup() {
   host.add(settingsApp);
   host.add(launcher);
   host.add(simApp);
+  host.add(introApp);
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&gameLog);
   host.setLinkGate(&laptopGate);
@@ -234,7 +253,7 @@ void setup() {
   registry.add("Settings", "setup", "compass, mounting, time, about", APP_SETTINGS, ICON_SETTINGS, false);
   registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
   power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION});
-  startStartupApp();
+  startStartupApp(true);
 }
 
 static uint32_t worstTickUs = 0;   // slowest host.tick() since the last status line

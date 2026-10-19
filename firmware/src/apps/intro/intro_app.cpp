@@ -3,7 +3,6 @@
 #include <Fonts/FreeSansBold24pt7b.h>
 #include <math.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include "apps/games/sim/takeoffs.h"
 #include "platform/gfx/gray.h"
 #include "platform/gfx/shapes.h"
@@ -18,11 +17,13 @@ namespace {
 // The script, in ms of animation time.
 constexpr uint32_t kClimbMs = 2300;                  // the glider reaches the cloud's level
 constexpr uint32_t kWhiteFrom = 1450, kWhiteTo = 2250;   // the white-out
+constexpr uint32_t kBankFrom = 800, kBankTo = 1900;        // the cloud front sweeps down
 constexpr uint32_t kLogoFrom = 2150, kLogoTo = 2550;     // the name dissolves in
 constexpr float kOmega = 0.75f;                      // rad/s around the thermal: a tight turn, 8.4 s a circle
 constexpr float kSpeed = 12.0f;                      // m/s
 constexpr float kRadius = kSpeed / kOmega;           // m (16 m: what 40 degrees of bank at this speed makes)
 constexpr float kBelowStart = 150.0f, kAboveEnd = 40.0f;   // start and end altitude relative to the cloud base
+constexpr int kPreferredSite = 1;                    // Kalofer: a high ridge close under the cloud base on the study pack
 constexpr float kSkirtBelow = 300.0f;                // the flat ground beyond the window, below the takeoff
 
 float phase(uint32_t ms, uint32_t from, uint32_t to) {
@@ -77,7 +78,7 @@ IntroApp::IntroApp(terrain::IBlockReader* pack) {
 
 bool IntroApp::pickThermal() {
   const Air& air = world_.air();
-  ColumnInfo c[Air::kMaxInfo];
+  ColumnInfo* c = cand_;                                  // a member: the loop task has 4 kB of stack
   float best = 0;
   bool found = false;
   const float lim = kFillRadiusM - 2600.0f;                // the cloud and the view around it must be real terrain
@@ -88,7 +89,6 @@ bool IntroApp::pickThermal() {
       const float d = sqrtf(c[i].cx * c[i].cx + c[i].cy * c[i].cy);
       if (d < 500.0f) continue;
       const float score = c[i].cloud * (c[i].strength + c[i].z0 / 400.0f);
-      if (getenv("INTRO_DBG")) printf("tm %.0f id %u z0 %.0f S %.1f str %.1f cloud %.2f d %.0f cb %.0f cloudw %.0f\n", tm, c[i].id, c[i].z0, c[i].S, c[i].strength, c[i].cloud, d, air.cloudBase(), c[i].width);
       if (score > best) { best = score; col_ = c[i]; tScene_ = tm; found = true; }
     }
     if (best >= 3.0f) break;                                // good enough: stop searching
@@ -101,8 +101,9 @@ bool IntroApp::pickThermal() {
   const float tEnd = tScene_ + kClimbMs * 0.001f;
   float ex, ey;
   air.columnPoint(col_, zEnd_, tEnd, &ex, &ey);
-  float dx = col_.cloudX - ex, dy = col_.cloudY - ey;
-  if (dx * dx + dy * dy < 80.0f * 80.0f) air.wind(cb, &dx, &dy);
+  (void)ex; (void)ey;
+  float dx, dy;
+  air.wind(cb, &dx, &dy);                                    // the cloud drifts downwind of its column: end looking that way
   const float headEnd = atan2f(dx, dy);
   theta0_ = headEnd - kPi * 0.5f - kOmega * (kClimbMs * 0.001f);
   return true;
@@ -111,7 +112,8 @@ bool IntroApp::pickThermal() {
 void IntroApp::startTerrainScene() {
   const uint32_t t0 = clk_ ? clk_() : 0;
   site_ = -1;
-  for (int i = getenv("INTRO_SITE") ? atoi(getenv("INTRO_SITE")) : 0; i < kTakeoffCount; i++) {
+  for (int k = 0; k <= kTakeoffCount; k++) {                // the preferred site first (a ridge with relief), then the table's order
+    const int i = k == 0 ? kPreferredSite : k - 1;
     src_.set(&terrain_, kTakeoffs[i].lat, kTakeoffs[i].lon);
     float h;
     if (src_.at(0, 0, &h)) { site_ = i; break; }
@@ -123,7 +125,7 @@ void IntroApp::startTerrainScene() {
   float from, speed;
   World::usualWind(&win_, kTakeoffs[site_], &from, &speed);
   world_.setLevel(1);
-  world_.beginAt(&win_, getenv("INTRO_SEED") ? (uint32_t)atoi(getenv("INTRO_SEED")) : kSeed, 0.0f, 0.0f, World::kLaunchAgl, from, from, speed, 180.0f);   // fills the window
+  world_.beginAt(&win_, kSeed, 0.0f, 0.0f, World::kLaunchAgl, from, from, speed, 180.0f);   // fills the window
   const uint32_t t1 = clk_ ? clk_() : 0;
   fillUs_ = t1 - t0;
   if (!pickThermal()) { site_ = -1; return; }
@@ -174,6 +176,9 @@ void IntroApp::pose(uint32_t ms) {
   const float z = zStart_ + (zEnd_ - zStart_) * (0.45f * u + 0.55f * u * u);
   float cx, cy;
   world_.air().columnPoint(col_, z, tScene_ + t, &cx, &cy);
+  const float bl = smoothstep(u * 1.1f);                   // the circle drifts into the cumulus over the climb
+  cx += (col_.cloudX - cx) * bl;
+  cy += (col_.cloudY - cy) * bl;
   const float th = theta0_ + kOmega * t;
   g_.x = cx + kRadius * sinf(th);
   g_.y = cy + kRadius * cosf(th);
@@ -185,7 +190,6 @@ void IntroApp::pose(uint32_t ms) {
   g_.bank = atanf(kOmega * kSpeed / kG) * smoothstep(t / 0.4f);
   g_.airspeed = kSpeed;
   g_.stalled = false;
-  if (getenv("INTRO_DBG") && ms % 400 == 0) printf("pose %u: g (%.0f,%.0f,%.0f) col centre (%.0f,%.0f) cloud (%.0f,%.0f) w %.0f dist %.0f cb %.0f\n", ms, g_.x, g_.y, g_.z, cx, cy, col_.cloudX, col_.cloudY, col_.width, hypotf(g_.x - col_.cloudX, g_.y - col_.cloudY), world_.air().cloudBase());
 }
 
 void IntroApp::step(uint32_t, uint32_t dtMs) {
@@ -206,6 +210,23 @@ void IntroApp::drawTerrainScene(const Bitmap1& bm) {
   voxel_.render(bm, hc, cam);
   sky_.draw(bm, voxel_, world_.air(), g_, cam, tScene_ + steps_ * kStepMs * 0.001f, false, SkyFx::Style::COLUMNS);
   chase_.drawGlider(bm, g_, hc, cam);
+  cloudBank(bm, (uint32_t)steps_ * kStepMs);
+}
+
+// The cumulus the glider climbs into, closing over the picture from the top: a lumpy front of outlined puffs with white behind it. The sim's own
+// cloud sprites stay where the thermal put them; this one is scripted so that the screen is certain to fill.
+void IntroApp::cloudBank(const Bitmap1& bm, uint32_t ms) {
+  const float k = phase(ms, kBankFrom, kBankTo);
+  if (k <= 0.0f) return;
+  const int edge = (int)lroundf(-80.0f + 440.0f * k);
+  if (edge > 40) fillRect(bm, 0, 0, 240, edge - 48, Gray(16));
+  for (int pass = 0; pass < 2; pass++)
+    for (int i = 0; i < 9; i++) {
+      const int r = 28 + (int)(unit(hash3((uint32_t)i, 5, 0xC10D)) * 16.0f);
+      const int cx = i * 30 - 8, cy = edge - r / 2 + (int)lroundf(10.0f * sinf(i * 1.7f));
+      fillDisc(bm, cx, cy, pass == 0 ? r : r - 2, pass == 0 ? DRAW_CLEAR : DRAW_SET);
+      if (pass == 1) fillRing(bm, cx, cy, r - 2, r - 11, Gray(12), ClipBox(0, cy + r / 4, 239, 399));   // the shaded underside
+    }
 }
 
 // No terrain: contour lines of rolling hills fall away as the glider climbs, clouds swell around it.

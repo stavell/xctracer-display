@@ -7,6 +7,7 @@
 //                                                               Bulgaria pack of the study if it exists, else the Sopot fixture)
 //   build.sh play box [--igc f.igc --start S --speed N] [--lines f.txt] [--sim] [--battery P] [--temp C]
 //                                                               the whole box: launcher + vario + Tetris + compass
+//   --no-intro           the box starts straight into the start-up app (default: the start-up animation first, unless Settings turned it off)
 //   --pack FILE          map pack for the vario's AGL and map page (default: the Bulgaria pack of the terrain study if
 //                        it exists, else fixtures/sopot.pack; "none" = no terrain, the box as it was)
 //   build.sh play <app> --frames 300 --screenshot out.png --keys "main 10 left a up shot:x.png"
@@ -142,6 +143,7 @@ struct Args {
   bool seedGiven = false;
   std::string igc, lines;
   std::string pack = "default";
+  bool noIntro = false;                              // box: skip the start-up animation (the smoke run needs the app at once)
   bool sim = false;                                  // the vario's built-in test flight instead of tracer lines
   int start = 0, seconds = 3600;
   double speed = 3;                                  // tracer lines per second
@@ -234,6 +236,7 @@ struct SimMachine : Machine {
 struct BoxMachine : Machine {
   Box b;
   PackHolder pack;
+  bool intro = true;
   BoxMachine(uint32_t seed, const std::string& packSpec) : b(seed) {
     if (pack.load(packSpec)) {
       b.setTerrain(pack.kit);
@@ -244,8 +247,8 @@ struct BoxMachine : Machine {
   MockInput& input() override { return b.r.input; }
   AppHost& host() override { return b.host; }
   void tick(uint32_t now) override { b.tick(now); }
-  void boot(uint32_t now) override { b.boot(now); }
-  void restart(uint32_t now) override { b.sleep = Box::SS_AWAKE; b.boot(now); }   // R: power-cycle into the start-up app
+  void boot(uint32_t now) override { b.boot(now, intro); }          // a power-on: the start-up animation (Settings > Intro)
+  void restart(uint32_t now) override { b.sleep = Box::SS_AWAKE; b.boot(now, intro); }   // R: power-cycle into the start-up app
   Rig* rig() override { return &b.r; }
   sim::SimApp* flightSim() override { return b.flightSim.get(); }
   MockTilt* tilt() override { return &b.tilt; }
@@ -564,6 +567,7 @@ int main(int argc, char** argv) {
     else if (s == "--keys" && more) { a.keys = argv[++i]; a.headless = true; }
     else if (s == "--seed" && more) { a.seed = (uint32_t)strtoul(argv[++i], nullptr, 10); a.seedGiven = true; }
     else if (s == "--sim") a.sim = true;
+    else if (s == "--no-intro") a.noIntro = true;
     else if (s == "--pack" && more) a.pack = argv[++i];
     else if (s == "--igc" && more) a.igc = argv[++i];
     else if (s == "--lines" && more) a.lines = argv[++i];
@@ -582,7 +586,7 @@ int main(int argc, char** argv) {
   if (a.headless && !a.seedGiven) seed = 1;           // scripted runs are reproducible
   Machine* m = nullptr;
   if (a.app == "tetris") m = new TetrisMachine(seed);
-  else if (a.app == "box") m = new BoxMachine(seed, a.pack);
+  else if (a.app == "box") { BoxMachine* bm = new BoxMachine(seed, a.pack); bm->intro = !a.noIntro; m = bm; }
   else if (a.app == "sim") m = new SimMachine(a.pack);
   else {
     fprintf(stderr, "unknown app '%s' (known: tetris, box, sim)\n", a.app.c_str());

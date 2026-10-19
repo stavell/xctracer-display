@@ -29,7 +29,7 @@ struct AboutModel {
 
 class SettingsView {
  public:
-  static const int ROW_Y = 40, ROW_H = 44;
+  static const int ROW_Y = 40, ROW_H = 38;
   void drawList(const Bitmap1& bm, const SettingsModel& m);
   void drawAbout(const Bitmap1& bm, const AboutModel& m);
   UiFonts& fonts() { return f_; }

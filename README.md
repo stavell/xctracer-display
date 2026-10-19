@@ -51,10 +51,11 @@ With a map pack (`host/terrain/mkmappack.py`, format in `host/terrain/FORMAT.md`
 on a 200 m grid, towns and main roads from OpenStreetMap) the vario shows **AGL** (bottom right of every page; the GNSS altitude of
 the tracer minus the terrain model under the fix, `--` without a fix or outside the pack) and a **map page** after the thermal page.
 AGL comes from a model: typically +-10 m, up to 80 m at single peaks and gorges, and it includes trees and buildings (a surface
-model). It is not the baro altitude. The map page is north-up at 100 m/px (22 x 38 km), light hillshade, contours (every 200 m,
-every 5th bolder), main roads, towns (Latin names), the track of the last 20 minutes and the pilot arrow. For the first 10 s on
-the page it shows the attribution: Map (c) OpenStreetMap contributors (ODbL), Copernicus DEM (c) DLR / Airbus, provided under
-COPERNICUS by the EU and ESA. Without a pack nothing changes.
+model). It is not the baro altitude. The map page is north-up at 100 m/px (22 x 38 km), sun-lit hillshade (sun from the south-west),
+dotted contours (every 200 m, every 5th bolder), main roads (solid, no railways), towns (Latin names), the track of the last 20
+minutes and the pilot arrow (a paper plane). The picture is built in small slices between loop passes, so the vario never stalls on it.
+The attribution (Map (c) OpenStreetMap contributors (ODbL), Copernicus DEM (c) DLR / Airbus, provided under COPERNICUS by the EU and
+ESA) is shown once per boot as a banner and always under Settings > About. Without a pack nothing changes.
 
 **Loading the map into the box** (one command; the pack lives in the board's own 2 MB QSPI flash, so loading never touches the
 firmware or the saved settings). Needs an image with the loader (`feather_sense`, `feather_sense_diag`, `feather_sense_box`), the box
@@ -393,6 +394,9 @@ lift to the other side of the ridge. The same three rows are in the pause menu: 
 into them over about 15 s (0.6 m/s per second, no jump under the glider); Site and Thermals apply at New flight (the row shows a
 `*` while it differs from the flight you are in).
 
+**HUD.** Altitude, climb, speed, AGL and the wind arrow as before, plus the flight time (m:ss of the sim clock, so x3 / x5 count faster) and the
+straight-line distance from the takeoff (km, one decimal).
+
 **Takeoffs** (approximate, corrected against the terrain model): Sopot, Kalofer, Vratsa, Sliven, Bansko, and the north-eastern plateau
 sites Shumen, Madara and Nevsha (launch = steepest convex plateau-edge cell of the terrain model near the rough position).
 `build.sh simreach [PACK] [seeds]` prints how many thermals each takeoff can reach and how a scripted pilot climbs. Note that the
@@ -411,6 +415,15 @@ coming back starts fresh and reconnects the tracer. The radios, settings and the
 
 ![Home screen, Settings, compass calibration, About, the vario menu with its Home row](docs/screens/box.png)
 
+**Start-up animation** (`apps/intro`, box image only). At power-on and on wake from System OFF (not on the way out of the clock sleep)
+the box plays a 2.8 s intro at 50 fps before the start-up app: the flight sim's chase camera behind a paraglider thermaling tight
+under a cumulus over the real terrain of the map pack, climbing into the cloud, which fills the screen as dithered white with the
+box's name dissolving in as the end frame; the white is the hand-over to the start-up app. Any press skips it (the press is used up,
+and the 3 s hold only skips); the vario's tracer scan runs in parallel from boot, so the intro is the only delay. Without a pack
+(or one that covers no takeoff of the sim) a 2D version plays: contour lines falling away under swelling clouds. The path is scripted
+and deterministic. Settings > Intro turns it off. It lives in the shared app arena and is gone before the start-up app is built.
+`build.sh play box` shows it at start (`--no-intro` skips it); `emu/out/intro_sheet.png` and `intro_flat_sheet.png` are contact sheets.
+
 **Home screen.** A status bar (local time from the tracer's GPS time once the vario has seen a fix, `--:--` before; map pack
 status; box battery), a grid of large tiles (icon and name; the chosen tile is inverted) and a footer with a line about the
 chosen app and the key hint. Apps register with a name, a few words, a line of text and an icon (`platform/app_registry.h`,
@@ -420,6 +433,7 @@ tile, long press (0.7-1.5 s) = open, 3 s hold = power off. Six buttons: arrows m
 **Settings** (`apps/settings`, on the platform pieces in `platform/settings/`): Compass (calibration), Board mounting
 (index 0..23, long press = +1, or the arrows), Start-up app (long press cycles the apps that may start the box; Settings
 and the home screen are not offered), Time zone (long press = +1 h, arrows = 30 min; `ctl.py tz` sets any value),
+Intro (long press toggles the start-up animation On / Off, default On),
 Power off (long press toggles Clock / Off: what the 3 s hold does, see "The switch"),
 About (firmware version, map pack and its area, the pack's Copernicus and OpenStreetMap credits), Home.
 
@@ -440,9 +454,9 @@ or start, release between 1.5 and 3 s: cancelled) and the hold is the only one t
 **What leaving the vario does.** The tracer link and scan stop and the compass sensors are switched off (`App::end`,
 `ITracer::pause`); coming back restarts the scan (a few seconds until data flows) and the sensors. The flight model
 stays, its data simply goes stale. A game does not run, and its code is never touched, until it is chosen. The compass
-sensors also run only while the Settings calibration screen is open. The BLE laptop link stays up in every app (host
-drawing only takes the screen while the vario is active; laptop commands such as `ctl.py cal` are served by the vario, so
-they work while it runs).
+sensors also run only while the Settings calibration screen is open. The BLE laptop link (advertising and link) is off while a
+game runs and comes back when it is left; in the vario, the tools and the home screen it stays up (host drawing only takes the
+screen while the vario is active; laptop commands such as `ctl.py cal` are served by the vario, so they work while it runs).
 
 ### Box on the PC
 

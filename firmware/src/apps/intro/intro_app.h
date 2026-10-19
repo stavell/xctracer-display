@@ -90,6 +90,7 @@ class IntroApp : public IApp {
   void finish(bool skipped);
   void drawTerrainScene(const Bitmap1& bm);
   void drawFlatScene(const Bitmap1& bm, uint32_t ms);
+  void cloudBank(const Bitmap1& bm, uint32_t ms);
   void whiteout(const Bitmap1& bm, float p);
   void drawLogo(const Bitmap1& bm, int level);
 
@@ -108,6 +109,7 @@ class IntroApp : public IApp {
   sim::ChaseCam chase_;
   sim::Glider g_;
   sim::ColumnInfo col_;
+  sim::ColumnInfo cand_[sim::Air::kMaxInfo];     // the thermals found while picking the scene
   int site_ = -1;
   float tScene_ = 0;                    // sim day time at step 0
   float zStart_ = 0, zEnd_ = 0, theta0_ = 0;

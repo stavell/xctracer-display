@@ -650,7 +650,7 @@ int main(int argc, char** argv) {
     gCountMode = true;
     return cmdShots(argv[2], argc > 3 ? atoi(argv[3]) : 1);
   }
-  if (argc >= 3 && !strcmp(argv[1], "introshots")) { is::shots(argv[2], argc > 3 ? argv[3] : "fixtures/sopot.pack"); return 0; }   // emu introshots <outdir> [pack]
+  if (argc >= 3 && !strcmp(argv[1], "introshots")) { is::shots(argv[2], argc > 3 ? argv[3] : nullptr); return 0; }   // emu introshots <outdir> [pack]
   if (argc >= 3 && !strcmp(argv[1], "shots")) return cmdShots(argv[2], argc > 3 ? atoi(argv[3]) : 1);
   if (argc >= 4 && !strcmp(argv[1], "replay")) return cmdReplay(argc, argv);
   fputs("usage: emu shots <outdir> [rot] | emu replay <lines.txt> <outdir> [--hz N] [--inject] [--mix FILE] [--shot-every S] [--rot R]\n", stderr);

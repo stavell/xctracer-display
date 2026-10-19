@@ -27,7 +27,7 @@ KEYS="$KEYS off 20 main long 30 shot:out/box_settings.png long 30 shot:out/box_s
 KEYS="$KEYS main main main main long 20 shot:out/box_settings_about.png main off 20 shot:out/box_launcher_settings.png"
 KEYS="$KEYS main long 150 shot:out/box_sim.png right 40 a 30 shot:out/box_sim_3d.png off 20 main long 120 shot:out/box_vario_back.png"
 rm -f out/box_*.png
-OUT=$(out/play box $SRC $PACKARG --seed 3 --keys "$KEYS") || exit 1
+OUT=$(out/play box --no-intro $SRC $PACKARG --seed 3 --keys "$KEYS") || exit 1
 echo "$OUT"
 APPS=$(echo "$OUT" | sed -n 's/^wrote .*, \([a-z]*\))$/\1/p' | tr '\n' ' ')
 WANT="vario vario vario vario launcher launcher tetris tetris launcher compass settings settings settings launcher flightsim flightsim vario "

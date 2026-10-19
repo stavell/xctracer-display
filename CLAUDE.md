@@ -23,7 +23,7 @@ right is worse than no data.
                  flow) and its screen: shared by the vario and the Settings app
       storage/   map pack in a NOR flash: flash port (IFlash), flash header, USB serial frames + loader state machine, pack block reader
       power/     clock sleep (box image power off): state machine + clock screen; hw/power_nrf.cpp runs it
-      util/      spsc_ring, types (Vec3, MagCal, finite-math guard)
+      util/      spsc_ring, types (Vec3, MagCal, finite-math guard), fastmem (word-wide fills / copies), hot.h (HOT_FILE_O3: per-file -O3 on the device for measured hot loops)
       hw/        generic drivers: QSPI flash + PackService (map pack, USB loader), panel, buttons (+ keymap.h for the six front buttons), battery, power, compass/thermo
                  sensors, key store (boot app, high scores, shared settings), watchdog, pins
       app_registry.h  the apps the home screen lists (name, text, icon) and the start-up app; clock.h  wall-clock time of day
@@ -33,14 +33,18 @@ right is worse than no data.
     firmware/src/apps/vario/   the flight display
       core/      pure flight maths: parser, flight model, wind fit, thermal memory, heading selector, sim
       view/      draws a ViewModel onto an Adafruit_GFX canvas; no hardware, no state
-      app/       the state machine (App) behind the vario ports in app/ports.h, VarioApp (IApp adapter)
+      app/       the state machine (App) behind the vario ports in app/ports.h, VarioApp (IApp adapter); in the box the App,
+                 its adapter and the terrain kit are ONE arena object (VarioBox, built when the vario opens, destroyed when it is left)
       hw/        vario-only hardware: tracer BLE central, laptop BLE peripheral + protocol, flash config,
                  diagnostics
     firmware/src/apps/launcher/   the home screen (LauncherApp: status bar, icon grid, footer)
-    firmware/src/apps/settings/   the Settings app (compass calibration, mounting, start-up app, time zone, About)
+    firmware/src/apps/settings/   the Settings app (compass calibration, mounting, start-up app, intro, time zone, power off, About)
     firmware/src/apps/games/tetris/   rules, 1-bit view, TetrisApp
+    firmware/src/apps/games/sim/      the flight sim (World, Air, HeightCache, VoxelView, SkyFx, ChaseCam, SimApp; SimBox = the box's build of it)
+    firmware/src/apps/intro/          the start-up animation (IntroApp: reuses the sim's renderer pieces through their public APIs)
     firmware/src/main_vario.cpp   wiring only; one main_<image>.cpp per firmware image (main_vario: vario only,
-                                  main_box: home screen + vario + Tetris + compass tool + Settings)
+                                  main_box: home screen + vario + Tetris + compass tool + Settings + sim + intro;
+                                  `-DSIM_BENCH` builds the box straight into the sim with a micro-benchmark, see NOTES)
     firmware/emu/        PC emulator: the same platform + apps with mock ports, tests, screen renders, the PC player
                          (play.cpp: `build.sh play tetris|box`), box.h = the whole box over mocks
     host/                Python tools: replay, control, capture, analysis (.venv at the repo root)
@@ -71,6 +75,12 @@ right is worse than no data.
   In the box image NO app is static: the vario (`VarioBox`: App + adapter + terrain kit), Tetris, the compass tool and the flight sim (`SimBox`) share one
   `AppArena` through `LazyApp` (`platform/lazy_app.h`); leaving the vario loses its flight state. What must outlive it (radios + their queues, settings, wall clock) stays static; BLE callbacks never touch App. Big new objects go there or into a port. `scripts/ram_check.py`
   (in check.sh) fails below 48 KB of heap.
+- **Start-up animation.** The box image plays `apps/intro` at a power-on / System OFF wake (not after the clock sleep), unless Settings >
+  Intro is off. It is an arena app (freed before the start-up app is built, never larger than the sim so the arena does not grow),
+  any press skips it, the start-up app's radios are not held back by it, and it must not change the sim files' look or behaviour. The
+  vario-only image has none. A scripted, step-counted path keeps it deterministic (test `box_intro`).
+- **Float and build flags.** The device builds use `-O2 -fno-math-errno` (sqrtf inlines; NaN still propagates) and `-O3` per file only
+  where `HOT_FILE_O3` is set (measured: voxel -16 %); code in RAM, LTO and DSP intrinsics were measured and dropped (NOTES, "CPU options pass").
 - **The loop task has a 4 KB stack.** No large locals (view model, trails, buffers): make them static or
   members of global objects. `FlightModel::reset()` assigns members for this reason.
 - **Never fill the whole screen with `fillRect`** (per pixel, 142 ms on this chip). The app calls

@@ -1169,3 +1169,30 @@ Findings:
 
 BLE (laptop advertising and link) is off while a game runs and on again when leaving it; the vario and tools keep it.
 The map picture has an 8 px margin on every side, so a 4 px stale threshold plus the render time never shows a blank strip.
+
+## Start-up animation (2026-10-19)
+
+`apps/intro/intro_app.*`: 140 steps of 20 ms (2.8 s) at 50 fps in the host's game mode, an arena app (`LazyApp`) destroyed before the
+start-up app is built. Reuses World (only its height cache and air model, never stepped), VoxelView, SkyFx and ChaseCam through their
+public APIs; no sim file was changed. Scripted: the glider circles a thermal column (radius 16 m at 12 m/s, 41 degrees of bank, a turn
+every 8.4 s: faster than a real one so the camera sweeps), climbs 190 m in 2.3 s drifting toward the cloud's centre; from 0.8 s a scripted
+cloud front (outlined puffs, shaded underside) sweeps down over the picture (the sim's own cloud sprites stay where the thermal put them
+and never fill the view); from 1.45 s the dithered white-out (ordered dither, ragged front from the top, whole bytes); the name (glider
+mark, SHARP, DISPLAY) dissolves in through the same dither from 2.15 s and holds. Without a pack, or when no sim takeoff is covered: 2D
+contour layers under swelling clouds, the same white-out and name.
+- **Scene choice** (deterministic): Kalofer if the pack covers it, else the first covered takeoff in the table's order (Sopot on the test
+  fixture); sim day seed 13 (cloud base 2206 m, medium day); the thermal with a grown cumulus (>= 0.9) scored by strength and trigger height
+  (relief under the cloud). Seeds 1-13 were compared; Kalofer on the Bulgaria pack gives about 500 m above a high ridge.
+- **Height cache fill**: begin() fills the 128 x 128 window through `WindowSource`: real terrain within 6 km of the takeoff, a flat skirt
+  300 m below the takeoff beyond (no pack access); 4 pack tiles stay decoded (the sim's 2 thrash on a fill). Fill and thermal search are
+  timed with the device clock and printed in the intro's "gm" line (`begin_us`, `fill_us`, `search_us`). NOT measured on the device
+  (it was not available to this run); the sim's whole-window fill was estimated at 0.1-0.3 s.
+- **Expected frame time** from the sim device numbers (voxel ~10 ms, sky 2.6-4, sprite 2.6, no HUD; white-out, cloud front and name about
+  1 ms; clear 0.1): about 16-18 ms against the 20 ms step. The host's catch-up keeps the animation at 2.8 s in real time if a frame is late.
+- **Added time to the first vario frame**: the animation's length (2.8 s) plus the fill; nothing when skipped or switched off. The tracer
+  scan starts in setup() as before. A switch press skips on its release, the D-pad / A / B keys on their down edge.
+- **Memory**: the intro object is smaller than SimBox (a test checks it), so the arena and the heap (78.5 kB on the box image) are unchanged.
+  The 32 candidate thermals are a member, not a local (the stack check flagged 2 kB in setup).
+- Tests `box_intro`: length in real time, skip by press / keys / 3 s hold (never the home screen), arena freed and the tracer rule, off and
+  the clock-sleep path, the Settings row, the 2D version, the 3D version deterministic on the Sopot fixture, end frame mostly white.
+  Contact sheets: `emu/out/intro_sheet.png` (3D, study pack if present else the fixture) and `intro_flat_sheet.png`.

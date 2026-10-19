@@ -287,11 +287,5 @@ User additions (2026-10-19):
   (91 kB block, the tool uses 43 kB) and the heap has ~80 kB. Put it in the Compass & weather tool first; the vario's
   compass page stays the flat, readable dial unless the user wants it there too (flight rule: practical, eye candy in
   the tools / games). Same 0.0..359.9 heading text.
-- **Start-up animation** that shows off the box's graphics and sets expectations (user, 2026-10-19): a short (~2-3 s,
-  skippable with any press, 50 fps) intro at power-on and on wake from System OFF. Storyboard (user): the sim's chase cam
-  behind a paraglider thermaling tight just under cloudbase over the real 3D terrain from the map pack, climbing into the
-  cloud; the cloud fills the screen as dithered white (the end frame, with the logo / name showing through), and the
-  white-out is the transition into the start-up app. Rules: never delays the vario beyond the animation (tracer scan starts in parallel),
-  runs from the shared arena (freed before the start-up app is built), falls back to a 2D logo animation without a
-  map pack, off in the vario-only image. A Settings row to turn it off.
+- **Start-up animation**: done 2026-10-19 (`apps/intro`, NOTES "Start-up animation"); frame time and the added time to the first vario frame still to be measured on the device.
 - **Sun shading on the vario's map page**: done 2026-10-19 (see NOTES.md, "Map page: no more 1.9 s stall"); the sim's top-down map could still use the same sun.
