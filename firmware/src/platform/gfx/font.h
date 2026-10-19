@@ -12,8 +12,8 @@
 // does getTextBounds, so a width measured at the right edge can be a surprise. Pass the canvas width
 // as wrapW to reproduce that; 0 (the default) never wraps.
 //
-// Storage is one block, allocated by build() and reused if a later build for another rotation fits;
-// nothing is allocated while drawing. Not for the loop's stack: keep Font1 objects static.
+// Storage is one block, allocated by build() and SHARED: a Font1 built from the same font for the same rotation as a
+// live one points at that one's block (font.cpp keeps the count); nothing is allocated while drawing. Not for the loop's stack: keep Font1 objects static.
 //
 // Use:
 //   static Font1 big;
@@ -42,7 +42,7 @@ struct Font1 {
   // Render font f for destination rotation rot. False if memory ran out (the font is then unusable).
   bool build(const GFXfont* f, int rot);
   bool isBuilt(const GFXfont* f, int rot) const { return glyphs_ && src_ == f && rot_ == (rot & 3); }
-  size_t ramBytes() const { return used_; }          // glyph table + all bitmaps, what build() needs
+  size_t ramBytes() const { return used_; }          // glyph table + all bitmaps (shared with other Font1s of the same font)
   int rotation() const { return rot_; }
   int yAdvance() const { return yAdv_; }
   // nullptr for characters outside 32..126 (or the font's own range).
@@ -51,8 +51,10 @@ struct Font1 {
 
  private:
   const GFXfont* src_ = nullptr;
-  uint8_t* block_ = nullptr;       // Glyph[COUNT] then the bitmaps
-  size_t cap_ = 0, used_ = 0;
+  void release();                  // let go of the shared block
+  uint8_t* block_ = nullptr;       // Glyph[COUNT] then the bitmaps (shared, see font.cpp)
+  size_t used_ = 0;
+  int8_t slot_ = -1;               // index of the shared block, -1 = none
   Glyph* glyphs_ = nullptr;
   uint8_t rot_ = 0;
   uint8_t yAdv_ = 0;

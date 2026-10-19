@@ -100,6 +100,23 @@ static void testFontGlyphs() {
   printf("  %d glyph cases\n", cases);
 }
 
+// Font1s of the same font and rotation share one block; it lives until the last of them goes (font.cpp).
+static void testFontSharing() {
+  puts("font: the same font built twice shares its block, freed with the last user");
+  Font1* a = new Font1;
+  Font1 b, c;
+  CHECK(a->build(&FreeSansBold12pt7b, 1));
+  CHECK(b.build(&FreeSansBold12pt7b, 1));
+  CHECK(a->glyph('A') == b.glyph('A'));                  // one block
+  CHECK(c.build(&FreeSansBold12pt7b, 3));
+  CHECK(c.glyph('A') != b.glyph('A'));                   // another rotation: its own
+  const Font1::Glyph g = *b.glyph('A');
+  delete a;                                              // b keeps the block
+  CHECK(b.glyph('A')->off == g.off && b.glyph('A')->xa == g.xa);
+  CHECK(b.build(&FreeSansBold12pt7b, 3));                // b moves to c's block
+  CHECK(c.glyph('A') == b.glyph('A'));
+}
+
 static void testFontStrings() {
   puts("font1 strings vs Adafruit_GFX print / getTextBounds (wrapping, newlines, cursor)");
   static RefCanvas ref;

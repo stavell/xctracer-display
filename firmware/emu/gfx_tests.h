@@ -457,6 +457,7 @@ static void run(int& totalOps) {
   testAtlasBlit();
   testFontGlyphs();
   testFontStrings();
+  testFontSharing();
   testScreensFastText();
   testShapes();
   testCompassWork();
