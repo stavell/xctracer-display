@@ -169,12 +169,12 @@ class SimApp : public IApp {
     uint32_t sum = 0, max = 0, n = 0;
     void add(uint32_t us) { sum += us; if (us > max) max = us; n++; }
   };
-  enum { P_WORLD, P_TOPUPD, P_CHASEUPD, P_BLIT, P_VOXEL, P_SKY, P_SPRITE, P_HUD, P_ASSIST, P_TRAIL, P_SYMBOL, P_COUNT };
+  enum { P_WORLD, P_TOPUPD, P_CHASEUPD, P_BLIT, P_VOXEL, P_SKY, P_SPRITE, P_HUD, P_ASSIST, P_TRAIL, P_SYMBOL, P_NEARBY, P_RINGS, P_COUNT };
   uint32_t t() const { return clk_ ? clk_() : 0; }
   void lap(int part, uint32_t t0) { if (clk_) prof_[part].add(clk_() - t0); }
   ClockUs clk_ = nullptr;
   Acc prof_[P_COUNT];
-  uint32_t lastDecodes_ = 0;
+  uint32_t lastDecodes_ = 0, rings_ = 0, ringR_ = 0;
 };
 
 }  // namespace sim

@@ -33,6 +33,8 @@ inline int bayer8(int x, int y) {
 }
 
 void rectIncl(const Bitmap1& bm, int x0, int y0, int x1, int y1, Gray g);   // inclusive corners
+// The 8 dither bytes of a level for the native rows (ny & 7) of this bitmap geometry (valid until the next call with another one).
+const uint8_t* grayRowPatterns(const Bitmap1& bm, int level);
 inline void hline(const Bitmap1& bm, int x0, int x1, int y, Gray g) { rectIncl(bm, x0, y, x1, y, g); }
 inline void vline(const Bitmap1& bm, int x, int y0, int y1, Gray g) { rectIncl(bm, x, y0, x, y1, g); }
 inline void hspan(const Bitmap1& bm, int x, int y, int len, Gray g) { hline(bm, x, x + len - 1, y, g); }

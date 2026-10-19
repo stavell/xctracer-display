@@ -8,7 +8,11 @@ namespace sim {
 
 namespace {
 constexpr float kMapMPerPx = 40.0f;
-constexpr int kRenderBudgetPx = 4500;          // top-down picture pixels per frame (about 20 frames per picture)
+// The map is north-up: a heading-up picture has to be re-rendered whenever the glider turns, and at x3 a circle takes 5 s (70 degrees per
+// second): the 90 000-pixel picture (about 0.3 s of CPU on the device) could not keep up, so it lagged and jumped on every swap (measured:
+// choppy). North-up needs a new picture only when the glider has moved a few pixels (about 1 px/s at x3); the glider symbol turns.
+constexpr bool kMapHeadingUp = false;
+constexpr int kRenderBudgetPx = 1500;          // top-down picture pixels per frame (about 60 frames per picture, ~5 ms a frame)
 
 float approach(float v, float target, float rateUp, float rateDown, float dt) {
   const float rate = (fabsf(target) > fabsf(v) || (target * v < 0)) ? rateUp : rateDown;
@@ -130,7 +134,7 @@ void SimApp::setView(View v) {
   if (v == View::CHASE && mode_ != Mode::NOMAP) chase_.reset(world_.glider());
   if (v == View::TOP && mode_ != Mode::NOMAP) {
     const Glider& g = world_.glider();
-    top().renderNow(world_.cache(), g.x, g.y, g.heading, kMapMPerPx);
+    top().renderNow(world_.cache(), g.x, g.y, kMapHeadingUp ? g.heading : 0.0f, kMapMPerPx);
   }
 }
 
@@ -299,7 +303,7 @@ void SimApp::step(uint32_t simMs, uint32_t dtMs) {
   if (view_ == View::TOP) {
     const uint32_t tu = t();
     const Glider& g = world_.glider();
-    top().update(world_.cache(), g.x, g.y, g.heading, kMapMPerPx, kRenderBudgetPx);
+    top().update(world_.cache(), g.x, g.y, kMapHeadingUp ? g.heading : 0.0f, kMapMPerPx, kRenderBudgetPx);
     lap(P_TOPUPD, tu);
   }
 }
@@ -374,13 +378,19 @@ void SimApp::drawFlight(Bitmap1& bm) {
     uint32_t ta = t();
     if (assist_) {
       static ThermalInfo th[Air::kMaxInfo];                 // static: the loop task has 4 KB of stack
+      const uint32_t tn = t();
       const int n = world_.air().nearby(g.x, g.y, g.z, world_.time(), 4500.0f, th, Air::kMaxInfo);
+      lap(P_NEARBY, tn);
       for (int i = 0; i < n; i++) {
         if (th[i].strength < 1.2f) continue;                 // still building up or dying: not worth a ring
         top().worldToScreen(th[i].x, th[i].y, &px, &py);
         const int r = 6 + (int)(th[i].strength * 2.5f);
+        rings_++; ringR_ += (uint32_t)r;
+        if (px + r < 0 || px - r > 239 || py + r < (float)TopDownView::kTopY || py - r > 399) continue;   // off the map: nothing to draw
+        const uint32_t tr = t();
         if (th[i].strength >= 2.5f) fillRing(bm, (int)lroundf(px), (int)lroundf(py), r, r - 3, DRAW_CLEAR, clip);   // strong: a black ring
         else fillRing(bm, (int)lroundf(px), (int)lroundf(py), r, r - 3, Gray(7), clip);
+        lap(P_RINGS, tr);
       }
     }
     lap(P_ASSIST, ta);
@@ -418,7 +428,7 @@ int SimApp::gameInfo(char* dst, size_t cap) {
     struct P { const char* name; Acc a; } ps[] = {{"world", prof_[P_WORLD]}, {"topupd", prof_[P_TOPUPD]}, {"chaseupd", prof_[P_CHASEUPD]},
                                                   {"blit", prof_[P_BLIT]}, {"voxel", prof_[P_VOXEL]}, {"sky", prof_[P_SKY]}, {"sprite", prof_[P_SPRITE]},
                                                   {"hud", prof_[P_HUD]},
-                                                  {"assist", prof_[P_ASSIST]}, {"trail", prof_[P_TRAIL]}, {"symbol", prof_[P_SYMBOL]}};
+                                                  {"assist", prof_[P_ASSIST]}, {"trail", prof_[P_TRAIL]}, {"symbol", prof_[P_SYMBOL]}, {"nearby", prof_[P_NEARBY]}, {"ring", prof_[P_RINGS]}};
     n += snprintf(dst + n, cap - n, " cache_refresh_avg/max=%.1f/%.1f cells=%lu", rs.calls ? rs.sumUs / 1000.0 / rs.calls : 0.0,
                   rs.maxUs / 1000.0, (unsigned long)rs.cells);
     const World::StepProf wp = world_.takeProf();
@@ -426,6 +436,8 @@ int SimApp::gameInfo(char* dst, size_t cap) {
       n += snprintf(dst + n, cap - n, " sub_air_avg/max=%.2f/%.2f sub_glider_avg=%.2f", wp.airUs / 1000.0 / wp.n, wp.airMax / 1000.0, wp.gliderUs / 1000.0 / wp.n);
     for (const P& p : ps)
       if (p.a.n && n > 0 && (size_t)n < cap) n += snprintf(dst + n, cap - n, " %s_avg/max=%.1f/%.1f", p.name, p.a.sum / 1000.0 / p.a.n, p.a.max / 1000.0);
+    n += snprintf(dst + n, cap - n, " rings=%lu ringR=%lu", (unsigned long)rings_, (unsigned long)ringR_);
+    rings_ = ringR_ = 0;
     for (Acc& a : prof_) a = Acc();
   }
   return n < 0 ? 0 : (n >= (int)cap ? (int)cap - 1 : n);

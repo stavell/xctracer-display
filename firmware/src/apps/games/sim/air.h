@@ -106,6 +106,10 @@ class Air {
   float triggerScore(float x, float y) const;
 
  private:
+  struct Th {
+    float x0, y0, z0, t0, life, S, R;
+    uint32_t id;
+  };
   struct Tile {
     int tx = 0x7fffffff, ty = 0;
     bool valid = false;
@@ -113,10 +117,11 @@ class Air {
     bool house = false;                         // a house thermal: always fires, never weak
     uint32_t tk = 0;                            // the cell's hash key (its thermals' randomness)
     float period = 0, offset = 0;               // timing(tk), kept: hashing them again for every query was most of the air model's cost
-  };
-  struct Th {
-    float x0, y0, z0, t0, life, S, R;
-    uint32_t id;
+    // The cell's thermals numbered nBase-3 .. nBase (the ones that can be alive), computed once per period instead of per query
+    // (the hashes and a pow per candidate were 90 % of an air sample on the device). Bit i of mask: number nBase-3+i fires.
+    int nBase = 0x7fffffff;
+    uint8_t mask = 0;
+    Th th[4];
   };
   struct Active {
     Th th;
@@ -128,6 +133,7 @@ class Air {
   const Tile* tile(int tx, int ty) const;
   int collect(float x, float y, float z, float t, float range, Active* out, int cap) const;
   bool thermalOf(const Tile& tl, uint32_t tk, int number, Th* out) const;
+  void fillThermals(Tile& tl, int nBase) const;
   void timing(uint32_t tk, bool house, float* period, float* offset) const;
   float envelope(const Th& th, float t) const;
   static float cloudFactor(const Th& th, float t);
@@ -139,7 +145,7 @@ class Air {
   const HeightCache* field_ = nullptr;
   float windToX_ = 0, windToY_ = 1, windSpeed_ = 0, windRefAlt_ = 0;
   float cloudBase_ = 2400, baseSink_ = 0.7f;
-  Tile house_[kHouses];
+  mutable Tile house_[kHouses];
   int nHouse_ = 0;
   mutable Tile tiles_[kSlots];
   mutable Active scratch_[kMaxActive];

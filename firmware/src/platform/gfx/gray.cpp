@@ -32,7 +32,7 @@ static uint8_t rowPattern(const Bitmap1& bm, int ny, int level) {
 // The patterns of the 8 native row phases (ny & 7) for a level, cached for the last bitmap geometry and
 // level used: a rotated bitmap draws one native row per pixel of a horizontal span (a grey ring is
 // thousands of them), and the pattern depends only on ny & 7, rotation, w & 7, h & 7 and the level.
-static const uint8_t* rowPatterns(const Bitmap1& bm, int level) {
+const uint8_t* grayRowPatterns(const Bitmap1& bm, int level) {
   static uint8_t pat[8];
   static int key = -1;
   int k = (bm.rotation & 3) | ((bm.w & 7) << 2) | ((bm.h & 7) << 5) | (level << 8);
@@ -59,7 +59,7 @@ void rectIncl(const Bitmap1& bm, int x0, int y0, int x1, int y1, Gray g) {
   int b0 = nx0 >> 3, b1 = nx1 >> 3;
   uint8_t first = (uint8_t)(0xFFu << (nx0 & 7));
   uint8_t last = (uint8_t)(0xFFu >> (7 - (nx1 & 7)));
-  const uint8_t* pats = rowPatterns(bm, g.level);
+  const uint8_t* pats = grayRowPatterns(bm, g.level);
   if (b0 == b1) {                        // one byte wide (every pixel of a rotated horizontal span)
     uint8_t m = first & last;
     uint8_t* col = bm.buf + b0;

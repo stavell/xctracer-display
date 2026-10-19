@@ -244,6 +244,12 @@ void loop() {
       sim::SimBox* s = simApp.get();
       if (!zeroed && now > 3000) { s->onInput(KEY_MAIN, BTN_LONG); zeroed = true; }   // the zero page: as it lies = level, fly
       if (s->mode() == sim::SimApp::Mode::ENDED) s->startFlight();
+      if (zeroed && s->mode() == sim::SimApp::Mode::FLYING) {   // a turn pattern on the buttons: 5 s straight, 5 right, 5 straight, 5 left
+        if (s->control() != sim::SimApp::Control::BUTTONS) s->setControl(sim::SimApp::Control::BUTTONS);
+        const uint32_t ph = ((now - lastSwitch) / 5000) % 4;
+        s->onKey(KEY_RIGHT, ph == 1, now);
+        s->onKey(KEY_LEFT, ph == 3, now);
+      }
       if (now - lastSwitch > 20000) {
         lastSwitch = now;
         s->zeroTilt();

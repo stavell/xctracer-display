@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 #include "platform/gfx/gray.h"
+#include "platform/util/fastmem.h"
 
 namespace sim {
 
@@ -56,7 +57,9 @@ void VoxelView::fillSpan(uint8_t* row, int y0, int y1, uint8_t pat) const {
   }
   row[ba] = (uint8_t)((row[ba] & ~lm) | (pat & lm));
   row[bb] = (uint8_t)((row[bb] & ~rm) | (pat & rm));
-  if (bb - ba > 1) memset(row + ba + 1, pat, (size_t)(bb - ba - 1));
+  const int mid = bb - ba - 1;                    // whole bytes between the two masked ones
+  if (mid >= 12) fastFill(row + ba + 1, pat, (size_t)mid);
+  else for (int i = 1; i <= mid; i++) row[ba + i] = pat;
 }
 
 void VoxelView::sky(uint8_t* row, int x, int hy, int ymin) {

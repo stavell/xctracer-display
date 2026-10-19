@@ -191,16 +191,25 @@ void Air::columnCentre(const Th& th, float z, float t, float* cx, float* cy) con
   *cy = th.y0 + wy * lean + 0.05f * sy * age;
 }
 
+// All four candidates of the cell (a query at any t within the period, forwards or back, needs a subset of them).
+void Air::fillThermals(Tile& tl, int nBase) const {
+  tl.nBase = nBase;
+  tl.mask = 0;
+  for (int i = 0; i < 4; i++) {
+    const int k = nBase - 3 + i;
+    if (thermalOf(tl, tl.tk, k, &tl.th[i])) tl.mask |= (uint8_t)(1u << i);
+  }
+}
+
 int Air::collect(float x, float y, float z, float t, float range, Active* out, int cap) const {
   int n = 0;
-  auto add = [&](const Tile& tl, uint32_t tk) {
-    const float period = tl.period, offset = tl.offset;
-    const int nNow = (int)floorf((t - offset) / period);
-    for (int k = nNow - 3; k <= nNow; k++) {                    // lives are up to 3 periods (houses)
-      const float age = t - (offset + k * period);              // same t0 as thermalOf; no life is longer than 1500 s: skip before any hashing
-      if (age < 0 || age > 1500.0f) continue;
-      Th th;
-      if (!thermalOf(tl, tk, k, &th)) continue;
+  auto add = [&](const Tile& tc, uint32_t) {
+    Tile& tl = const_cast<Tile&>(tc);                           // tiles_ and house_ are mutable caches
+    const int nNow = (int)floorf((t - tl.offset) / tl.period);
+    if (tl.nBase != nNow) fillThermals(tl, nNow);
+    for (int i = 0; i < 4; i++) {                                // lives are up to 3 periods (houses)
+      if (!(tl.mask & (1u << i))) continue;
+      const Th& th = tl.th[i];
       const float env = envelope(th, t);
       if (env <= 0) continue;
       Active a;

@@ -35,7 +35,7 @@ class VoxelView {
   static constexpr float kMaxDist = 9000.0f;
   static constexpr int kMaxSteps = 96;
   static constexpr int kBilinearSteps = 24;             // steps (from the camera) that interpolate (about the first 1.2 km)
-  static constexpr int kColStep = 2;                    // screen columns per ray
+  static constexpr int kColStep = 3;                    // screen columns per ray
   static constexpr int kYBins = 26;                     // depth buffer: bins of two steps (48 steps at present)
 
   struct Stats {                                        // work of the last render

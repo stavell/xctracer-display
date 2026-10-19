@@ -56,7 +56,7 @@ void TopDownView::renderColumn(const HeightCache& hc, const Params& p, uint8_t* 
     int lvl = (int)(sh + 3.0f + 0.5f);
     if (lvl > 16) lvl = 16;
     uint8_t white = bayer8(px, y) < 4 * lvl ? 1 : 0;
-    const int8_t band = (int8_t)floorf(h * (1.0f / kContour));
+    const int8_t band = (int8_t)((int)(h * (1.0f / kContour) + 64.0f) - 64);      // floor for h > -12800 m, without the libm call
     band_[y] = band;
     int boundary = -99999;                                   // contour boundary index between this pixel and a neighbour
     if (y > 0 && band_[y - 1] != kNoBand && band_[y - 1] != band) boundary = band > band_[y - 1] ? band : band_[y - 1];

@@ -23,8 +23,8 @@ class TopDownView {
  public:
   static constexpr int kW = 240, kH = 376, kStride = 47;
   static constexpr int kTopY = 24;                       // screen row of the cache's first row
-  static constexpr int kGliderX = 120, kGliderY = 236;   // glider position inside the map area
-  static constexpr float kStalePx = 12.0f, kStaleDeg = 7.0f;
+  static constexpr int kGliderX = 120, kGliderY = 188;   // glider position inside the map area
+  static constexpr float kStalePx = 4.0f, kStaleDeg = 7.0f;
 
   TopDownView() { reset(); }
   void reset();

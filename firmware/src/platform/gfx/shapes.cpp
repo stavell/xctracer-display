@@ -58,8 +58,27 @@ struct PaintMode {
 };
 struct PaintGray {
   const Bitmap1& bm; Gray g;
+  const uint8_t* pats;
+  PaintGray(const Bitmap1& b, Gray gr) : bm(b), g(gr), pats(grayRowPatterns(b, gr.level)) {}
   void h(int x0, int x1, int y) const { hline(bm, x0, x1, y, g); }
-  void v(int x, int y0, int y1) const { vline(bm, x, y0, y1, g); }
+  // Rings are thousands of short runs: in the portrait rotation a logical column is a run inside one native row, written here
+  // without the generic clipping and coordinate conversion (the same bytes as vline(), measured 500 -> ~100 cycles per run).
+  void v(int x, int y0, int y1) const {
+    if (bm.rotation != 1) { vline(bm, x, y0, y1, g); return; }
+    if (x < 0 || x >= bm.h) return;
+    if (y0 < 0) y0 = 0;
+    if (y1 >= bm.w) y1 = bm.w - 1;
+    if (y0 > y1) return;
+    const int nx0 = bm.w - 1 - y1, nx1 = bm.w - 1 - y0;       // native columns of the run
+    uint8_t* row = bm.buf + (size_t)x * bm.stride;
+    const uint8_t pat = pats[x & 7];
+    const int b0 = nx0 >> 3, b1 = nx1 >> 3;
+    const uint8_t first = (uint8_t)(0xFFu << (nx0 & 7)), last = (uint8_t)(0xFFu >> (7 - (nx1 & 7)));
+    if (b0 == b1) { const uint8_t m = first & last; row[b0] = (uint8_t)((row[b0] & ~m) | (pat & m)); return; }
+    row[b0] = (uint8_t)((row[b0] & ~first) | (pat & first));
+    for (int b = b0 + 1; b < b1; b++) row[b] = pat;
+    row[b1] = (uint8_t)((row[b1] & ~last) | (pat & last));
+  }
 };
 
 // One line of the ring along the axis `a` (the run direction): the centre c on that axis, the offset d
@@ -106,5 +125,5 @@ void fillRing(const Bitmap1& bm, int cx, int cy, int R, int Ri, DrawMode m, cons
   ringImpl(bm, cx, cy, R, Ri, clip, PaintMode{bm, m});
 }
 void fillRing(const Bitmap1& bm, int cx, int cy, int R, int Ri, Gray g, const ClipBox& clip) {
-  ringImpl(bm, cx, cy, R, Ri, clip, PaintGray{bm, g});
+  ringImpl(bm, cx, cy, R, Ri, clip, PaintGray(bm, g));
 }
