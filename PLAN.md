@@ -182,7 +182,8 @@ redraw only on position/heading change; (4) box player integration (pack file in
 
 ## Centring page (prototype 2026-10-16, emulator only)
 
-Done: `core/thermal3d.*`, the centring page, cue measurement (NOTES.md). Next: fly it (replay on the device with `ctl.py page center`), tune the
+Done: `core/thermal3d.*`, the centring page, cue measurement (NOTES.md); 2026-10-19 the page became one cue (8-sector wedge + average climb, from the
+first half turn, gated), see NOTES.md "Centring page: one cue". Next (the older list, partly obsolete: rings, arrow and the 8 m rule are gone): fly it (replay on the device with `ctl.py page center`), tune the
 25 / 50 m rings and the 8 m no-arrow threshold with a pilot; make the cue available earlier than two turns (a better first-turn
 estimate); (done 2026-10-17: the start-up wind estimate that locked on 42 km/h, NOTES.md "Wind EKF locked high"); try the two buttons (A/B) for zoom.
 
@@ -292,7 +293,7 @@ User additions (2026-10-19):
 - Intro measured on the device (15ab75e): start 0.29 s (height fill 0.23 s), first second 44.5 fps (draw 21 ms),
   cloud-front second 31.8 fps (draw 30 ms): the scripted puff front is the cost; cut to 6 larger puffs and a thinner shaded ring, to be
   re-measured on the device. End frame is now just "stavl.com" (no glyph, no wordmark).
-- **Thermal assistant review** (docs/thermal_review.md, 2026-10-19): centring cue on whole flights 64-68 % vs 55-61 %
+- **Thermal assistant review** (docs/thermal_review.md, 2026-10-19; improvements 1, 2, 3 and 5 done 2026-10-19, NOTES.md "Centring page: one cue"; 4 gyro phase, 6, 7 still open): centring cue on whole flights 64-68 % vs 55-61 %
   "last turn" baseline (chance 50 %), median angle error ~60°, distance error ~40 m; shows only after two turns (18-21 %
   of circling). Proposed, in order: one cue only (best-lift sector + average climb), cue from the first half turn with a
   confidence mark, 8 sectors instead of metres, gyro circle phase (log raw IMU + tracer receive times first), gate by

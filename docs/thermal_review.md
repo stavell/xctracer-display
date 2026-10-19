@@ -1,5 +1,7 @@
 # Review of the thermal assistant (thermal page + centring page)
 
+**Status 2026-10-19:** improvements 1, 2, 3 and 5 are implemented (NOTES.md "Centring page: one cue"). The figures below describe the page as reviewed.
+
 ## Verdict
 The ideas are sound, but the centring page is not yet something a pilot can use at 40 degrees of bank. Three problems:
 1. It needs two full turns (~50 s) of data and it shows up in only about 20 % of circling seconds.

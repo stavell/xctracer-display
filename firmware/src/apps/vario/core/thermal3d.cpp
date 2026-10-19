@@ -8,6 +8,12 @@ bool ThermalColumn::cueLean = false;
 float ThermalColumn::cueW[3] = {1.0f, 0.0f, 0.0f};
 int ThermalColumn::cueMinTurns = 2;
 float ThermalColumn::cueMaxM = 60.0f;
+float ThermalColumn::secMinDeg = 180.0f;
+float ThermalColumn::secWinDeg = 360.0f;
+float ThermalColumn::secMaxShiftM = 200.0f;
+float ThermalColumn::secMinShiftM = 10.0f;
+float ThermalColumn::secMaxSpreadM = 1e9f;
+float ThermalColumn::secMaxAgreeDeg = 90.0f;
 
 static float wrap180(float a) {
   a = fmodf(a, 360.0f);
@@ -37,6 +43,7 @@ void ThermalColumn::clearResults() {
   leanDeg = leanPer100 = leanRms = 0;
   coreX0 = coreY0 = coreZ0 = coreSx = coreSy = 0;
   cue = CoreCue();
+  sec = SectorCue();
   trend = TREND_NONE;
   trendRatio = 0;
   zMin = zMax = 0;
@@ -243,6 +250,122 @@ void ThermalColumn::computeCue(int sg, int lowest) {
   cue.valid = true;
 }
 
+// Centre of the circle through points a..b-1 (Kasa least squares): the plain mean of part of a turn lies on the side
+// of the arc, not in the middle of the circle. False when the arc is too flat or the radius absurd.
+bool ThermalColumn::kasaCentre(int a, int b, float& cx, float& cy) const {
+  const int n = b - a;
+  if (n < 5) return false;
+  float mx = 0, my = 0;
+  for (int k = a; k < b; k++) { mx += ax_[k]; my += ay_[k]; }
+  mx /= n; my /= n;
+  float suu = 0, svv = 0, suv = 0, suuu = 0, svvv = 0, suvv = 0, svuu = 0;
+  for (int k = a; k < b; k++) {
+    const float u = ax_[k] - mx, v = ay_[k] - my;
+    suu += u * u; svv += v * v; suv += u * v;
+    suuu += u * u * u; svvv += v * v * v; suvv += u * v * v; svuu += v * u * u;
+  }
+  const float det = suu * svv - suv * suv;
+  if (det < 1e-3f * (suu + svv) * (suu + svv)) return false;
+  const float uc = (svv * (suuu + suvv) - suv * (svvv + svuu)) / (2.0f * det);
+  const float vc = (suu * (svvv + svuu) - suv * (suuu + suvv)) / (2.0f * det);
+  const float r = sqrtf(uc * uc + vc * vc + (suu + svv) / n);
+  if (!(r >= 8.0f && r <= 90.0f)) return false;
+  cx = mx + uc;
+  cy = my + vc;
+  return true;
+}
+
+// The sector cue. Walks back from the newest point along the circling run in progress (turn rate of the smoothed
+// circ[] flags, gaps up to 8 s bridged, as analyze() finds runs), counting heading change. The estimate comes from the
+// newest `secWinDeg` of it (a full turn: the same window as computeCue; while the run is younger, all of it, from
+// `secMinDeg` on, with the circle centre fitted because the mean of an arc is not the circle centre). A full turn is
+// the evaluation tool's truth (fullX/Y). The older full turns before the window give spread and agreement.
+void ThermalColumn::computeSector(const int8_t* circ) {
+  sec = SectorCue();
+  const int n = n_;
+  int sg = 0;
+  for (int i = n - 1; i >= n - 4 && i >= 1; i--) if (circ[i]) { sg = circ[i]; break; }
+  if (!sg) return;
+  int cut[4] = {-1, -1, -1, -1};            // newest point of each window boundary: 360 degree steps back (truth), then the estimate window
+  int cutW = -1;
+  float accW = 0, acc = 0;
+  int gap = 0, rs = n - 1;
+  for (int i = n - 1; i >= 1; i--) {
+    if (circ[i] == -sg) break;
+    if (!circ[i]) { if (++gap > 8) break; } else gap = 0;
+    rs = i - 1;
+    if (isfinite(pts_[i].rate)) acc += sg * pts_[i].rate * (pts_[i].tMs - pts_[i - 1].tMs) / 1000.0f;
+    if (cutW < 0 && acc >= secWinDeg) { cutW = i; accW = acc; }
+    for (int k = 0; k < 4; k++)
+      if (cut[k] < 0 && acc >= 360.0f * (k + 1)) { cut[k] = i; break; }
+  }
+  sec.runDeg = acc > 0 ? acc : 0;
+  if (acc < secMinDeg) return;
+  if (cutW < 0) { cutW = rs; accW = acc; }
+  const bool full = accW >= secWinDeg - 0.5f && secWinDeg >= 330.0f;
+  // truth: the newest full turn
+  if (cut[0] >= 0) {
+    CoreCircle t;
+    t.a = cut[0]; t.b = n - 1;
+    circleMetrics(t);
+    sec.fullValid = true;
+    sec.fullX = t.x - t.cx; sec.fullY = t.y - t.cy;
+    sec.fullClimb = t.climb;
+  }
+  CoreCircle w;
+  w.a = cutW; w.b = n - 1;
+  if (w.b - w.a < 5) return;
+  circleMetrics(w);
+  float ccx = w.cx, ccy = w.cy;
+  if (!full) kasaCentre(w.a, w.b, ccx, ccy);
+  // the lift-weighted centroid is w.x/w.y, or the mean when the window is weak or sinking (circleMetrics): no lift, no cue
+  const float ox = w.x - w.cx, oy = w.y - w.cy;                                    // centroid minus the window mean
+  const float px = (w.cx + ox) - ccx, py = (w.cy + oy) - ccy;                      // centroid minus the circle centre
+  sec.hasClimb = true;
+  sec.climb = w.climb;
+  if (n >= 5) {
+    float h = atan2f(-ax_[n - 4], -ay_[n - 4]) * R2D;
+    sec.headDeg = h < 0 ? h + 360.0f : h;
+  }
+  sec.shiftM = cueGain * hypotf(px, py);
+  if (sec.shiftM > secMaxShiftM || !(w.climb >= 0.3f)) return;
+  float d = atan2f(px, py) * R2D;
+  sec.deg = d < 0 ? d + 360.0f : d;
+  sec.sector = (int8_t)(((int)floorf((sec.deg + 22.5f) / 45.0f)) & 7);
+  sec.winDeg = accW;
+  const float durS = (pts_[n - 1].tMs - pts_[cutW].tMs) / 1000.0f;
+  sec.periodS = durS * 360.0f / (accW > 90.0f ? accW : 90.0f);
+  sec.cand = true;
+  // older full turns before the window
+  if (full) {
+    float sp = 0;
+    int m = 0;
+    float agree = -1;
+    int hi = cutW;
+    for (int k = 1; k < 3; k++) {
+      const int lo = cut[k];                          // 360 * (k+1) back from now; the window ended at 360 * k
+      if (lo < 0) break;
+      CoreCircle o;
+      o.a = lo; o.b = hi;
+      circleMetrics(o);
+      const float kx0 = w.cx + cueGain * (w.x - w.cx), ky0 = w.cy + cueGain * (w.y - w.cy);
+      const float kx1 = o.cx + cueGain * (o.x - o.cx), ky1 = o.cy + cueGain * (o.y - o.cy);
+      sp += (kx1 - kx0) * (kx1 - kx0) + (ky1 - ky0) * (ky1 - ky0);
+      m++;
+      if (k == 1) {
+        const float ax = o.x - o.cx, ay = o.y - o.cy;
+        if (hypotf(ax, ay) >= 3.0f && hypotf(ox, oy) >= 1.0f)
+          agree = fabsf(atan2f(ox * ay - oy * ax, ox * ax + oy * ay)) * R2D;
+      }
+      hi = lo;
+    }
+    if (m) { sec.spread = sqrtf(sp / m); sec.agreeDeg = agree; }
+  }
+  sec.conf = !full || sec.spread < 0 ? 1 : (sec.agreeDeg >= 0 && sec.agreeDeg < 60.0f ? 3 : 2);
+  sec.valid = sec.shiftM >= secMinShiftM && (sec.spread < 0 || sec.spread <= secMaxSpreadM) &&
+              (sec.agreeDeg < 0 || sec.agreeDeg <= secMaxAgreeDeg);
+}
+
 void ThermalColumn::analyze(float windE, float windN) {
   if (analyzedRev_ == rev_ && analyzedWE_ == windE && analyzedWN_ == windN) { placeHead(); return; }
   analyzedRev_ = rev_;
@@ -271,6 +394,7 @@ void ThermalColumn::analyze(float windE, float windN) {
       if (k >= 1 && k < n && isfinite(pts_[k].rate)) { s += pts_[k].rate; c++; }
     circ[i] = (c >= 3 && fabsf(s / c) >= 4.0f) ? (s > 0 ? 1 : -1) : 0;
   }
+  computeSector(circ);
   Run runs[16];
   int nr = 0;
   for (int i = 1; i < n;) {

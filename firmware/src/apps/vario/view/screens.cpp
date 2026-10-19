@@ -943,31 +943,22 @@ static void drawMapPage(const ViewModel& vm, const Bitmap1* bm) {
 }
 
 // ---- CENTRING PAGE -------------------------------------------------------------
-// The thermal assistant for the circle you are flying (core/thermal3d.h, CoreCue). All visual, no words. Heading up,
-// the centre of your newest turn in the middle of the map:
-//   map      your last two turns in the air-mass frame, thick where it climbed (the thick part is the lift, the bead
-//            the best of it), dotted rings at 25 and 50 m, the core as a target, a fat arrow from your centre to it
-//            (its length is how far to move the circle; no arrow when it is under you), you as the triangle
-//   bottom   the climb now (the number), a gauge: bar = turn average, diamond = best of the turn, triangle = now;
-//            the lean as an arrow (length = tilt) and the trend of the lift as a glyph (up, level, down, down and stopped)
-//   right    strength by height: bars, you at the top
-// Without a second full turn, or after leaving the lift, only the rings and you are drawn.
+// One cue (core/thermal3d.h, SectorCue; docs/thermal_review.md): on which side of your circle the lift is. Heading up,
+// you are the triangle in the middle of a ring and the lift is a wedge of that ring, one of 8 sectors of 45 degrees (the data
+// supports no finer). The wedge turns round the ring once per circle, like a clock face: "the lift is at 3 o'clock".
+//   wedge    its darkness is the confidence: light grey = part of a turn, dark grey = a full turn, black = a full turn that
+//            agrees with the one before. It is there from the first half turn on.
+//   nothing  when you are centred (the lift is on no side) or the thermal is broken up (the sides disagree), only the ring
+//   dotted   not circling: a dotted ring
+//   number   the average climb of the last turn (of what has been flown so far, in the first turn)
+// Dropped from the page (the maths stays in core/thermal3d): lean arrow, strength-by-height bars, climb gauge, trend glyph,
+// the older turn's trail, metre rings and the shift distance, the wind arrow (the wind is on the other pages).
 
-// A pixel, a line w pixels wide (parallel lines: no gaps on diagonals), a dotted line.
+// on/off pixels along the segment (period on + off), the phase carried across segments in dashPhase
 static void cPix(int x, int y, uint16_t col) {
   if (fbm) fbm->pixel(x, y, col ? DRAW_SET : DRAW_CLEAR);
   else d->drawPixel(x, y, col);
 }
-static void cLine(int x0, int y0, int x1, int y1, int w, uint16_t col) {
-  if (w <= 1) { gLine(x0, y0, x1, y1, col); return; }
-  const bool flat = abs(x1 - x0) >= abs(y1 - y0);
-  for (int k = 0; k < w; k++) {
-    const int o = k - (w - 1) / 2;
-    if (flat) gLine(x0, y0 + o, x1, y1 + o, col);
-    else gLine(x0 + o, y0, x1 + o, y1, col);
-  }
-}
-// on/off pixels along the segment (period on + off), the phase carried across segments in dashPhase
 static void cDots(int x0, int y0, int x1, int y1, int on, int off, uint16_t col) {
   const int dx = x1 - x0, dy = y1 - y0;
   int steps = abs(dx) > abs(dy) ? abs(dx) : abs(dy);
@@ -977,69 +968,54 @@ static void cDots(int x0, int y0, int x1, int y1, int on, int off, uint16_t col)
     cPix(x0 + (int)lroundf((float)dx * i / steps), y0 + (int)lroundf((float)dy * i / steps), col);
   }
 }
-static void cDisc(int cx, int cy, int r, uint16_t col) {
-  if (fbm) fillDisc(*fbm, cx, cy, r, col ? DRAW_SET : DRAW_CLEAR);
-  else d->fillCircle(cx, cy, r, col);
-}
-// stroke width by climb: sink is a dotted line, strong lift a thick one
-static int cWidth(float v) { return v < 0.3f ? 1 : (v < 1.0f ? 2 : (v < 2.0f ? 3 : (v < 3.0f ? 4 : 5))); }
-static void cTrackSeg(int x0, int y0, int x1, int y1, float v, bool older) {
-  if (v < 0.0f) { cDots(x0, y0, x1, y1, 1, 2, BLK); return; }
-  int w = cWidth(v);
-  if (older) {                                  // the turn before: a grey stroke, thinner
-    if (fbm) greyLine(*fbm, x0, y0, x1, y1, w > 1 ? w - 1 : 1, MID + 1);
-    else cDots(x0, y0, x1, y1, 1, 1, BLK);
-    return;
-  }
-  cLine(x0, y0, x1, y1, w, BLK);
-}
 
-// Strength by altitude as horizontal bars growing right from x0, one per band, to scale (6.5 px per m/s), altitude
-// along y at `pxPerM` with zRef at yRef.
-static void climbBars(const ThermalColumn& c, int x0, int ylo, int yhi, float zRef, int yRef, float pxPerM) {
-  for (int i = 0; i < c.nBands; i++) {
-    const ClimbBand& bd = c.bands[i];
-    const int yb = yRef + (int)lroundf((zRef - (bd.z0 + c.bandM)) * pxPerM), yt = yRef + (int)lroundf((zRef - bd.z0) * pxPerM);
-    int h = yt - yb - 1;
-    if (h < 2) h = 2;
-    if (yb < ylo || yb + h > yhi) continue;
-    int len = (int)lroundf(fminf(fmaxf(bd.climb, 0.0f), 4.5f) * 6.5f);
-    if (bd.climb < 0.15f) { d->drawFastHLine(x0 + 1, yb + h / 2, 3, BLK); continue; }
-    if (len < 2) len = 2;
-    d->fillRect(x0 + 1, yb, len, h, BLK);
-  }
-}
+static const float CEN_PI = 3.14159265f;
 
-// the zoom steps (pixels per metre): the picture does not breathe, it jumps when a step no longer fits
-static float centerPickScale(float extentM, float halfPx) {
-  static const float ladder[] = {3.0f, 2.2f, 1.6f, 1.2f, 0.9f, 0.65f, 0.45f};
-  for (float k : ladder) if (extentM * k <= halfPx) return k;
-  return 0.45f;
+// Row by row the part of the annulus ri < d <= ro that lies between the rays at screen angles a0 and a1 (radians clockwise from up,
+// 0 < a1 - a0 < pi), filled with `level` (0 black .. 16 white). Convex cone: two half-planes, so every row is an interval or two.
+static void ringWedge(int ox, int oy, int ri, int ro, float a0, float a1, int level) {
+  const float c0 = cosf(a0), s0 = sinf(a0), c1 = cosf(a1), s1 = sinf(a1);
+  for (int y = oy - ro; y <= oy + ro; y++) {
+    const float dy = (float)(y - oy);
+    // cone: c0 * x >= -s0 * dy  and  c1 * x <= -s1 * dy   (x measured from the centre, y down)
+    float lo = -1e9f, hi = 1e9f;
+    const float rb0 = -s0 * dy, rb1 = -s1 * dy;
+    if (fabsf(c0) < 1e-6f) { if (rb0 > 0) continue; } else if (c0 > 0) lo = fmaxf(lo, rb0 / c0); else hi = fminf(hi, rb0 / c0);
+    if (fabsf(c1) < 1e-6f) { if (rb1 < 0) continue; } else if (c1 > 0) hi = fminf(hi, rb1 / c1); else lo = fmaxf(lo, rb1 / c1);
+    if (lo > hi) continue;
+    const float ho = sqrtf(fmaxf((float)(ro * ro) - dy * dy, 0.0f));
+    const bool hole = fabsf(dy) < ri;
+    const float hin = hole ? sqrtf((float)(ri * ri) - dy * dy) : 0.0f;
+    // [-ho, -hin] and [hin, ho]; a row that misses the hole is one chord [-ho, ho]
+    const float sa[2] = {-ho, hole ? hin : 1.0f};
+    const float sb[2] = {hole ? -hin : ho, hole ? ho : 0.0f};
+    for (int k = 0; k < 2; k++) {
+      const float xa = fmaxf(sa[k], lo), xb = fminf(sb[k], hi);
+      if (xb < xa) continue;
+      const int x0 = (int)ceilf(ox + xa), x1 = (int)floorf(ox + xb);
+      if (x1 < x0) continue;
+      if (fbm) hspan(*fbm, x0, y, x1 - x0 + 1, Gray(level));
+      else if (level < 9) d->drawFastHLine(x0, y, x1 - x0 + 1, BLK);
+    }
+  }
 }
 
-static const int CEN_BOTTOM_H = 86, CEN_STRIP_W = 34;
-static const float CEN_OK_M = 8.0f;                    // a shift shorter than this gets no arrow: the target sits on your centre
-
-// Climb gauge: one scale, 0..5 m/s, 21 px per m/s. A thick bar for the turn average, a diamond on a thin line for
-// the best of the turn, a triangle below for the climb now; ticks every m/s. No words: the number beside it is the
-// standard vario readout.
-static void climbGauge(int x, int y, float avg, float best, float now) {
-  const float pxm = 21.0f;
-  auto X = [&](float v) { return x + (int)lroundf(fminf(fmaxf(v, 0.0f), 5.0f) * pxm); };
-  d->drawFastVLine(x, y, 52, BLK);
-  if (isfinite(avg) && avg > 0) d->fillRect(x + 1, y + 1, X(avg) - x, 14, BLK);
-  if (isfinite(best)) {
-    d->drawFastHLine(x, y + 25, X(best) - x, BLK);
-    const int bx = X(best);
-    d->fillTriangle(bx - 6, y + 25, bx, y + 19, bx, y + 31, BLK);
-    d->fillTriangle(bx + 6, y + 25, bx, y + 19, bx, y + 31, BLK);
+// The wedge's outline: two radial lines and two arcs
+static void ringWedgeOutline(int ox, int oy, int ri, int ro, float a0, float a1) {
+  for (int e = 0; e < 2; e++) {
+    const float a = e ? a1 : a0;
+    gLine(ox + (int)lroundf(ri * sinf(a)), oy - (int)lroundf(ri * cosf(a)), ox + (int)lroundf(ro * sinf(a)), oy - (int)lroundf(ro * cosf(a)), BLK);
   }
-  if (isfinite(now)) {
-    const int nx = X(now);
-    d->fillTriangle(nx, y + 36, nx - 6, y + 46, nx + 6, y + 46, BLK);
+  for (int rr = 0; rr < 2; rr++) {
+    const int r = rr ? ro : ri;
+    int px = 0, py = 0;
+    for (int j = 0; j <= 6; j++) {
+      const float a = a0 + (a1 - a0) * j / 6.0f;
+      const int x = ox + (int)lroundf(r * sinf(a)), y = oy - (int)lroundf(r * cosf(a));
+      if (j) gLine(px, py, x, y, BLK);
+      px = x; py = y;
+    }
   }
-  for (int m = 1; m <= 5; m++) d->drawFastVLine(x + (int)(m * pxm), y + 48, 4, BLK);
-  d->drawFastHLine(x, y + 51, (int)(5 * pxm) + 1, BLK);
 }
 
 static void drawCenterPage(const ViewModel& vm, const Bitmap1* bm) {
@@ -1047,153 +1023,53 @@ static void drawCenterPage(const ViewModel& vm, const Bitmap1* bm) {
   mapPageSize(W, H, mw, mh);
   thinVario(bm, 3, 9, vm.s.vario, vm.avgVario);
   const ThermalColumn* c = vm.col;
-  const bool have = c && c->valid && c->circling && c->cue.valid;
-  const CoreCue* q = have ? &c->cue : nullptr;
-  char b[32];
+  const SectorCue* q = c ? &c->sec : nullptr;
+  const bool circling = q && q->hasClimb;
   d->drawRect(mx, my, mw, mh, BLK);
 
-  // ---- the point of view: up = the direction you fly in the air-mass frame (the last 3 s of the track)
-  float hdg = 0;                                        // radians clockwise from north
-  int n = 0;
-  float headX = 0, headY = 0;
-  if (have) {
-    n = c->count();
-    headX = c->headValid() ? c->headX() : c->px(n - 1);
-    headY = c->headValid() ? c->headY() : c->py(n - 1);
-    const int k = n > 4 ? n - 4 : 0;
-    hdg = atan2f(headX - c->px(k), headY - c->py(k));
-  }
-  const float sh = sinf(hdg), ch = cosf(hdg);
-  auto right = [&](float e, float nn) { return e * ch - nn * sh; };      // metres to the right of your heading
-  auto ahead = [&](float e, float nn) { return e * sh + nn * ch; };
+  const int RO = (mw - 12) / 2 < 104 ? (mw - 12) / 2 : 104, RI = RO * 61 / 100;
+  const int ox = mx + mw / 2, oy = my + 22 + RO;
+  const float hdg = circling ? q->headDeg * CEN_PI / 180.0f : 0.0f;      // up = the way you fly (air frame)
 
-  // ---- bottom: climb now (the number), the gauge, the lean arrow and the trend glyph
-  const int by0 = my + mh - CEN_BOTTOM_H;
-  d->drawFastHLine(mx, by0, mw, BLK);
-  text(mx + 6, by0 + 40, fnum(b, sizeof b, vm.s.vario, "%+.1f"), F24B);
-  climbGauge(mx + mw - 6 - 106, by0 + 6, q ? q->meanClimb : NAN, q ? q->bestClimb : NAN, vm.s.vario);
-  d->drawFastHLine(mx, by0 + 62, mw, BLK);
-  if (c && c->valid && c->leanValid && have) {            // lean: the way the lift moves as it goes up, relative to you; the length is the tilt
-    const float le = sinf(c->leanDeg * PI_F / 180.0f), ln = cosf(c->leanDeg * PI_F / 180.0f);
-    const float lr = atan2f(right(le, ln), ahead(le, ln));
-    const int L = 4 + (int)lroundf(fminf(c->leanPer100, 40.0f) * 0.45f);
-    drawArrow(mx + 30, by0 + 74, lr, L, 5);
-    d->drawCircle(mx + 30, by0 + 74, 22, BLK);
-  }
-  if (c && c->valid) {                                    // trend of the lift: up, level, down, down and stopped
-    const int tx = mx + mw - 30, ty = by0 + 74;
-    switch (c->trend) {
-      case TREND_BUILDING: d->fillTriangle(tx, ty - 9, tx - 9, ty + 7, tx + 9, ty + 7, BLK); break;
-      case TREND_STEADY: d->fillRect(tx - 10, ty - 3, 21, 7, BLK); break;
-      case TREND_WEAKENING: d->fillTriangle(tx, ty + 9, tx - 9, ty - 7, tx + 9, ty - 7, BLK); break;
-      case TREND_TOP: d->fillTriangle(tx, ty + 6, tx - 9, ty - 8, tx + 9, ty - 8, BLK); d->fillRect(tx - 10, ty + 8, 21, 3, BLK); break;
-      default: break;
-    }
-  }
-
-  // ---- map frame
-  const int mapX0 = mx + 1, mapX1 = mx + mw - CEN_STRIP_W - 2, mapY0 = my + 1, mapY1 = by0 - 2;
-  const int ox = (mapX0 + mapX1) / 2, oy = (mapY0 + mapY1) / 2;
-  d->drawFastVLine(mapX1 + 1, mapY0, mapY1 - mapY0 + 1, BLK);
-  const int clx0 = mapX0 + 2, cly0 = mapY0 + 2, clx1 = mapX1 - 2, cly1 = mapY1 - 2;
-  auto inside = [&](int x, int y) { return x >= clx0 && x <= clx1 && y >= cly0 && y <= cly1; };
-
-  // scale: your newest turn and the core must fit
-  float ext = 38.0f;
-  if (q) {
-    ext = fmaxf(ext, fminf(q->shiftM, 80.0f) + 10.0f);
-    for (int i = q->a0; i < n; i++) ext = fmaxf(ext, hypotf(c->px(i) - q->cx, c->py(i) - q->cy) + 6.0f);
-  }
-  const float k = centerPickScale(ext, 0.5f * fminf((float)(mapX1 - mapX0), (float)(mapY1 - mapY0)) - 6.0f);
-  auto SX = [&](float e, float nn) { return (int)lroundf(ox + right(e - (q ? q->cx : 0), nn - (q ? q->cy : 0)) * k); };
-  auto SY = [&](float e, float nn) { return (int)lroundf(oy - ahead(e - (q ? q->cx : 0), nn - (q ? q->cy : 0)) * k); };
-
-  // reference rings (dotted) at 25 m and 50 m around your centre
-  for (int ring = 1; ring <= 2; ring++) {
-    dashPhase = 0;
-    int px = 0, py = 0;
-    for (int j = 0; j <= 48; j++) {
-      const float th = j * (2 * PI_F / 48);
-      const int x = ox + (int)lroundf(25.0f * ring * k * sinf(th)), y = oy - (int)lroundf(25.0f * ring * k * cosf(th));
-      if (j && inside(x, y) && inside(px, py)) cDots(px, py, x, y, 1, ring == 1 ? 3 : 5, BLK);
-      px = x; py = y;
-    }
-  }
-  d->drawFastHLine(ox - 5, oy, 11, BLK);
-  d->drawFastVLine(ox, oy - 5, 11, BLK);
-
-  if (q) {
-    PROF_BEGIN(P_CLIMB);
-    // the turn before in grey, then the newest thick where it climbed: the thick part is where the lift is
-    for (int turn = q->turns >= 2 ? 1 : 0; turn >= 0; turn--) {
-      const int from = turn == 1 ? q->a1 : q->a0, to = turn == 1 ? q->a0 : n - 1;
+  // the ring: solid while circling, dotted when not
+  if (circling) {
+    gCircle(ox, oy, RO, BLK);
+    gCircle(ox, oy, RI, BLK);
+  } else {
+    for (int rr = 0; rr < 2; rr++) {
+      const int r = rr ? RI : RO;
       dashPhase = 0;
-      for (int i = from + 1; i <= to; i++) {
-        const int x0 = SX(c->px(i - 1), c->py(i - 1)), y0 = SY(c->px(i - 1), c->py(i - 1));
-        const int x1 = SX(c->px(i), c->py(i)), y1 = SY(c->px(i), c->py(i));
-        if (!inside(x0, y0) || !inside(x1, y1)) continue;
-        cTrackSeg(x0, y0, x1, y1, 0.5f * (c->pv(i - 1) + c->pv(i)), turn == 1);
+      int px = ox, py = oy - r;
+      for (int j = 1; j <= 72; j++) {
+        const float a = j * (2 * CEN_PI / 72);
+        const int x = ox + (int)lroundf(r * sinf(a)), y = oy - (int)lroundf(r * cosf(a));
+        cDots(px, py, x, y, 2, 3, BLK);
+        px = x; py = y;
       }
     }
-    if (c->headValid()) {                                  // the newest 3 Hz sample: the last bit of the line
-      const int x0 = SX(c->px(n - 1), c->py(n - 1)), y0 = SY(c->px(n - 1), c->py(n - 1));
-      const int x1 = SX(headX, headY), y1 = SY(headX, headY);
-      if (inside(x0, y0) && inside(x1, y1)) cTrackSeg(x0, y0, x1, y1, c->headV(), false);
-    }
-    PROF_END(P_CLIMB);
-    // best lift of the turn: a bead on the line
-    {
-      const int bx = SX(q->bestX, q->bestY), byy = SY(q->bestX, q->bestY);
-      if (inside(bx, byy)) { cDisc(bx, byy, 8, WHT); cDisc(bx, byy, 6, BLK); cDisc(bx, byy, 2, WHT); }
-    }
-    // the core as a target, and a fat arrow from your centre to it; its length is the distance to move
-    const int cx = SX(q->x, q->y), cy = SY(q->x, q->y);
-    const float len = hypotf((float)(cx - ox), (float)(cy - oy));
-    if (q->shiftM >= CEN_OK_M && len > 24.0f) {
-      const float ux = (cx - ox) / len, uy = (cy - oy) / len;
-      cLine(ox + (int)(ux * 8), oy + (int)(uy * 8), cx - (int)(ux * 18), cy - (int)(uy * 18), 5, BLK);
-      const int hx = cx - (int)(ux * 17), hy = cy - (int)(uy * 17);
-      d->fillTriangle(cx - (int)(ux * 11), cy - (int)(uy * 11), hx - (int)(uy * 10), hy + (int)(ux * 10), hx + (int)(uy * 10), hy - (int)(ux * 10), BLK);
-    }
-    if (inside(cx, cy)) {
-      cDisc(cx, cy, 15, WHT);
-      for (int r = 11; r <= 14; r++) gCircle(cx, cy, r, BLK);
-      d->drawFastHLine(cx - 20, cy, 41, BLK); d->drawFastVLine(cx, cy - 20, 41, BLK);
-      d->drawFastHLine(cx - 20, cy + 1, 41, BLK); d->drawFastVLine(cx + 1, cy - 20, 41, BLK);
-      cDisc(cx, cy, 6, BLK);
-    }
-    // you, on the circle
-    const int hx = SX(headX, headY), hy = SY(headX, headY);
-    if (inside(hx, hy)) {
-      d->fillTriangle(hx, hy - 10, hx - 8, hy + 8, hx + 8, hy + 8, WHT);
-      d->fillTriangle(hx, hy - 8, hx - 6, hy + 7, hx + 6, hy + 7, BLK);
-      d->fillTriangle(hx, hy - 2, hx - 2, hy + 4, hx + 2, hy + 4, WHT);
-    }
-  } else {
-    d->fillTriangle(ox, oy - 10, ox - 8, oy + 8, ox + 8, oy + 8, BLK);       // no cue: just you, in the middle of the rings
-    d->fillTriangle(ox, oy - 4, ox - 3, oy + 5, ox + 3, oy + 5, WHT);
   }
-  // wind in the map's frame (top right of the map)
-  if (vm.wind.valid) {
-    d->fillRect(mapX1 - 34, mapY0 + 1, 33, 31, WHT);
-    drawArrow(mapX1 - 18, mapY0 + 17, vm.wind.toDeg * PI_F / 180.0f - hdg, 10, 7);
+  d->fillTriangle(ox, oy - RO - 4, ox - 7, oy - RO - 16, ox + 7, oy - RO - 16, BLK);        // ahead
+
+  // the lift: one sector of the ring
+  if (circling && q->valid) {
+    PROF_BEGIN(P_CLIMB);
+    const float ac = (q->sector * 45.0f) * CEN_PI / 180.0f - hdg;                     // centre of the sector, on screen
+    const float a0 = ac - CEN_PI / 8.0f + 0.02f, a1 = ac + CEN_PI / 8.0f - 0.02f;
+    const int level = q->conf >= 3 ? 0 : (q->conf == 2 ? 5 : 11);
+    ringWedge(ox, oy, RI + 1, RO - 1, a0, a1, level);
+    ringWedgeOutline(ox, oy, RI, RO, a0, a1);
+    PROF_END(P_CLIMB);
   }
 
-  // ---- strength by height: bars, you at the top (a triangle), ticks every 50 m
-  if (c && c->valid) {
-    const int sx0 = mx + mw - CEN_STRIP_W;
-    const int ytop = mapY0, ybot = by0 - 2;
-    const int pnt = c->count();
-    const float zNow = c->headValid() ? c->headZ() : c->pz(pnt - 1);
-    const int yRef = ytop + 20;
-    d->drawFastVLine(sx0, ytop, ybot - ytop + 1, BLK);
-    climbBars(*c, sx0, ytop, ybot, zNow, yRef, 1.0f);
-    d->fillTriangle(sx0 + 1, yRef, sx0 + 9, yRef - 5, sx0 + 9, yRef + 5, BLK);
-    for (int z = (int)floorf((zNow - (ybot - yRef)) / 50.0f) * 50; z <= zNow; z += 50) {
-      const int y = yRef + (int)lroundf(zNow - z);
-      if (y > ytop + 30 && y < ybot - 2) d->drawFastHLine(sx0 + 1, y, 3, BLK);
-    }
-  }
+  // you
+  d->fillTriangle(ox, oy - 14, ox - 11, oy + 11, ox + 11, oy + 11, BLK);
+  d->fillTriangle(ox, oy - 6, ox - 5, oy + 6, ox + 5, oy + 6, WHT);
+
+  // the average climb of the turn, large
+  char b[24];
+  const int ny = oy + RO + 62;
+  text(ox - 14, ny, fnum(b, sizeof b, circling ? q->climb : NAN, "%+.1f"), F24B, AC);
+  text(ox + 40, ny, "m/s", F12B);
 }
 
 // Portrait layout, 240 x 400. Priorities: GPS speed + glide, altitude + vertical speed, compass + wind.

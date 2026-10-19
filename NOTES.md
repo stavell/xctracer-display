@@ -655,6 +655,66 @@ second and only on the page. The page draws about 60 line segments, 96 ring dots
 flights; the page cycle has one more page (compass, thermal, centring, [map], profile, home), so the smoke script presses once more and the existing
 tests that count presses were updated.
 
+## Centring page: one cue (2026-10-19, emulator only, not flashed)
+
+Implements improvements 1, 2, 3 and 5 of docs/thermal_review.md. `core/thermal3d.*`: `SectorCue` (`ThermalColumn::sec`) next to the old `CoreCue`
+(kept for the tool's "before" numbers and the older tests); the page (`view/screens.cpp`, `drawCenterPage`) draws only `sec`.
+
+**Page (1, 3):** a ring around you, heading up; the lift is one wedge of it, one of 8 sectors of 45 degrees (the bearing of the lift-weighted centroid
+from the circle centre, quantised in the air frame, so the wedge turns round the ring once per circle: a clock face). The average climb of the last turn
+is the number underneath. Removed from the page: lean arrow, strength-by-height bars, climb gauge, trend glyph, the older turn's trail, the 25 / 50 m rings,
+the shift distance and the fat arrow, the wind arrow. Their maths stays in `thermal3d` (lean, bands, trend, tests); the Profile page is the wind profile, so
+there was no place to move them to: they are dropped from the display, not relocated. Ink at a glance: ring, wedge, triangle, one number (was about ten
+elements). Frames: `center_off` (circling 24 m off the core), `docs/screens/center_cue.png`, `center_sequence.png` (the SVE climb, one frame per 2-4 s).
+
+**Estimate (2):** walk back from the newest point along the circling run in progress (turn rate >= 4 deg/s, 8 s gaps bridged); from 180 degrees of
+turn on, use all of the run up to one full turn (the newest 360 degrees afterwards). A part of a turn has its circle centre fitted (Kasa least squares,
+radius 8-90 m, else the mean), because the mean of an arc is not the circle centre. Confidence 1: part of a turn; 2: a full turn; 3: a full turn whose direction
+agrees (< 60 degrees) with the turn before.
+
+**Gate (5):** the cue is shown only when the pushed core is at least 10 m from the centre (else you are centred: nothing) and the previous full turn's direction is
+within 90 degrees (else the thermal has no consistent side: nothing). The older turns' spread was tried as the review proposed and does not predict anything
+(below), so its gate is off (`secMaxSpreadM` = infinity). The 60 m cap on the shift was removed for the sector cue: it threw away the clearest cues (raw offsets
+over 24 m); coverage went up with the hit rate unchanged.
+
+**Measurement** (`build.sh cue lines`, whole flights, GPS altitude for Sopot; the lines are the ones of the review). Circling seconds = seconds of a run that reached 270
+degrees (found afterwards). Hit = the cue's direction lies within 90 degrees of the next full turn's own lift offset (>= 3 m), one turn later; chance 50 %.
+
+| | Sopot 5216 s (1562 circling s) | SVE 10905 s (4773 circling s) |
+|---|---|---|
+| before: cue in circling s (old cue, two turns; with its own >= 10 m rule) | 56 % (34 %) | 44 % (29 %) |
+| before: cue in all flight s | 18.0 % | 20.8 % |
+| before: hit rate vs next turn (n), baseline last turn | 68 % (236), 61 % (46) | 64 % (554), 55 % (303) |
+| after: cue in circling s | 53 % | 60 % |
+| after: cue in all flight s | 16.0 % | 26.5 % |
+| after: hit rate unquantised (n) | 68.5 % (372) | 70.0 % (1655) |
+| after: hit rate in 8 sectors | 68.8 % | 69.4 % |
+| after: first half turn(s), before the 2-turn cue could exist: cue in circling s there / hit | 61 % / 70.9 % (n 278) | 63 % / 65.5 % (n 855) |
+| after: partial windows only / full turns only, hit | 70.8 % / 62.1 % | 65.5 % / 74.6 % |
+
+Reading: the early cue holds the 65 % bar on both flights (70.9 and 65.5 %), so it stays; it covers the first 50 s of a climb where the old cue was absent. Quantising to
+8 sectors costs nothing (the review expected a fall to 35-40 %: that was for a tolerance of 45 degrees, not 90). The count of seconds with a cue in the
+circling seconds is not larger than the old cue's *unconditional* figure, because the old one also showed 0-9 m shifts (centred) that the gate now hides: against
+its own >= 10 m rule the coverage doubles (29 -> 60 %, 34 -> 53 %). The first 50 s of a climb: 455 -> 1498 seconds with a cue (SVE), 218 -> 519 (Sopot).
+
+**Curves** (hit rate vs coverage of circling seconds, ungated start: SVE 68 % at 82 %, Sopot 66 % at 75 %): they are flat. Minimum shift 3 -> 20 m: SVE 68 -> 70 %, Sopot 66 -> 63 %
+while coverage falls from 82 -> 60 % / 74 -> 42 %; the disagreement gate 90 degrees gains about +1 point and costs 10 points of coverage; the older turns' spread
+gate (100 -> 20 m) gives SVE 67 -> 64 % and Sopot 69 -> 71 %, a loss of 40 points of coverage: no single gate buys accuracy on both flights. Window start: 150 degrees 67.9 / 67.7 %,
+180 degrees 69.1 / 68.4 %, 200 degrees 69.8 / 69.9 % (SVE / Sopot, with the spread gate then still on); a fixed 180 or 270 degree window instead of "all of it, up to a turn" is worse (63 / 59 %).
+Mean climb of the window as a gate: no gain. Full-turn cues 74.6 % on SVE but 62 % on Sopot (the broken Sopot 3100 thermal), so confidence 3 is not more reliable everywhere: the
+darkness of the wedge means "more data", not a measured hit rate. The sample is the same two flights with every second counted (strongly autocorrelated): differences of 2-3 points are noise.
+Not measured: a pilot flying with it (the review's item 7), and whether the cue helps the climb (still confounded, as in the review).
+
+**Emulator tests:** `sector cue` in `thermal3d_tests.h` (direction 90 degrees = sector 2 for a circle 20 m west of the core, a part of a turn gives confidence 1, 108 degrees of
+run gives nothing, centred gives no sector but a climb number, a climb that ended gives neither, wind does not matter). The other pages are untouched (`box_vario_matches_alone`, digests of
+the replay on pages 0-3 equal before and after).
+
+**Simulator test failures reported once (`sim_playability`, `sim_day_settings`, "ended without finishing"):** not reproduced in four full runs here (0 failures; the two tests take
+44-78 s alone, they run first and each forks up to 8 children). "Ended without finishing" means the test process left no `@@` line, i.e. it was killed (a signal; the exit status is in
+the message). The likeliest cause is the reviewer's environment (a time or process limit hitting the two longest tests, run together with everything else). The harness now runs such a test once
+more on its own and prints a note, so a one-off kill does not fail the run and a real crash (twice) still does. Also found: three tests read the big terrain pack from a session scratchpad path
+(`sim_tests.h`, `map_page_tests.h`, `intro_shots.h`, `play.cpp`, `smoke.sh`): their results depend on whether that file exists on the machine.
+
 ## Flight simulator: time acceleration (x1 / x3 / x5, default x3)
 
 - **Why**: nobody waits in real time for a 20-minute glide. The player (F key) and the pause menu's Speed row cycle x1 / x3 / x5. Not

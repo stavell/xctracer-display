@@ -222,6 +222,48 @@ static void run() {
     CHECK(gCol.cue.valid && bearingDiff(gCol.cue.shiftDeg, 90) < 25);
   }
   {
+    // the sector cue: the circle is 20 m west of the core: the lift is on the east side (sector 2), from the first half turn
+    Synth s;
+    s.offE = -20; s.sigma = 28;
+    gCol.reset();
+    s.circles(gCol, 3.2);
+    gCol.analyze(0, 0);
+    CHECK(gCol.sec.valid && gCol.sec.sector == 2 && gCol.sec.conf >= 2);
+    CHECK(bearingDiff(gCol.sec.deg, 90) < 30);
+    NEAR(gCol.sec.climb, 1.1, 0.6);
+    Synth h;
+    h.offE = -20; h.sigma = 28;
+    gCol.reset();
+    h.circles(gCol, 0.75);                                   // 270 degrees: a part of a turn
+    gCol.analyze(0, 0);
+    CHECK(gCol.sec.cand && gCol.sec.conf == 1 && gCol.sec.winDeg < 300);
+    CHECK(bearingDiff(gCol.sec.deg, 90) < 50);
+    h = Synth();
+    gCol.reset();
+    h.circles(gCol, 0.3);                                    // 108 degrees: too young
+    gCol.analyze(0, 0);
+    CHECK(!gCol.sec.cand && !gCol.sec.hasClimb);
+    Synth c;                                                 // centred: the gate says nothing
+    c.sigma = 28;
+    gCol.reset();
+    c.circles(gCol, 3.2);
+    gCol.analyze(0, 0);
+    CHECK(gCol.sec.hasClimb && !gCol.sec.valid);
+    Synth e;                                                 // the climb is over: nothing, and no climb number either
+    e.offE = -20; e.sigma = 28;
+    gCol.reset();
+    e.circles(gCol, 3.2);
+    e.glide(gCol, 30);
+    gCol.analyze(0, 0);
+    CHECK(!gCol.sec.valid && !gCol.sec.hasClimb && gCol.sec.runDeg == 0);
+    Synth w;                                                 // wind does not matter (air frame), and the heading is the air-frame one
+    w.offE = -20; w.sigma = 28; w.windE = 6; w.windN = 2;
+    gCol.reset();
+    w.circles(gCol, 3.2);
+    gCol.analyze(6, 2);
+    CHECK(gCol.sec.valid && gCol.sec.sector == 2);
+  }
+  {
     // no circling: a straight glide, then a long wiggle of 30 degrees of S-turns
     Synth s;
     gCol.reset();
