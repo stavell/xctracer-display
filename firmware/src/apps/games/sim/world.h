@@ -80,6 +80,9 @@ class World {
   float maxAltitude() const { return maxAlt_; }
   float startAltitude() const { return startAlt_; }
   float distanceFlown() const { return dist_; }
+  float flightTime() const { return t_ - startT_; }  // s of sim clock since the start of this flight (x3 time counts 3 per second)
+  // Straight line from the takeoff point (where this flight began), m.
+  float distanceFromStart() const { return sqrtf((g_.x - startX_) * (g_.x - startX_) + (g_.y - startY_) * (g_.y - startY_)); }
   int trailCount() const { return trailN_; }
   TrailPt trailAt(int i) const { return trail_[(trailHead_ - trailN_ + i + kTrailMax * 2) % kTrailMax]; }
   float windFromDeg() const { return windFrom_; }
@@ -96,6 +99,7 @@ class World {
   float kick_ = 0;
   int level_ = 1;
   float windRef_ = 0, curE_ = 0, curN_ = 0, tgtE_ = 0, tgtN_ = 0, tgtSpeed_ = 0;
+  float startX_ = 0, startY_ = 0, startT_ = 0;
   float t_ = 0, vario_ = 0, ground_ = 0, agl_ = 0, maxAlt_ = 0, startAlt_ = 0, dist_ = 0, trailT_ = 0, windFrom_ = 0;
   TrailPt trail_[kTrailMax];
   int trailN_ = 0, trailHead_ = 0;

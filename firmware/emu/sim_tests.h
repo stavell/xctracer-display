@@ -825,6 +825,11 @@ static void time_scale() {
   NEAR(a.world().glider().y, b.world().glider().y, 0.01);
   NEAR(a.world().glider().z, b.world().glider().z, 0.01);
   NEAR(a.world().distanceFlown(), b.world().distanceFlown(), 0.05);
+  // HUD: flight time counts from the start of the flight on the sim clock (x3 shows sim time); distance is the straight line.
+  NEAR(a.world().flightTime(), 60.0f, 0.5);
+  NEAR(a.world().flightTime(), b.world().flightTime(), 1e-3);
+  NEAR(a.world().distanceFromStart(), sqrtf(a.world().glider().x * a.world().glider().x + a.world().glider().y * a.world().glider().y), 0.01);
+  CHECK(a.world().distanceFromStart() <= a.world().distanceFlown() + 0.01f);
   CHECK(a.world().trailCount() == b.world().trailCount() && a.world().trailCount() >= 58);
   // A held key: the ramp is real time, the wing physics sim time; the flights stay close.
   a.startAt(0, 0, 900, 0, 270, 0, 11, 300);

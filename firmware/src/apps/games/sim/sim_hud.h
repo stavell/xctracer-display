@@ -2,6 +2,7 @@
 // HUD of the flight simulator: a black strip with altitude / climb / speed on top, a vario bar on the right edge, a
 // wind arrow and the height above ground at the bottom, banners and the pause menu. Fast gfx only (spans, atlas
 // text, shapes); portrait 240 x 400, rotation 1.
+#include <math.h>
 #include <stdint.h>
 #include "platform/gfx/bitmap1.h"
 #include "platform/gfx/font.h"
@@ -18,6 +19,8 @@ struct HudData {
   float bankDeg = 0;
   bool stalled = false;
   bool assist = false;
+  float flightS = 0;           // s since takeoff (sim clock)
+  float fromStartM = NAN;      // m, straight line from the takeoff
   int timeScale = 1;           // shown as a box "x3" under the top strip when > 1
 };
 

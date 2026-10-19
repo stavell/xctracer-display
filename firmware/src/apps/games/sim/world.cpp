@@ -13,6 +13,7 @@ void World::place(float x, float y, float aglStart, float headingDeg) {
   agl_ = aglStart;
   maxAlt_ = startAlt_ = g_.z;
   dist_ = 0;
+  startX_ = x; startY_ = y; startT_ = t_;
   trailN_ = trailHead_ = 0;
   trailT_ = 0;
 }

@@ -324,6 +324,8 @@ HudData SimApp::hud() const {
   d.bankDeg = g.bank * kRad2Deg;
   d.stalled = g.stalled;
   d.assist = assist_;
+  d.flightS = world_.flightTime();
+  d.fromStartM = world_.distanceFromStart();
   d.timeScale = scale_;
   return d;
 }
