@@ -7,8 +7,8 @@
 // (acted on at release) pauses and resumes, and starts or restarts on the title and game-over screens
 // (acted on at press); a long press (400 ms) while playing swaps the hold piece, so every function
 // works with one key and nothing is lost on the six-button console either.
-// Paused: a short press (or A) resumes, a long press (or B) goes Home to the launcher. In the box image the host also
-// takes the switch's 3 s hold (and A + B held 1.5 s) to go back to the launcher, in every state.
+// Paused: a press (or A, or B) resumes. In the box image the host takes the switch's 3 s hold (and A + B held 1.5 s) to open the
+// system sheet (Back / Home / Sleep / Power off) in every state; the game pauses while it is open.
 //
 // Frames: wantsFrame(now) is true when the picture differs from the last draw(); nextWakeMs(now) is the
 // next time anything will change by itself (gravity step, lock, key repeat, clear-animation blink,
@@ -39,6 +39,7 @@ class TetrisApp : public IApp {
   void end() override {}
   void tick(uint32_t nowMs) override;
   void onKey(Key key, bool down, uint32_t nowMs) override;
+  void onSheet(bool open, uint32_t nowMs) override;
   bool wantsFrame(uint32_t nowMs) override;
   uint32_t nextWakeMs(uint32_t nowMs) override;
   void draw(Bitmap1& bm, Adafruit_GFX& gfx, uint32_t nowMs) override;

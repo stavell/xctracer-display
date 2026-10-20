@@ -12,6 +12,9 @@ struct CalModel {
   int battPct = -1;
   uint32_t heldMs = 0;             // the switch is down: from 1.5 s the footer warns about what 3 s will do
   const char* holdWarning = "keep holding: power off";
+  // The box's screen (Settings): the shared one-line hint, worded for the control used last, instead of the vario's two big lines.
+  bool boxHint = false;
+  bool sixButtons = false;
 };
 
 void drawCompassCal(const Bitmap1& bm, UiFonts& fonts, const CalModel& m);

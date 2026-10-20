@@ -16,7 +16,6 @@ struct HomeModel {
   int localMinutes = -1;              // minutes of the local day, < 0: unknown
   bool mapOk = false;                 // a map pack is installed and passed its checks
   bool dpad = false;                  // hint text for the six buttons instead of the single switch
-  uint32_t heldMs = 0;                // the switch is being held: from 1.5 s the footer warns about power-off
 };
 
 class LauncherView {

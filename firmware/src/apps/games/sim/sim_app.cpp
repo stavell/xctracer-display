@@ -145,9 +145,7 @@ void SimApp::oneButtonInput(ButtonEvent ev) {
   const bool act = ev == BTN_LONG;
   switch (mode_) {
     case Mode::DAY: {
-      const int rows = kDayRows + 1;                    // + Home
-      if (!act) dayRow_ = (dayRow_ + 1) % rows;
-      else if (dayRow_ == kDayRows) { if (nav()) nav()->openLauncher(); }
+      if (!act) dayRow_ = (dayRow_ + 1) % kDayRows;
       else dayKey(KEY_ACTION);
       break;
     }
@@ -163,22 +161,18 @@ void SimApp::oneButtonInput(ButtonEvent ev) {
       else setView(view_ == View::TOP ? View::CHASE : View::TOP);
       break;
     case Mode::ENDED:
-      if (!act) endSel_ = 1 - endSel_;
-      else if (endSel_ == 0) startFlight();
-      else if (nav()) nav()->openLauncher();
+      if (act) startFlight();                           // "New flight"; leaving is the system sheet's job
       break;
     case Mode::NOMAP:
-      if (act && nav()) nav()->openLauncher();
       break;
   }
 }
 
 void SimApp::onInput(Key key, ButtonEvent ev) {
   if (key != KEY_MAIN) return;
-  if (oneButton_) { oneButtonInput(ev); return; }
-  if (ev != BTN_SHORT) return;
-  if (mode_ == Mode::FLYING) mode_ = Mode::PAUSED, menuSel_ = 0;
-  else if (mode_ == Mode::PAUSED) mode_ = Mode::FLYING;
+  // The switch drives every menu (a box may have it next to the six buttons); in the air with the buttons fitted it only pauses.
+  if (oneButton_ || mode_ != Mode::FLYING) { oneButtonInput(ev); return; }
+  if (ev == BTN_SHORT) mode_ = Mode::PAUSED, menuSel_ = 0;
 }
 
 void SimApp::setControl(Control c) {
@@ -209,8 +203,7 @@ void SimApp::menuAct() {
     case 8: level_ = (level_ + 1) % Air::kLevels; break;                         // applies at the next flight
     case 9: dirIdx_ = (dirIdx_ + 1) % 9; applyWind(); break;
     case 10: spdIdx_ = (spdIdx_ + 1) % (kWindSpeeds + 1); applyWind(); break;
-    case 11: startFlight(); break;
-    default: if (nav()) nav()->openLauncher(); break;
+    default: startFlight(); break;
   }
 }
 
@@ -219,7 +212,6 @@ void SimApp::menuAct() {
 void SimApp::dayKey(Key key) {
   if (key == KEY_UP) dayRow_ = (dayRow_ + kDayRows - 1) % kDayRows;
   else if (key == KEY_DOWN) dayRow_ = (dayRow_ + 1) % kDayRows;
-  else if (key == KEY_B) { if (nav()) nav()->openLauncher(); }
   else if (key == KEY_LEFT || key == KEY_RIGHT || key == KEY_ACTION) {
     const int d = key == KEY_LEFT ? -1 : 1;
     switch (dayRow_) {
@@ -260,9 +252,6 @@ void SimApp::onKey(Key key, bool down, uint32_t nowMs) {
     else if (key == KEY_B) mode_ = Mode::PAUSED, menuSel_ = 0;
   } else if (mode_ == Mode::ENDED) {
     if (key == KEY_ACTION) startFlight();
-    else if (key == KEY_B && nav()) nav()->openLauncher();
-  } else if (mode_ == Mode::NOMAP) {
-    if (key == KEY_B && nav()) nav()->openLauncher();
   }
 }
 
@@ -448,7 +437,7 @@ void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
   (void)nowMs;
   frame_++;
   if (mode_ == Mode::NOMAP) {
-    hud_.note(bm, "needs the map pack", "B: back to the home screen");
+    hud_.note(bm, "needs the map pack", "hold: system menu");
     return;
   }
   if (mode_ == Mode::DAY) {
@@ -458,8 +447,8 @@ void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
     snprintf(r2, sizeof r2, "Wind from: %s", dirName(dirIdx_));
     if (spdIdx_ == 0) snprintf(r3, sizeof r3, "Wind: usual");
     else snprintf(r3, sizeof r3, "Wind: %.0f km/h", (double)kWindKmh[spdIdx_ - 1]);
-    const char* rows[kDayRows + 1] = {r0, r1, r2, r3, "Start", "Home"};
-    hud_.menu(bm, "TODAY", rows, oneButton_ ? kDayRows + 1 : kDayRows, dayRow_);
+    const char* rows[kDayRows] = {r0, r1, r2, r3, "Start"};
+    hud_.menu(bm, "TODAY", rows, kDayRows, dayRow_);
     return;
   }
   drawFlight(bm);
@@ -477,7 +466,6 @@ void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
     if (spdIdx_ == 0) snprintf(gRows[10], sizeof gRows[10], "Wind: usual");
     else snprintf(gRows[10], sizeof gRows[10], "Wind: %.0f km/h", (double)kWindKmh[spdIdx_ - 1]);
     snprintf(gRows[11], sizeof gRows[11], "New flight");
-    snprintf(gRows[12], sizeof gRows[12], "Home");
     const char* rows[kMenuRows];
     for (int i = 0; i < kMenuRows; i++) rows[i] = gRows[i];
     hud_.menu(bm, "PAUSED", rows, kMenuRows, menuSel_);
@@ -493,7 +481,7 @@ void SimApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
     snprintf(l1, sizeof l1, "flew %.1f km", (double)(world_.distanceFlown() / 1000.0f));
     snprintf(l2, sizeof l2, "max %.0f m", (double)world_.maxAltitude());
     const char* t = world_.status() == Status::LANDED ? "LANDED" : "CRASHED";
-    hud_.banner(bm, t, l1, l2, !oneButton_ ? "A: new flight   B: home" : (endSel_ == 0 ? "[New flight]  Home" : "New flight  [Home]"));
+    hud_.banner(bm, t, l1, l2, nav() && nav()->sixButtons() ? "A: new flight" : "hold: new flight");
   }
 }
 

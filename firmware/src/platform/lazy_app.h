@@ -84,6 +84,9 @@ class LazyApp : public IApp {
   void step(uint32_t simMs, uint32_t dtMs) override { if (app_) app_->step(simMs, dtMs); }
   bool handlesHold() const override { return app_ && app_->handlesHold(); }
   bool comboExit() const override { return app_ ? app_->comboExit() : true; }
+  bool sheetBlocked() const override { return app_ && app_->sheetBlocked(); }
+  SystemSheet::Row sheetStart() const override { return app_ ? app_->sheetStart() : SystemSheet::R_HOME; }
+  void onSheet(bool open, uint32_t nowMs) override { if (app_) app_->onSheet(open, nowMs); }
   int gameInfo(char* dst, size_t cap) override { return app_ ? app_->gameInfo(dst, cap) : 0; }
 
  private:

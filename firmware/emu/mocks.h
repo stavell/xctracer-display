@@ -286,7 +286,9 @@ class MockBaro : public IBaro {
 class MockPower : public IPower {
  public:
   void shutdown() override { off = true; requests++; }
+  void powerOff() override { off = true; offs++; }
   int requests = 0;                 // shutdown() calls (the box turns one into the clock sleep)
+  int offs = 0;                     // powerOff() calls (System OFF at once)
   bool off = false;
 };
 

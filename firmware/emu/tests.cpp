@@ -1658,6 +1658,7 @@ static void test_app_anim_cadence() {
 #include "map_tests.h"
 #include "sharp_frame_tests.h"
 #include "box_tests.h"
+#include "sheet_tests.h"
 #include "terrain_tests.h"
 #include "storage_tests.h"
 #include "map_page_tests.h"
@@ -1813,6 +1814,7 @@ static const TestEntry kTests[] = {
   {"test_ambient", test_ambient},
   {"tt_test_tetris", tt::test_tetris},
   {"bx_test_box", bx::test_box},
+  {"sheet_system", sheet_t::run},
   {"terrain_tests_run", terrain_tests::run},
   {"storage_tests_run", storage_tests::run},
   {"map_page_tests_run", map_page_tests::run},

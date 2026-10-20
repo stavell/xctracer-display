@@ -180,7 +180,11 @@ struct BoxRun {
   void press(uint32_t dur) { b.r.input.press(now + 10, dur); run(dur + 300); }
   void shortp() { press(120); }
   void longp() { press(900); }
-  void off() { press(3300); }
+  void off() { press(3300); }                                  // the 3 s hold: opens the system sheet
+  void row(SystemSheet::Row r) { for (int i = 0; i < 5 && b.host.sheet().cursorRow() != r; i++) shortp(); }
+  void sheetAct(SystemSheet::Row r) { row(r); longp(); }       // press to the row, long press does it
+  void home() { off(); sheetAct(SystemSheet::R_HOME); }       // the way to the home screen
+  void sleep() { off(); sheetAct(SystemSheet::R_SLEEP); }     // the way into the clock sleep
 };
 
 static void box_flow() {
@@ -196,11 +200,12 @@ static void box_flow() {
   const int vf = b.r.panel.presents;
   CHECK(vf > 10);
 
-  // Leave through the vario's menu: long press, short (to "Home"), long.
+  // The device list has "< back" and the tracers only; the way home is the system sheet.
   u.longp();
   CHECK(b.varioCore().listOpen() && b.r.tracer.opened);
-  u.shortp();
-  u.longp();
+  u.longp();                                                                  // "< back"
+  CHECK(!b.varioCore().listOpen() && b.host.active() == &b.vario);
+  u.home();
   CHECK(b.host.active() == &b.launcher);
   CHECK(b.r.tracer.paused && b.r.tracer.pauses == 1 && !b.r.tracer.opened);   // link and scan stopped
   CHECK(!b.r.compass.enabled);                                               // sensors off
@@ -215,10 +220,10 @@ static void box_flow() {
   CHECK(!b.vario.alive());                                                    // the vario is gone: its RAM is the arena's
   CHECK(b.r.tracer.lines.size() <= 1);
 
-  // Start Tetris: down one row, long press.
+  // Start Tetris: three rows down (Vario, Compass, Sim, Tetris), long press.
   CHECK(b.launcher.selected() == 0);
-  u.shortp();
-  CHECK(b.launcher.selected() == 1);
+  u.shortp(); u.shortp(); u.shortp();
+  CHECK(b.launcher.selected() == 3);
   u.longp();
   CHECK(b.host.active() == &b.tetris);
   CHECK(b.tetris->game().state() == tetris::ST_TITLE);
@@ -230,13 +235,13 @@ static void box_flow() {
   u.run(1500);
   CHECK(!b.vario.alive() && !b.r.compass.enabled && b.r.tracer.paused);   // the vario does not exist
 
-  // Back: hold the switch 3 s.
-  u.off();
+  // Back: hold the switch 3 s, the sheet's Home.
+  u.home();
   CHECK(b.host.active() == &b.launcher);
   CHECK(!b.r.power.off);
-  CHECK(b.launcher.selected() == 1);
-  // Select the vario again: next x4 (Compass, Flight sim, Settings, wraps to the Vario), long.
-  u.shortp(); u.shortp(); u.shortp(); u.shortp();
+  CHECK(b.launcher.selected() == 3);
+  // Select the vario again: next x2 (Settings, wraps to the Vario), long.
+  u.shortp(); u.shortp();
   CHECK(b.launcher.selected() == 0);
   u.longp();
   CHECK(b.host.active() == &b.vario);
@@ -316,17 +321,17 @@ static void box_vario_lazy() {
 }
 
 static void box_gestures() {
-  puts("box: vario power-off hold, A+B combo, start-up app, compass tool");
+  puts("box: hold and A+B open the sheet, start-up app, compass tool");
   {
-    Box b;                                          // the vario keeps its 3 s power-off
+    Box b;                                          // the vario: the 3 s hold opens the sheet, it does not power off
     BoxRun u(b);
     b.boot(0);
     u.run(300);
     u.off();
-    CHECK(b.r.power.off && b.host.active() == &b.vario);
+    CHECK(!b.r.power.off && b.host.active() == &b.vario && b.host.sheetOpen());
   }
   {
-    Box b;                                          // A + B for 1.5 s from a game opens the launcher
+    Box b;                                          // A + B for 1.5 s from a game opens the sheet (Home first), A on it goes home
     BoxRun u(b);
     b.boot(0);
     b.host.start(Box::APP_TETRIS, 0);
@@ -335,14 +340,17 @@ static void box_gestures() {
     u.run(500);
     b.r.input.setKey(KEY_B, true, u.now);
     u.run(1400);
-    CHECK(b.host.active() == &b.tetris);
+    CHECK(b.host.active() == &b.tetris && !b.host.sheetOpen());
     u.run(200);
-    CHECK(b.host.active() == &b.launcher);
+    CHECK(b.host.active() == &b.tetris && b.host.sheetOpen());
     b.r.input.setKey(KEY_ACTION, false, u.now);
     b.r.input.setKey(KEY_B, false, u.now);
     u.run(100);
-    // D-pad on the home grid (2 columns): DOWN / UP change the row, LEFT / RIGHT the column, A opens.
     auto tap = [&](Key k) { b.r.input.setKey(k, true, u.now); u.run(50); b.r.input.setKey(k, false, u.now); u.run(50); };
+    CHECK(b.host.sheet().cursorRow() == SystemSheet::R_HOME);
+    tap(KEY_ACTION);
+    CHECK(b.host.active() == &b.launcher);
+    // D-pad on the home grid (2 columns): DOWN / UP change the row, LEFT / RIGHT the column, A opens.
     CHECK(b.launcher.selected() == 0);
     tap(KEY_DOWN);  CHECK(b.launcher.selected() == 2);
     tap(KEY_DOWN);  CHECK(b.launcher.selected() == 4);
@@ -353,7 +361,7 @@ static void box_gestures() {
     tap(KEY_UP);    CHECK(b.launcher.selected() == 0);
     tap(KEY_RIGHT); CHECK(b.launcher.selected() == 1);
     tap(KEY_ACTION);
-    CHECK(b.host.active() == &b.tetris);
+    CHECK(b.host.active() == &b.compassTool);
   }
   {
     Box b;                                          // the start-up app is stored and chosen in Settings
@@ -372,13 +380,15 @@ static void box_gestures() {
     u.shortp(); u.shortp();                         // to the "Start-up app" row
     CHECK(b.settings.selected() == SettingsApp::ROW_STARTUP);
     u.longp();
-    CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_TETRIS && b.keys.writes == 1);
+    CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_COMPASS && b.keys.writes == 1);
     CHECK(b.host.active() == &b.settings);
     u.longp();
-    CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_COMPASS);
-    u.longp();
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_SIM);
-    u.longp(); u.longp();                           // Settings is skipped: vario, then Tetris
+    u.longp();
+    CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_TETRIS);
+    u.longp(); u.longp();                           // Settings is skipped: vario, then Compass
+    CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_COMPASS);
+    u.longp(); u.longp();
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_TETRIS);
     // A new power-on starts that app, and the vario's radios stay quiet until it is opened.
     Box c;
@@ -403,13 +413,10 @@ static void box_gestures() {
     CHECK(b.compassTool->core().buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);   // a short press does not change pages
     u.longp();
     CHECK(b.compassTool->core().listOpen());
-    u.shortp();                                      // back, Home (no calibration here: that is Settings')
-    u.longp();
-    CHECK(b.host.active() == &b.launcher && !b.r.compass.enabled);
-    b.host.start(Box::APP_COMPASS, u.now);
-    u.run(300);
-    u.off();                                         // 3 s hold leaves the tool (it does not power off)
-    CHECK(b.host.active() == &b.launcher && !b.r.power.off);
+    u.longp();                                       // "< back" (no calibration here: that is Settings')
+    CHECK(!b.compassTool->core().listOpen() && b.host.active() == &b.compassTool);
+    u.home();                                        // the sheet leaves the tool (it does not power off)
+    CHECK(b.host.active() == &b.launcher && !b.r.power.off && !b.r.compass.enabled);
   }
   {
     Box b;                                          // laptop host drawing still takes the panel from the vario
@@ -493,7 +500,7 @@ static void settings_store() {
 }
 
 static void settings_app() {
-  puts("box: Settings app (calibration, mounting, start-up, time zone, About, Home)");
+  puts("box: Settings app (calibration, mounting, start-up, time zone, About)");
   Box b;
   BoxRun u(b);
   b.boot(0);
@@ -528,7 +535,7 @@ static void settings_app() {
   CHECK(b.r.settings.loadMagCal(m) && m.off[0] == keep && b.keys.writes == w0 + 1);
   u.longp();
   CHECK(b.r.compass.enabled);
-  u.off();
+  u.home();
   CHECK(b.host.active() == &b.launcher && !b.r.compass.enabled && !b.settings.calibrating());
   CHECK(b.r.settings.loadMagCal(m) && m.off[0] == keep);
 
@@ -571,12 +578,8 @@ static void settings_app() {
   CHECK(blackPixels(b.r.panel) > 800);
   u.shortp();
   CHECK(b.settings.screen() == SettingsApp::S_LIST);
-  u.shortp();
-  CHECK(b.settings.selected() == SettingsApp::ROW_HOME);
-  u.longp();
-  CHECK(b.host.active() == &b.launcher);
 
-  // Six buttons: arrows move, A opens, B goes back (a sub-screen first, then home).
+  // Six buttons: arrows move, A opens, B leaves a sub-screen.
   b.host.start(Box::APP_SETTINGS, u.now);
   u.run(100);
   auto tap = [&](Key k) { b.r.input.setKey(k, true, u.now); u.run(50); b.r.input.setKey(k, false, u.now); u.run(50); };
@@ -592,7 +595,7 @@ static void settings_app() {
   tap(KEY_B);                                                        // cancels
   CHECK(!b.settings.calibrating() && b.host.active() == &b.settings);
   tap(KEY_B);
-  CHECK(b.host.active() == &b.launcher);
+  CHECK(b.host.active() == &b.settings);                             // B on the list does nothing: leaving is the sheet's job
 
   // The vario picks up what Settings stored: mounting and calibration when it starts.
   b.r.settings.setMountIndex(9);
@@ -638,9 +641,9 @@ static void box_laptop_commands() {
   CHECK(b.clock.localMinutes(-300, u.now) == 5 * 60);
 }
 
-// Tetris: the pause screen's Home option.
+// Tetris: the pause screen resumes on any press.
 static void box_tetris_home() {
-  puts("box: Tetris pause screen, Home with a long press or B, A resumes");
+  puts("box: Tetris pause screen, any press / A / B resumes");
   Box b;
   BoxRun u(b);
   b.boot(0);
@@ -651,20 +654,15 @@ static void box_tetris_home() {
   u.shortp();                                                        // pause
   CHECK(b.tetris->game().state() == tetris::ST_PAUSED);
   u.longp();
-  CHECK(b.host.active() == &b.launcher);
-  b.host.start(Box::APP_TETRIS, u.now);
-  u.run(300);
-  u.shortp(); u.run(500); u.shortp();
+  CHECK(b.host.active() == &b.tetris && b.tetris->game().state() == tetris::ST_PLAYING);   // a long press resumes too
+  u.shortp();
   CHECK(b.tetris->game().state() == tetris::ST_PAUSED);
   b.r.input.setKey(KEY_ACTION, true, u.now); u.run(50); b.r.input.setKey(KEY_ACTION, false, u.now); u.run(50);
   CHECK(b.tetris->game().state() == tetris::ST_PLAYING && b.host.active() == &b.tetris);   // A resumes
   u.shortp();
   CHECK(b.tetris->game().state() == tetris::ST_PAUSED);
   b.r.input.setKey(KEY_B, true, u.now); u.run(50); b.r.input.setKey(KEY_B, false, u.now); u.run(50);
-  CHECK(b.host.active() == &b.launcher);                             // B goes home
-  b.host.start(Box::APP_TETRIS, u.now);
-  u.run(300);
-  u.shortp(); u.run(500);
+  CHECK(b.host.active() == &b.tetris && b.tetris->game().state() == tetris::ST_PLAYING);   // B resumes
   u.longp();                                                         // playing: a long press still swaps the hold piece
   CHECK(b.host.active() == &b.tetris && b.tetris->game().state() == tetris::ST_PLAYING);
 }
@@ -826,7 +824,7 @@ static void box_intro() {
     BoxRun u(b);
     b.boot(0);
     u.run(300);
-    u.off();
+    u.sleep();
     CHECK(b.sleep == Box::SS_CLOCK);
     b.r.input.press(u.now + 10, 1200);
     u.run(2500);
@@ -835,7 +833,7 @@ static void box_intro() {
     u.run(5000);
     CHECK(b.host.active() == &b.vario && !b.introApp.alive());
     b.r.settings.setIntroEnabled(false);
-    u.off();
+    u.sleep();
     b.r.input.press(u.now + 10, 1200);
     u.run(2500);
     CHECK(b.sleep == Box::SS_AWAKE && b.host.active() == &b.vario && !b.introApp.alive());
@@ -1076,8 +1074,9 @@ static void weather_station() {
   u.run(500);
   const int awake = b.r.baro.reads;
   CHECK(awake == 1 && b.weather.count() == 1);                     // sampled while awake, so the history starts before the sleep
-  b.r.input.press(u.now + 10, 3000 + 600);
-  u.run(3000 + 900);
+  u.sleep();                                                       // the sheet's Sleep
+  b.clock.set(10 * 3600 + 38 * 60 + 50, u.now);                    // 13:38:50 again, so the minute change is 10 s away
+  u.run(900);
   CHECK(b.sleep == Box::SS_CLOCK && b.r.thermo.reads >= 1 && isfinite(b.weather.tempC) && lroundf(b.weather.rhPct) == 63);
   const int th = b.r.thermo.reads;
   u.run(30000);
@@ -1103,7 +1102,8 @@ static void clock_sleep_box() {
   u.run(500);
   CHECK(b.r.compass.enabled && !b.r.tracer.paused && b.host.active() == &b.vario);
   const int vf = b.r.panel.presents;
-  u.off();                                                            // the 3 s hold of the vario
+  u.sleep();                                                          // the sheet's Sleep
+  b.clock.set(10 * 3600 + 38 * 60 + 50, u.now);                       // 13:38:50 local again: the next minute is 10 s away
   CHECK(b.r.power.requests == 1 && b.sleep == Box::SS_CLOCK);
   CHECK(!b.r.compass.enabled && b.r.tracer.paused);                   // sensors and radios off
   u.run(500);
@@ -1114,7 +1114,7 @@ static void clock_sleep_box() {
   // Nothing ticks, nothing redraws, until the minute changes (10 s after the 13:38:50 mark).
   u.run(4000);
   CHECK(b.r.panel.presents == pres && b.clockDraws == 1);
-  u.run(3000);
+  u.run(6000);
   CHECK(b.clockDraws == 2 && b.r.panel.presents == pres + 1);         // 13:39
   const int d2 = b.clockDraws;
   u.run(5 * 60 * 1000);
@@ -1139,7 +1139,7 @@ static void clock_sleep_box() {
 
   // After 30 days without a tracer fix the clock reads "--:--" (never a stale time): the screen changes once more.
   b.boot(u.now);
-  u.off();
+  u.sleep();
   CHECK(b.sleep == Box::SS_CLOCK);
   u.run(500);
   const int dBefore = b.clockDraws;
@@ -1152,7 +1152,7 @@ static void clock_sleep_box() {
   b.boot(u.now);
   b.clock.set(8 * 3600, u.now);
   u.run(300);
-  u.off();
+  u.sleep();
   CHECK(b.sleep == Box::SS_CLOCK);
   u.run(5000);
   b.r.battery.pct = 1;
@@ -1162,28 +1162,21 @@ static void clock_sleep_box() {
   u.run(3000);
   CHECK(b.sleep == Box::SS_OFF);                                      // a hold does not bring it back
 
-  // Two-step hold: the 3 s hold gives the clock, holding on for 3 s more System OFF; releasing early keeps the clock.
+  // The expert path: holding the switch on past the sheet (3 s) to 6 s is System OFF at once; releasing early keeps the sheet.
   Box c;
   BoxRun v(c);
   c.r.settings.setIntroEnabled(false);
   c.clock.set(9 * 3600, 0);
   c.boot(0);
   v.run(300);
-  c.r.input.press(v.now + 10, 3000 + 1800);          // power-off at 3 s, released 1.8 s into the countdown
-  v.run(3000 + 400);
-  CHECK(c.sleep == Box::SS_CLOCK && countInk(c.r.panel) > 2000);
-  c.r.panel.dump("out/sleep_released.pgm");
-  v.run(2000);
-  CHECK(c.sleep == Box::SS_CLOCK && c.host.active() == &c.vario);
-  c.sleep = Box::SS_AWAKE;
-  c.boot(v.now);
-  v.run(300);
-  c.r.input.press(v.now + 10, 3000 + 5000);
-  v.run(3000 + 1200);                                 // mid countdown: the bar is on the panel
-  CHECK(c.sleep == Box::SS_CLOCK);
-  c.r.panel.dump("out/sleep_countdown.pgm");
-  v.run(2500);
-  CHECK(c.sleep == Box::SS_OFF && countInk(c.r.panel) == 0);
+  c.r.input.press(v.now + 10, 4500);                  // released 1.5 s into the "keep holding" bar
+  v.run(5000);
+  CHECK(c.sleep == Box::SS_AWAKE && c.host.active() == &c.vario && c.r.power.offs == 0 && c.host.sheetOpen());
+  v.run(7000);                                        // 6 s without input: the sheet closes by itself
+  CHECK(!c.host.sheetOpen());
+  c.r.input.press(v.now + 10, 7000);
+  v.run(6500);
+  CHECK(c.r.power.offs == 1 && c.sleep == Box::SS_OFF);
 }
 
 // BLE (the laptop link) is off while a game runs and back when it is left; the vario's own tracer logic is untouched.
@@ -1242,7 +1235,7 @@ static void clock_view_look() {
   for (int i = 0; i < 4; i++) CHECK(ink(b8, cells[i], 40, cells[i] + 42, 140) > 0 && ink(b8, cells[i] - 4, 38, cells[i] - 1, 142) == 0);
   CHECK(ink(b8, 0, 0, 11, 399) == 0 && ink(b8, 228, 0, 239, 399) == 0);
   Bitmap1 bu = render(-1, -1, nullptr, -1);                                        // no time, no battery, no weather
-  CHECK(ink(bu, 0, 40, 239, 60) == 0 && ink(bu, 0, 80, 239, 100) > 0 && ink(bu, 0, 0, 239, 28) == 0);
+  CHECK(ink(bu, 0, 40, 239, 60) == 0 && ink(bu, 0, 80, 239, 100) > 0 && ink(bu, 0, 0, 239, 28) > 0);   // the battery reads "--"
   CHECK(ink(bu, 12, 306, 228, 372) > 0);                                           // the empty chart's dotted baseline and "--"
   Bitmap1 bb = render(600, 50, &wl, 5);
   CHECK(ink(bb, 0, 386, 239, 399) > 0);

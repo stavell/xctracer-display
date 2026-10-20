@@ -269,12 +269,13 @@ void setup() {
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&gameLog);
   host.setLinkGate(&laptopGate);
+  host.setSystemSheet(&power);                // the 3 s hold / A + B: Back, Home, Sleep, Power off
   host.setRotation(DISPLAY_ROTATION);
   registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
-  registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
-  registry.add("Settings", "setup", "compass, mounting, time, about", APP_SETTINGS, ICON_SETTINGS, false);
-  registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
+  registry.add("Sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
+  registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
+  registry.add("Settings", "setup", "compass, mounting, time zone", APP_SETTINGS, ICON_SETTINGS, false);
   power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION, &weather, &thermo, &baro});
   startStartupApp(true);
 }

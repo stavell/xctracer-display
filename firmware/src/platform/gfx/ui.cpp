@@ -42,10 +42,20 @@ void battery(const Bitmap1& bm, int x, int y, int pct, DrawMode ink) {
   }
 }
 
-void titleBar(const Bitmap1& bm, UiFonts& f, const char* title, int battPct) {
+void titleBar(const Bitmap1& bm, UiFonts& f, const char* title, int battPct, const char* badge, bool framed) {
   f.ensure(bm.rotation);
   bm.fillRect(0, 0, W, BAR_H, DRAW_CLEAR);
   drawText(bm, 10, 23, title, f.mid, DRAW_SET);
+  if (badge) {
+    const int cx = 10 + textWidth(title, f.mid) + 14;
+    if (framed) {
+      const int cw = 44;
+      roundFrame(bm, cx, 7, cw, 18, 3, 2, DRAW_SET);
+      drawText(bm, cx + (cw - textWidth(badge, f.bold)) / 2, 21, badge, f.bold, DRAW_SET);
+    } else {
+      drawText(bm, cx, 21, badge, f.small, DRAW_SET);
+    }
+  }
   if (battPct >= 0) {
     char b[8];
     snprintf(b, sizeof b, "%d%%", battPct);
@@ -53,6 +63,17 @@ void titleBar(const Bitmap1& bm, UiFonts& f, const char* title, int battPct) {
     drawText(bm, W - 10 - tw, 22, b, f.bold, DRAW_SET);
     battery(bm, W - 10 - tw - 36, 9, battPct, DRAW_SET);
   }
+}
+
+void hintLine(const Bitmap1& bm, UiFonts& f, const char* text) {
+  f.ensure(bm.rotation);
+  bm.hspan(0, HINT_TOP, W, DRAW_CLEAR);
+  bm.hspan(0, HINT_TOP + 1, W, DRAW_CLEAR);
+  drawText(bm, (W - textWidth(text, f.small)) / 2, H - 10, text, f.small, DRAW_CLEAR);
+}
+
+const Font1& fitFont(const char* s, int maxW, const Font1& a, const Font1& b) {
+  return textWidth(s, a) <= maxW ? a : b;
 }
 
 void centered(const Bitmap1& bm, const Font1& f, int cx, int baseline, const char* s, DrawMode m) {

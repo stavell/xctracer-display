@@ -37,6 +37,7 @@ class PowerNrf : public IPower {
   PowerNrf(SharpPanel& panel, IRadios& radios, uint8_t buttonPin)
       : panel_(panel), radios_(radios), pin_(buttonPin) {}
   void shutdown() override;
+  void powerOff() override;                     // System OFF straight away (also in the box image)
 
   // Box image: shutdown() sleeps in System ON with the clock on the panel instead of
   // System OFF (platform/power/clock_sleep.h) and RETURNS once the switch has been held; the loop then restarts the

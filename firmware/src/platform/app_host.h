@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include "platform/input/combo_hold.h"
 #include "platform/ports.h"
+#include "platform/ui/system_sheet.h"
 
 class IAppNav {                                  // what an app may ask of the host
  public:
@@ -31,6 +32,9 @@ class IAppNav {                                  // what an app may ask of the h
   virtual void openApp(int index) = 0;           // same
   virtual int appCount() const = 0;
   virtual const char* appName(int index) const = 0;
+  // True while the six buttons are the input in use (the last key edge came from one of them), false for the single switch (the
+  // default). Screens word their hints by it, so a hint never names a control that was not touched. Both stay fitted and usable.
+  virtual bool sixButtons() const { return false; }
 };
 
 class IApp {
@@ -82,6 +86,14 @@ class IApp {
   // True when holding A + B for 1.5 s may take the user back to the launcher from this app.
   virtual bool comboExit() const { return true; }
 
+  // --- System sheet (box image; see platform/ui/system_sheet.h) ---
+  // True when the hold and the combo must reach the app instead of opening the sheet (the start-up animation: they only skip it).
+  virtual bool sheetBlocked() const { return false; }
+  // The row the sheet's cursor starts on (Home unless the app is one the user usually wants Back from: the vario).
+  virtual SystemSheet::Row sheetStart() const { return SystemSheet::R_HOME; }
+  // The sheet opened (true) or closed (false) over this app. Opened: games pause here; the host has stopped stepping game-mode apps.
+  virtual void onSheet(bool open, uint32_t nowMs) { (void)open; (void)nowMs; }
+
   void attach(IAppNav* nav) { nav_ = nav; }
 
  protected:
@@ -113,6 +125,8 @@ class IFrameProbe {
   virtual void draw(bool begin) { (void)begin; }
 };
 
+namespace ButtonFsmMs { const uint32_t kLong = 700, kHold = 3000; }   // ButtonFsm::LONG_MS / HOLD_MS (this header does not include the fsm)
+
 class AppHost : public IAppNav {
  public:
   static const int MAX_APPS = 8;
@@ -134,8 +148,14 @@ class AppHost : public IAppNav {
   void setLauncher(int index) { launcher_ = index; }       // the app that lists the others; -1 = none
   void setProbe(IFrameProbe* p) { probe_ = p; }
   void setLinkGate(ILinkGate* g) { gate_ = g; }            // laptop link off while a game runs (null = never touched)
-  void setComboHold(uint32_t ms) { combo_ = ComboHold(ms); }
-  void setRotation(uint8_t r) { rotation_ = r; }           // the panel rotation an app starts with (apps may change it)
+  void setComboHold(uint32_t ms) { combo_ = ComboHold(ms); comboMs_ = ms; }
+  void setRotation(uint8_t r) { rotation_ = r; }
+  // Box image: turns on the system sheet. The 3 s hold and the A + B combo then open it over any app (not the ones that say
+  // sheetBlocked()), and the sheet's Sleep / Power off call the port. Without this call (the vario-only image) the hold and the
+  // combo behave as before: the app's own power-off, or back to the launcher.
+  void setSystemSheet(IPower* power) { power_ = power; }
+  bool sheetOpen() const { return sheet_.isOpen(); }
+  const SystemSheet& sheet() const { return sheet_; }           // the panel rotation an app starts with (apps may change it)
 
   bool start(int index, uint32_t nowMs) {
     if (index < 0 || index >= n_) return false;
@@ -144,6 +164,10 @@ class AppHost : public IAppNav {
     activeIdx_ = index;
     pending_ = -1;
     aDown_ = bDown_ = false;
+    keysDown_ = 0;
+    sheet_.close();
+    forceFrame_ = barDirty_ = false;
+    barStep_ = 0;
     combo_.reset();
     panel_.setRotation(rotation_);
     panel_.invalidate();                                    // the first frame of every app is sent in full
@@ -159,15 +183,29 @@ class AppHost : public IAppNav {
     ButtonEvent ev = input_.poll(nowMs);
     KeyEdge e;
     while (input_.popEdge(e)) {
+      if (e.down) six_ = e.key != KEY_MAIN;                 // the hint follows the control used last
       if (e.key == KEY_ACTION) aDown_ = e.down;
       else if (e.key == KEY_B) bDown_ = e.down;
-      active_->onKey(e.key, e.down, e.ms);
+      if (e.key < 32) keysDown_ = e.down ? (keysDown_ | (1u << e.key)) : (keysDown_ & ~(1u << e.key));
+      if (sheet_.isOpen()) { if (sheetAct(sheet_.key(e.key, e.down, e.ms), nowMs)) return; }
+      else active_->onKey(e.key, e.down, e.ms);
     }
-    active_->onHeld(input_.heldMs(nowMs));
-    if (ev == BTN_HOLD && canLeave() && !active_->handlesHold()) openLauncher();
-    else if (ev != BTN_NONE) active_->onInput(KEY_MAIN, ev);
-    if (combo_.feed(aDown_, bDown_, nowMs) && canLeave() && active_->comboExit()) openLauncher();
+    const uint32_t held = input_.heldMs(nowMs);
+    if (sheet_.isOpen()) {                                  // input goes to the sheet only
+      if (ev != BTN_NONE && sheetAct(sheet_.input(ev, nowMs), nowMs)) return;
+      if (sheet_.isOpen() && sheetAct(sheet_.tick(nowMs, held), nowMs)) return;
+    } else {
+      active_->onHeld(held);
+      if (power_ && ev == BTN_HOLD && !active_->sheetBlocked()) openSheet(nowMs);
+      else if (!power_ && ev == BTN_HOLD && canLeave() && !active_->handlesHold()) openLauncher();
+      else if (ev != BTN_NONE) active_->onInput(KEY_MAIN, ev);
+    }
+    if (combo_.feed(aDown_, bDown_, nowMs)) {
+      if (power_) { if (!sheet_.isOpen() && !active_->sheetBlocked()) openSheet(nowMs); }
+      else if (canLeave() && active_->comboExit()) openLauncher();
+    }
 
+    updateHoldBar(nowMs, held);
     active_->tick(nowMs);
     if (pending_ >= 0) {                                   // switch before drawing: the new app draws first
       int p = pending_;
@@ -176,6 +214,16 @@ class AppHost : public IAppNav {
       return;                                              // its first frame comes on the next iteration
     }
     const uint32_t fi = active_->frameIntervalMs();
+    if (sheet_.isOpen()) {                                 // the app keeps ticking underneath; game-mode apps are not stepped
+      const bool owns = active_->ownsPanel(nowMs);
+      const bool changed = sheet_.takeDirty();
+      if (changed || (fi == 0 && !owns && active_->wantsFrame(nowMs))) presentFrame(nowMs, !owns);
+      return;
+    }
+    if (forceFrame_ || barDirty_) {                        // the sheet just closed / the hold bar moved: the app repaints in full
+      forceFrame_ = barDirty_ = false;
+      if (fi == 0 && !active_->ownsPanel(nowMs)) { presentFrame(nowMs, true); return; }
+    }
     if (fi > 0) {
       if (!active_->ownsPanel(nowMs)) gameFrame(nowMs, fi);
       return;
@@ -186,6 +234,7 @@ class AppHost : public IAppNav {
     if (probe_) probe_->clear(false);
     Bitmap1 bm = panel_.bitmap();
     active_->draw(bm, panel_.gfx(), nowMs);
+    drawHoldBar(bm);
     if (probe_) probe_->present(true);
     panel_.present();
     if (probe_) probe_->present(false);
@@ -220,6 +269,7 @@ class AppHost : public IAppNav {
   }
   int appCount() const override { return n_; }
   const char* appName(int index) const override { return index >= 0 && index < n_ ? apps_[index]->name() : ""; }
+  bool sixButtons() const override { return six_; }
 
  private:
   // One iteration of the game-mode loop: if a frame is due and the panel can take it, step the simulation for the
@@ -259,6 +309,7 @@ class AppHost : public IAppNav {
     Bitmap1 bm = panel_.bitmap();
     if (probe_) probe_->draw(true);
     active_->draw(bm, panel_.gfx(), nowMs);
+    drawHoldBar(bm);
     if (probe_) probe_->draw(false);
     if (!panel_.ready()) stats_.panelBusy++;
     if (probe_) probe_->present(true);
@@ -280,6 +331,60 @@ class AppHost : public IAppNav {
     }
   }
 
+  // The cue while the switch (or A + B) is held toward the sheet: a thin bar along the bottom edge from a bit past a normal press
+  // (0.7 s) to the 3 s hold (1.5 s for the combo), drawn over whatever the app drew, in 16 steps. Visuals only: the app still sees
+  // its long press on a release in between. A step change asks for one more frame (change-driven apps redraw, games draw anyway).
+  static const int kBarSteps = 16;
+  void updateHoldBar(uint32_t nowMs, uint32_t held) {
+    int step = 0;
+    if (power_ && !sheet_.isOpen() && !active_->sheetBlocked()) {
+      if (held >= ButtonFsmMs::kLong && held < ButtonFsmMs::kHold)
+        step = 1 + (int)((held - ButtonFsmMs::kLong) * (kBarSteps - 1) / (ButtonFsmMs::kHold - ButtonFsmMs::kLong));
+      const uint32_t c = combo_.heldMs(nowMs);
+      if (c >= ButtonFsmMs::kLong && c < comboMs_) {
+        const int cs = 1 + (int)((c - ButtonFsmMs::kLong) * (kBarSteps - 1) / (comboMs_ - ButtonFsmMs::kLong));
+        if (cs > step) step = cs;
+      }
+    }
+    if (step != barStep_) { barStep_ = step; barDirty_ = true; }
+  }
+  void drawHoldBar(const Bitmap1& bm) {
+    if (barStep_ <= 0) return;
+    ui::bar(bm, 10, ui::H - 14, ui::W - 20, 10, (float)barStep_ / kBarSteps);
+    bm.fillRect(ui::W - 10, ui::H - 20, 2, 16, DRAW_CLEAR);   // the mark: the menu opens where the bar ends
+  }
+
+  void openSheet(uint32_t nowMs) {
+    const bool inLauncher = activeIdx_ == launcher_;
+    sheet_.open(inLauncher ? SystemSheet::R_SLEEP : active_->sheetStart(), canLeave(), nowMs);
+    active_->onHeld(0);
+    active_->onSheet(true, nowMs);
+    for (int k = 0; k < KEY_COUNT; k++)                    // keys down now would never see their release: end them for the app
+      if (keysDown_ & (1u << k)) active_->onKey((Key)k, false, nowMs);
+  }
+  // True when the act ended this iteration (the box went to sleep or off).
+  bool sheetAct(SystemSheet::Act a, uint32_t nowMs) {
+    if (a == SystemSheet::A_NONE || !power_) return false;
+    sheet_.close();
+    panel_.invalidate();
+    active_->onSheet(false, nowMs);
+    gameClock_ = false;                                    // a game restarts its frame clock, no catch-up for the time it stood
+    forceFrame_ = true;
+    if (a == SystemSheet::A_HOME) { openLauncher(); return false; }
+    if (a == SystemSheet::A_SLEEP) { power_->shutdown(); return true; }
+    if (a == SystemSheet::A_OFF) { power_->powerOff(); return true; }
+    return false;
+  }
+  // One frame with the sheet on top: the app's picture (unless the laptop owns the panel), then the sheet.
+  void presentFrame(uint32_t nowMs, bool drawApp) {
+    panel_.clear();
+    Bitmap1 bm = panel_.bitmap();
+    if (drawApp) active_->draw(bm, panel_.gfx(), nowMs);
+    if (sheet_.isOpen()) sheet_.draw(bm, six_);
+    else drawHoldBar(bm);
+    panel_.present();
+  }
+
   bool canLeave() const { return hasLauncher() && activeIdx_ != launcher_; }
 
   IPanel& panel_;
@@ -295,6 +400,12 @@ class AppHost : public IAppNav {
   uint8_t rotation_ = 1;
   bool aDown_ = false, bDown_ = false;
   ComboHold combo_;
+  IPower* power_ = nullptr;                  // set: the system sheet is on (box image)
+  SystemSheet sheet_;
+  bool six_ = false, forceFrame_ = false, barDirty_ = false;
+  int barStep_ = 0;
+  uint32_t comboMs_ = 1500;
+  uint32_t keysDown_ = 0;                    // bit per Key: debounced state of every key, to release them when the sheet opens
   // game mode
   bool gameClock_ = false;
   uint32_t nextFrame_ = 0, simMs_ = 0, statAt_ = 0, lastPresent_ = 0;

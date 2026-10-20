@@ -50,7 +50,7 @@ struct Box {
   AppHost host;
   uint32_t score = 0;
   bool oneButton = false;             // the device today: only the switch (main_box.cpp: KEY_PIN_COUNT == 0); the PC player has the D-pad
-  int seenRequests_ = 0;
+  int seenRequests_ = 0, seenOffs_ = 0;
 
   struct Scores : IScoreStore {
     MockKeyStore& k;
@@ -116,11 +116,12 @@ struct Box {
     host.setLauncher(APP_LAUNCHER);
     host.setProbe(&probe);
     host.setLinkGate(&r.links);
+    host.setSystemSheet(&r.power);
     registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
-    registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
     registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
-    registry.add("Settings", "setup", "compass, mounting, time, about", APP_SETTINGS, ICON_SETTINGS, false);
-    registry.add("Flight sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
+    registry.add("Sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
+    registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
+    registry.add("Settings", "setup", "compass, mounting, time zone", APP_SETTINGS, ICON_SETTINGS, false);
   }
 
   // A map pack for the vario (the kit must outlive the box; the vario opens its own kit on its reader when it starts);
@@ -150,10 +151,11 @@ struct Box {
     if (sleep != SS_AWAKE) { sleepTick(now); return; }
     host.tick(now);
     weather.sample(now, r.baro);                            // as main_box.cpp: sampled while awake too
-    if (r.power.requests != seenRequests_) {                // the app asked to power off
+    if (r.power.requests != seenRequests_) {                // the sheet's Sleep
       seenRequests_ = r.power.requests;
-      enterSleep();                                       // the 3 s hold: the clock; holding on goes to System OFF
+      enterSleep();                                       // the clock; holding on goes to System OFF
     }
+    if (r.power.offs != seenOffs_) { seenOffs_ = r.power.offs; sleep = SS_OFF; }   // the sheet's Power off (or the 6 s hold)
   }
 
   // The clock sleep as main_box.cpp / platform/hw/power_nrf.cpp do it, over the mocks: radios and compass off, no app

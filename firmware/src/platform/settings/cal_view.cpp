@@ -17,6 +17,10 @@ void drawCompassCal(const Bitmap1& bm, UiFonts& f, const CalModel& m) {
   snprintf(b, sizeof b, "field %.0f uT", m.fieldUt);
   centered(bm, f.small, W / 2, 268, b, DRAW_CLEAR);
   centered(bm, f.small, W / 2, 290, m.stored ? "replaces the saved calibration" : "no calibration saved yet", DRAW_CLEAR);
+  if (m.boxHint) {
+    hintLine(bm, f, m.sixButtons ? "A: save    B: cancel" : "hold: save    press: cancel");
+    return;
+  }
   bm.hspan(0, 312, W, DRAW_CLEAR);
   bm.hspan(0, 313, W, DRAW_CLEAR);
   if (m.heldMs >= 1500) {

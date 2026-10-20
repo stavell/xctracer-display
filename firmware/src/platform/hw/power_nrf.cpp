@@ -31,6 +31,16 @@ void PowerNrf::shutdown() {
   else fullOff();
 }
 
+void PowerNrf::powerOff() {
+  radios_.disconnect();
+  delay(150);
+  radios_.stop();
+  watchdog::feed();
+  delay(800);
+  watchdog::feed();
+  fullOff();
+}
+
 void PowerNrf::fullOff() {
   panel_.clear();                   // never leave a picture on a panel whose VCOM is stopped
   panel_.invalidate();

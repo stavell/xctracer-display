@@ -46,13 +46,6 @@ struct AppConfig {
   float gpsHeadingOffKmh = 2.5f;     // ... and stops counting below this one (hysteresis)
 };
 
-// Asked to leave for the home screen ("Home" row of the device list). Set only in the box image.
-class ILauncherHook {
- public:
-  virtual ~ILauncherHook() {}
-  virtual void openLauncher() = 0;
-};
-
 // The application: owns the flight model and the screen state machine (live / device list / power),
 // talks to the world only through the ports in ports.h. The platform host (platform/app_host.h) calls
 // onInput() / onHeld() with the switch, tick() every ~10 ms, then wantsFrame() and, when true, draw()
@@ -74,7 +67,8 @@ class App {
   bool wantsFrame(uint32_t nowMs) const;
   void draw(Bitmap1& bm, Adafruit_GFX& g, uint32_t nowMs);
   bool hostDrawing() const { return !local_; }       // the laptop owns the screen
-  void setLauncher(ILauncherHook* h) { launcher_ = h; }
+  void setSixHint(bool on) { sixHint_ = on; }       // the list's hint names the six buttons (the host knows which control was used last)
+  void backKey();                                   // the B button: closes the device list, cancels the calibration
   void setLog(IFlightLog* l) { log_ = l; }          // validation recorder (optional)
   void setClock(WallClock* c) { clock_ = c; }       // the box's time of day, set from the tracer's GPS time
   // Attach a map pack (platform/terrain). With none (the default) nothing terrain-related is computed, drawn
@@ -190,6 +184,6 @@ class App {
   // ran for. A screen change inside a tick (list opened, calibration started or ended) draws on the next one.
   bool local_ = true;
   Mode tickMode_ = M_LIVE;
-  ILauncherHook* launcher_ = nullptr;
+  bool sixHint_ = false;
   bool left_ = false;                // end() ran: the next begin() restarts what end() stopped
 };

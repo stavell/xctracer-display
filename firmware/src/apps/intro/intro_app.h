@@ -69,6 +69,7 @@ class IntroApp : public IApp {
   void draw(Bitmap1& bm, Adafruit_GFX& gfx, uint32_t nowMs) override;
   bool handlesHold() const override { return true; }      // the hold only skips; it must not take the box to the home screen
   bool comboExit() const override { return false; }
+  bool sheetBlocked() const override { return true; }      // the hold and the combo only skip the animation
   int gameInfo(char* dst, size_t cap) override;
 
   Mode mode() const { return mode_; }

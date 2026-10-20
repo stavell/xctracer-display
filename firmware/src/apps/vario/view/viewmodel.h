@@ -95,7 +95,7 @@ struct ListModel {
   char filter[24] = "*";
   int count = 0;
   ListItem items[8];
-  int selected = 0;              // 0 = "< back", [1 = "Home"], then the tracers found
-  bool homeRow = false;          // box image: a row that leaves for the home screen, after "< back"
+  int selected = 0;              // 0 = "< back", then the tracers found
+  bool sixHint = false;          // the hint line names the six buttons instead of the switch
   bool tools = false;            // the compass tool's menu: no tracer, so no filter line and no scanning text
 };

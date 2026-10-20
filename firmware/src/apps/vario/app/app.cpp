@@ -460,9 +460,14 @@ void App::drawListScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t he
   if (lm.count > 8) lm.count = 8;
   for (int i = 0; i < lm.count; i++) tracer_.listItem(i, lm.items[i]);
   lm.selected = listSel_;
-  lm.homeRow = launcher_ != nullptr;
+  lm.sixHint = sixHint_;
   lm.tools = cfg_.standalone;
   drawList(g, lm, buildViewModel(now), held, &bm);
+}
+
+void App::backKey() {
+  if (calibrating_) ev_ = BTN_SHORT;                   // cancel
+  else if (listOpen_) { listSel_ = 0; ev_ = BTN_LONG; }   // "< back"
 }
 
 void App::tick(uint32_t now) {
@@ -514,17 +519,15 @@ void App::tick(uint32_t now) {
   }
   if (listOpen_) {
     int n = tracer_.listCount();
-    const int extra = launcher_ ? 1 : 0;             // the "Home" row after "< back" (box image only)
-    if (ev == BTN_SHORT) { listSel_ = (listSel_ + 1) % (n + 1 + extra); redraw_ = true; }
+    if (ev == BTN_SHORT) { listSel_ = (listSel_ + 1) % (n + 1); redraw_ = true; }
     else if (ev == BTN_LONG) {
       if (listSel_ == 0) tracer_.listClose();
-      else if (launcher_ && listSel_ == 1) { tracer_.listClose(); launcher_->openLauncher(); }
-      else tracer_.listConnect(listSel_ - 1 - extra);
+      else tracer_.listConnect(listSel_ - 1);
       listOpen_ = false;
       panel_.invalidate();
       redraw_ = true;
     }
-    if (listSel_ > n + extra) listSel_ = 0;
+    if (listSel_ > n) listSel_ = 0;
   } else {
     if (ev == BTN_SHORT && !cfg_.standalone) {
       page_ = nextPage(page_);

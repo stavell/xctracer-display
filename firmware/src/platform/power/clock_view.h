@@ -188,14 +188,19 @@ inline void chart(const Bitmap1& bm, int x, int y, int w, int h, const WeatherLo
   drawText(bm, x + w - 3 - textWidth(b, f.ui.small), y + h + 14, b, f.ui.small, DRAW_CLEAR);
 }
 
-// bm is a white canvas. minute: local minutes of the day, < 0 unknown. battPct < 0: no battery shown.
+// bm is a white canvas. minute: local minutes of the day, < 0 unknown. battPct < 0: unknown, shown as "--".
 // wl may be null (no weather: "--" and an empty chart). bar >= 0: the power-off countdown bar. date: e.g. "Mon 19 Oct", or null.
 inline void draw(const Bitmap1& bm, int minute, int battPct, const WeatherLog* wl = nullptr, int bar = -1, int steps = 12,
                  const char* date = nullptr) {
   Fonts& f = fonts();
   f.ensure(bm.rotation);
   if (date) drawText(bm, kMargin, 19, date, f.ui.small, DRAW_CLEAR);
-  if (battPct >= 0) battery(bm, kRight - 25, 8, battPct);
+  {  // battery: icon + percentage in the corner, "--" while unknown (read once per minute redraw)
+    char b[8];
+    if (battPct >= 0) snprintf(b, sizeof b, "%d%%", battPct > 100 ? 100 : battPct); else strcpy(b, "--");
+    if (battPct >= 0) battery(bm, kRight - 25, 8, battPct);   // the icon as it always was
+    drawText(bm, kRight - 25 - 6 - textWidth(b, f.ui.bold), 19, b, f.ui.bold, DRAW_CLEAR);
+  }
 
   {  // The time: four numerals and a colon, tabular. Ink 44 x 99 per numeral (centre line 31 x 87, stroke 13).
     const int W = 31, H = 87, R = 6, GAP = 5, COLON = 28;

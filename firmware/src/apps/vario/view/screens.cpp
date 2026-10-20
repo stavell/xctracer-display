@@ -730,7 +730,7 @@ static void drawHome(const ViewModel& vm, int mx, int my, int mw, int mh) {
     return;
   }
   char b[24], c[24];
-  text(cx, my + 20, vm.homeProvisional ? "HOME (provisional)" : "HOME", F9, AC);
+  text(cx, my + 20, vm.homeProvisional ? "TAKEOFF (provisional)" : "TAKEOFF", F9, AC);
   const bool north = !isfinite(vm.homeRelBearing);
   if (north) text(mx + 6, my + 44, "N up", F9);
   float ang = north ? vm.homeBearing : vm.homeRelBearing;
@@ -1197,14 +1197,13 @@ void drawLive(Adafruit_GFX& g, const ViewModel& vm, uint32_t heldMs, const Bitma
 
 void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_t heldMs, const Bitmap1* bm) {
   begin(g, bm);
-  header(vm, lm.tools ? "COMPASS" : "SELECT VARIO");
+  header(vm, lm.tools ? "COMPASS" : "CHOOSE TRACER");
   char b[40];
   snprintf(b, sizeof b, "filter: %.16s", lm.filter);
   if (!lm.tools) text(6, HDR + 20, b, F9);
   const int n = lm.count, sel = lm.selected;
   const int rowH = 42, y0 = HDR + 30;
-  const int extra = lm.homeRow ? 1 : 0;
-  int rows = n + 1 + extra;
+  int rows = n + 1;
   int vis = (H - y0 - 30) / rowH;
   int first = sel >= vis ? sel - vis + 1 : 0;   // scroll so the selection stays visible
   for (int k = 0; k < vis && first + k < rows; k++) {
@@ -1214,10 +1213,8 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
     uint16_t col = on ? WHT : BLK;
     if (i == 0) {
       text(10, y + 27, "< back", F12B, AL, col);
-    } else if (lm.homeRow && i == 1) {
-      text(10, y + 27, "Home", F12B, AL, col);
     } else {
-      const ListItem& it = lm.items[i - 1 - extra];
+      const ListItem& it = lm.items[i - 1];
       char nm[20];
       snprintf(nm, sizeof nm, "%.17s", it.name);
       text(10, y + 18, nm, F12B, AL, col);
@@ -1225,8 +1222,8 @@ void drawList(Adafruit_GFX& g, const ListModel& lm, const ViewModel& vm, uint32_
       text(10, y + 36, b, F9, AL, col);
     }
   }
-  if (n == 0 && !lm.tools) text(W / 2, y0 + (2 + extra) * rowH, "scanning...", F12B, AC);
-  text(W / 2, H - 12, "press: next   hold: select", F9, AC);
+  if (n == 0 && !lm.tools) text(W / 2, y0 + 2 * rowH, "scanning...", F12B, AC);
+  text(W / 2, H - 12, lm.sixHint ? "down: next   A: select" : "press: next   hold: select", F9, AC);
   powerBanner(heldMs);
 }
 

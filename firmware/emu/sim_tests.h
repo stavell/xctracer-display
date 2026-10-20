@@ -1357,7 +1357,7 @@ static void in_the_box() {
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) b.tick(now); };
   auto tap = [&](Key k) { b.r.input.setKey(k, true, now); run(30); b.r.input.setKey(k, false, now); run(30); };
   b.boot(0);
-  CHECK(b.registry.count() == 5 && strcmp(b.registry.at(4).title, "Flight sim") == 0);
+  CHECK(b.registry.count() == 5 && strcmp(b.registry.at(2).title, "Sim") == 0);
   b.host.start(Box::APP_LAUNCHER, now);
   run(300);
   simshots::dumpPanel(b.r.panel, "out", "sim_launcher");
@@ -1375,22 +1375,30 @@ static void in_the_box() {
   run(1000);
   CHECK(b.flightSim->controls().bank > 0.9f);
   b.r.input.setKey(KEY_RIGHT, false, now);
-  // B pauses, UP wraps to the last row (Home), A leaves for the home screen.
+  // B pauses; A + B held 1.5 s opens the system sheet: the flight stands still, A on Home leaves for the home screen.
   tap(KEY_B);
   CHECK(b.flightSim->mode() == SimApp::Mode::PAUSED);
-  tap(KEY_UP);
+  b.r.input.setKey(KEY_ACTION, true, now); b.r.input.setKey(KEY_B, true, now);
+  run(1700);
+  CHECK(b.host.sheetOpen() && b.host.active() == &b.flightSim);
+  b.r.input.setKey(KEY_ACTION, false, now); b.r.input.setKey(KEY_B, false, now);
+  const uint32_t steps0 = b.host.stats().steps;
+  run(500);
+  CHECK(b.host.stats().steps == steps0);                   // frozen while the sheet is open
+  CHECK(b.host.sheet().cursorRow() == SystemSheet::R_HOME);
   tap(KEY_ACTION);
   run(100);
   CHECK(b.host.active() == &b.launcher && !b.host.gameMode());
-  // The way in again, and out through the 3 s hold of the switch like every other app.
+  // The way in again: the Day screen has no Home row and B does nothing there; out through the 3 s hold and the sheet.
   b.host.start(Box::APP_SIM, now);
   run(500);
-  tap(KEY_B);                                              // the Day screen: B goes home too
-  CHECK(b.host.active() == &b.launcher);
-  b.host.start(Box::APP_SIM, now);
-  run(500);
+  tap(KEY_B);
+  CHECK(b.host.active() == &b.flightSim);
   b.r.input.press(now + 10, 3300);
   run(3600);
+  CHECK(b.host.sheetOpen() && b.host.sheet().cursorRow() == SystemSheet::R_HOME);
+  b.r.input.press(now + 10, 900);                          // long press: Home
+  run(1200);
   CHECK(b.host.active() == &b.launcher);
 
   // ---- one button: the whole flow on the switch alone (short / long), tilt from the (mock) accelerometer angles.
@@ -1414,8 +1422,8 @@ static void in_the_box() {
     CHECK(sb.dayRow() == 2);
     longp();                                                 // act on the row: wind from usual -> N
     CHECK(sb.windDir() == 1);
-    shortp(); shortp(); shortp();                            // Wind, Start, Home
-    CHECK(sb.dayRow() == 5);
+    shortp(); shortp();                                      // Wind, Start (no Home row any more)
+    CHECK(sb.dayRow() == 4);
     simshots::dumpPanel(ob.r.panel, "out", "sim_ob_day_home");
     shortp();                                                // wraps to Site
     CHECK(sb.dayRow() == 0);
@@ -1460,8 +1468,11 @@ static void in_the_box() {
     CHECK(sb.mode() == SimApp::Mode::PAUSED);
     longp();
     CHECK(sb.mode() == SimApp::Mode::FLYING);
-    shortp();
-    for (int i = 0; i < 12; i++) shortp();                   // Home is the last row
+    shortp();                                                // pause, then the 3 s hold: the sheet, Home first
+    CHECK(sb.mode() == SimApp::Mode::PAUSED);
+    ob.r.input.press(t + 10, 3300);
+    go(3600);
+    CHECK(ob.host.sheetOpen() && ob.host.sheet().cursorRow() == SystemSheet::R_HOME);
     longp();
     go(100);
     CHECK(ob.host.active() == &ob.launcher);

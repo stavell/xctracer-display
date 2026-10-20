@@ -372,14 +372,14 @@ static void in_the_box() {
   CHECK(b.compassTool->showing3d() && b.host.gameMode());
   u.longp();                                                             // the menu replaces the dome and runs on the App's own cadence
   CHECK(core.listOpen() && !b.compassTool->showing3d() && !b.host.gameMode());
-  u.shortp();                                                            // "< back" -> Home
-  CHECK(core.listOpen());
-  u.longp();
-  CHECK(b.host.active() == &b.launcher && !b.r.compass.enabled);         // Home leaves the tool, sensors off
+  u.longp();                                                             // "< back" closes the menu
+  CHECK(!core.listOpen() && b.host.active() == &b.compassTool);
+  u.home();
+  CHECK(b.host.active() == &b.launcher && !b.r.compass.enabled);         // the sheet's Home leaves the tool, sensors off
   b.host.start(Box::APP_COMPASS, u.now);
   u.run(300);
   CHECK(b.compassTool->showing3d());                                     // always opens on the dome
-  u.off();                                                               // the 3 s hold leaves the tool as before
+  u.home();                                                              // from the dome (game mode) too
   CHECK(b.host.active() == &b.launcher && !b.r.power.off);
 }
 

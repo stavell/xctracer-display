@@ -121,5 +121,7 @@ class ILinkGate {
 class IPower {
  public:
   virtual ~IPower() {}
-  virtual void shutdown() = 0;                         // does not return on the device
+  virtual void shutdown() = 0;                         // does not return on the device (the box: returns after the clock sleep)
+  // System OFF at once (the system sheet's "Power off"); does not return on the device. Images without a clock sleep: shutdown().
+  virtual void powerOff() { shutdown(); }
 };

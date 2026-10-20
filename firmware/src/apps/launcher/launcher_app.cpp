@@ -5,7 +5,6 @@ void LauncherApp::begin(uint32_t nowMs) {
   model_.count = count_;
   for (int i = 0; i < count_; i++) model_.tiles[i] = apps_.at(i);
   if (sel_ >= count_) sel_ = 0;
-  model_.heldMs = 0;
   statusAt_ = nowMs;
   battery_.update(nowMs);
   dirty_ = true;
@@ -45,17 +44,15 @@ void LauncherApp::onInput(Key key, ButtonEvent ev) {
   if (key != KEY_MAIN) return;
   if (ev == BTN_SHORT) move(1);
   else if (ev == BTN_LONG) activate();
-  else if (ev == BTN_HOLD) power_.shutdown();
 }
 
-void LauncherApp::onHeld(uint32_t heldMs) {
-  const bool warn = heldMs >= 1500;                        // from here the footer says "power off"
-  if (warn != (model_.heldMs >= 1500)) dirty_ = true;
-  model_.heldMs = heldMs;
+bool LauncherApp::wantsFrame(uint32_t) {
+  return dirty_ || (nav() && nav()->sixButtons() != model_.dpad);   // the hint follows the control used last
 }
 
 void LauncherApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
   model_.selected = sel_;
+  model_.dpad = nav() && nav()->sixButtons();
   drawnBatt_ = battery_.percent();
   model_.battPct = drawnBatt_;
   drawnMinute_ = clock_.localMinutes(settings_.tzMinutes(), nowMs);

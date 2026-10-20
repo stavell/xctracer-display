@@ -6,35 +6,17 @@
 using namespace ui;
 
 namespace {
-const int GRID_TOP = 42, GRID_BOTTOM = 330, GAP = 8, TILE_W = 108, MARGIN = 8;
-const int FOOT_Y = 336;
+const int GRID_TOP = 42, GRID_BOTTOM = 334, GAP = 8, TILE_W = 108, MARGIN = 8;
 }  // namespace
 
 void LauncherView::draw(const Bitmap1& bm, const HomeModel& m) {
   f_.ensure(bm.rotation);
 
-  // Status bar: time, map pack, battery.
-  bm.fillRect(0, 0, W, BAR_H, DRAW_CLEAR);
+  // The shared title bar: the time as the title, the map chip after it.
   char t[12];
   if (m.localMinutes >= 0) snprintf(t, sizeof t, "%02d:%02d", m.localMinutes / 60, m.localMinutes % 60);
   else snprintf(t, sizeof t, "--:--");
-  drawText(bm, 10, 23, t, f_.mid, DRAW_SET);
-  const int tw = textWidth(t, f_.mid);
-  // Map chip: "MAP" in a white frame when a pack is installed, "no map" when not.
-  const int cx = 10 + tw + 14, cw = 44;
-  if (m.mapOk) {
-    roundFrame(bm, cx, 7, cw, 18, 3, 2, DRAW_SET);
-    drawText(bm, cx + (cw - textWidth("MAP", f_.bold)) / 2, 21, "MAP", f_.bold, DRAW_SET);
-  } else {
-    drawText(bm, cx, 21, "no map", f_.small, DRAW_SET);
-  }
-  if (m.battPct >= 0) {
-    char b[8];
-    snprintf(b, sizeof b, "%d%%", m.battPct);
-    const int bw = textWidth(b, f_.bold);
-    drawText(bm, W - 10 - bw, 22, b, f_.bold, DRAW_SET);
-    battery(bm, W - 10 - bw - 36, 9, m.battPct, DRAW_SET);
-  }
+  titleBar(bm, f_, t, m.battPct, m.mapOk ? "MAP" : "no map", m.mapOk);
 
   // Grid of tiles.
   const int n = m.count < HomeModel::MAX_TILES ? m.count : HomeModel::MAX_TILES;
@@ -50,17 +32,14 @@ void LauncherView::draw(const Bitmap1& bm, const HomeModel& m) {
     else roundFrame(bm, x, y, TILE_W, tileH, 8, 2, DRAW_CLEAR);
     const int iy = y + (roomy ? 16 : 8);
     drawIcon(bm, m.tiles[i].icon, x + (TILE_W - ICON_SIZE) / 2, iy, ink);
-    centered(bm, f_.mid, x + TILE_W / 2, iy + ICON_SIZE + (roomy ? 30 : 24), m.tiles[i].title, ink);
+    centered(bm, fitFont(m.tiles[i].title, TILE_W - 16, f_.mid, f_.bold), x + TILE_W / 2, iy + ICON_SIZE + (roomy ? 30 : 24), m.tiles[i].title, ink);
     if (roomy) centered(bm, f_.small, x + TILE_W / 2, iy + ICON_SIZE + 52, m.tiles[i].sub, ink);
   }
 
-  // Footer: what the chosen tile is, and how to use the box.
-  bm.hspan(0, FOOT_Y, W, DRAW_CLEAR);
-  bm.hspan(0, FOOT_Y + 1, W, DRAW_CLEAR);
-  if (m.heldMs >= 1500) {
-    centered(bm, f_.bold, W / 2, FOOT_Y + 40, "keep holding: power off", DRAW_CLEAR);
-    return;
+  // Footer: what the chosen tile is, then the one hint line.
+  if (m.selected >= 0 && m.selected < n) {
+    const char* about = m.tiles[m.selected].about;
+    centered(bm, fitFont(about, W - 16, f_.bold, f_.small), W / 2, HINT_TOP - 12, about, DRAW_CLEAR);
   }
-  if (m.selected >= 0 && m.selected < n) centered(bm, f_.bold, W / 2, FOOT_Y + 28, m.tiles[m.selected].about, DRAW_CLEAR);
-  centered(bm, f_.small, W / 2, FOOT_Y + 52, m.dpad ? "arrows: move    A: open" : "press: next    hold: open", DRAW_CLEAR);
+  hintLine(bm, f_, m.dpad ? "arrows: move    A: open" : "press: next    hold: open");
 }

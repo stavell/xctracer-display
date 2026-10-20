@@ -13,8 +13,7 @@ struct SettingsModel {
   int count = 0;
   int selected = 0;
   int battPct = -1;
-  bool dpad = false;
-  uint32_t heldMs = 0;              // the switch is held: from 1.5 s the footer says the box goes home
+  bool dpad = false;                // hint wording of the six buttons (the control used last)
 };
 
 struct AboutModel {
@@ -25,11 +24,12 @@ struct AboutModel {
   char credit1[200] = "";            // Copernicus
   char credit2[200] = "";            // OpenStreetMap contributors
   int battPct = -1;
+  bool dpad = false;
 };
 
 class SettingsView {
  public:
-  static const int ROW_Y = 40, ROW_H = 42;
+  static const int ROW_Y = 38, ROW_H = 50;
   void drawList(const Bitmap1& bm, const SettingsModel& m);
   void drawAbout(const Bitmap1& bm, const AboutModel& m);
   UiFonts& fonts() { return f_; }

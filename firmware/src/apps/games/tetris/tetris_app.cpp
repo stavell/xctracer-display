@@ -39,9 +39,8 @@ void TetrisApp::tick(uint32_t nowMs) {
 
 void TetrisApp::onKey(Key key, bool down, uint32_t nowMs) {
   tick(nowMs);                                     // bring the game up to the time of the edge first
-  if (game_.state() == ST_PAUSED && down) {          // the pause screen: A resumes, B goes home
-    if (key == KEY_ACTION) { game_.resume(nowMs); afterStep(); return; }
-    if (key == KEY_B) { if (nav()) nav()->openLauncher(); return; }
+  if (game_.state() == ST_PAUSED && down) {          // the pause screen: A (or B) resumes; leaving is the system sheet's job
+    if (key == KEY_ACTION || key == KEY_B) { game_.resume(nowMs); afterStep(); return; }
   }
   Act a = ACT_COUNT;
   switch (key) {
@@ -84,12 +83,20 @@ void TetrisApp::onKey(Key key, bool down, uint32_t nowMs) {
     } else if (st == ST_PLAYING || st == ST_CLEARING) {
       game_.pause(nowMs);
     } else if (st == ST_PAUSED) {
-      // Acted on at the release, so the host's own long-press event for this press ends in this app, not in the
-      // launcher it opens: a long press is Home, a short one resumes.
-      if (pauseDown_ && nowMs - mainDownAt_ >= LONG_PRESS_MS) { if (nav()) nav()->openLauncher(); }
-      else game_.resume(nowMs);
+      game_.resume(nowMs);                         // any press of the switch resumes (acted on at the release)
     }
   }
+  afterStep();
+}
+
+// The system sheet opened over the game: it stops (the pause screen is what the player finds after Back). A switch press that was
+// in progress (the hold that opened the sheet) must not act on its release.
+void TetrisApp::onSheet(bool open, uint32_t nowMs) {
+  if (!open) return;
+  tick(nowMs);
+  if (mainDown_) ignoreRelease_ = true;
+  longPending_ = false;
+  if (game_.state() == ST_PLAYING || game_.state() == ST_CLEARING) game_.pause(nowMs);
   afterStep();
 }
 

@@ -20,14 +20,13 @@ struct ITerrainProvider {
 // Two flavours of the same code: the vario (power-off on the 3 s hold, laptop host drawing) and, in the box
 // image, the compass & weather tool (a second App without tracer or laptop; the hold returns to the
 // launcher). Both get the "Apps..." row in their menu when the host has a launcher.
-class VarioApp : public IApp, private ILauncherHook {
+class VarioApp : public IApp {
  public:
   explicit VarioApp(App& app, const char* name = "vario", bool isVario = true)
       : app_(app), name_(name), isVario_(isVario) {}
   const char* name() const override { return name_; }
   void setTerrainProvider(ITerrainProvider* p) { terrain_ = p; }
   void begin(uint32_t nowMs) override {
-    app_.setLauncher(nav() && nav()->hasLauncher() ? this : nullptr);
     if (terrain_) app_.setTerrain(terrain_->acquire());
     app_.begin(nowMs);
   }
@@ -40,16 +39,26 @@ class VarioApp : public IApp, private ILauncherHook {
   }
   void tick(uint32_t nowMs) override { app_.tick(nowMs); }
   void onInput(Key key, ButtonEvent ev) override { if (key == KEY_MAIN) app_.onInput(ev); }
+  // The six buttons drive the same screens as the switch (a box may have both fitted): down / right = press, A = long press, B = back.
+  void onKey(Key key, bool down, uint32_t) override {
+    if (!down) return;
+    if (key == KEY_DOWN || key == KEY_RIGHT) onInput(KEY_MAIN, BTN_SHORT);
+    else if (key == KEY_ACTION) onInput(KEY_MAIN, BTN_LONG);
+    else if (key == KEY_B) app_.backKey();
+  }
   void onHeld(uint32_t heldMs) override { app_.onHeld(heldMs); }
+  SystemSheet::Row sheetStart() const override { return SystemSheet::R_BACK; }
   bool wantsFrame(uint32_t nowMs) override { return app_.wantsFrame(nowMs); }
   // The vario polls its sensors and the link on every host iteration, so it always wants the next tick.
   uint32_t nextWakeMs(uint32_t nowMs) override { return nowMs + 10; }
-  void draw(Bitmap1& bm, Adafruit_GFX& gfx, uint32_t nowMs) override { app_.draw(bm, gfx, nowMs); }
+  void draw(Bitmap1& bm, Adafruit_GFX& gfx, uint32_t nowMs) override {
+    app_.setSixHint(nav() && nav()->sixButtons());
+    app_.draw(bm, gfx, nowMs);
+  }
   bool ownsPanel(uint32_t) override { return app_.hostDrawing(); }
   bool handlesHold() const override { return isVario_; }       // power off; the tool lets the host leave
 
  private:
-  void openLauncher() override { if (nav()) nav()->openLauncher(); }
   App& app_;
   const char* name_;
   bool isVario_;

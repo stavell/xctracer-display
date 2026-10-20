@@ -45,7 +45,7 @@ class SimApp : public IApp {
   enum class View : uint8_t { TOP, CHASE };
   enum class Mode : uint8_t { NOMAP, FLYING, PAUSED, ENDED, CALIB, DAY };
   enum class Control : uint8_t { BUTTONS, TILT };
-  static constexpr int kMenuRows = 13;
+  static constexpr int kMenuRows = 12;
   static constexpr int kDayRows = 5;                   // Site, Thermals, Wind from, Wind speed, Start
   static constexpr int kWindSpeeds = 6;
   static constexpr float kWindKmh[kWindSpeeds] = {0, 10, 15, 20, 25, 30};
@@ -84,6 +84,11 @@ class SimApp : public IApp {
   void step(uint32_t simMs, uint32_t dtMs) override;
   void draw(Bitmap1& bm, Adafruit_GFX& gfx, uint32_t nowMs) override;
   bool comboExit() const override { return true; }
+  // The system sheet opened: a flight in the air stands still on its pause menu (the host has already stopped stepping).
+  void onSheet(bool open, uint32_t) override {
+    if (open && mode_ == Mode::FLYING) mode_ = Mode::PAUSED, menuSel_ = 0;
+    left_ = right_ = up_ = down_ = false;
+  }
 
   // For the tests, the shots and the player.
   World& world() { return world_; }

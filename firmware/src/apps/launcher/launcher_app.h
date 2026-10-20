@@ -2,8 +2,8 @@
 // The launcher: the box's home screen. Lists the registered apps as a grid and starts the chosen one.
 //
 // Input: with the single user switch a short press moves to the next tile, a long press (0.7 .. 1.5 s) opens it;
-// with the six buttons the arrows move over the grid and A opens. Holding the switch 3 s powers the box off, as
-// in the vario. The start-up app is chosen in Settings; the launcher only reads it (AppRegistry::startupApp).
+// with the six buttons the arrows move over the grid and A opens (both work at any time, the hint follows the one used last).
+// The 3 s hold and A + B open the host's system sheet (cursor on Sleep). The start-up app is chosen in Settings; the launcher only reads it (AppRegistry::startupApp).
 //
 // The launcher is never started by itself: the box boots into the start-up app, and an app opens the
 // launcher only on a deliberate gesture (see platform/app_host.h and README.md, "Box").
@@ -18,8 +18,8 @@
 class LauncherApp : public IApp {
  public:
   LauncherApp(IBattery& battery, IPower& power, const AppRegistry& apps, const BoxSettings& settings,
-              const WallClock& clock, bool dpad = false)
-      : battery_(battery), power_(power), apps_(apps), settings_(settings), clock_(clock) { model_.dpad = dpad; }
+              const WallClock& clock)
+      : battery_(battery), apps_(apps), settings_(settings), clock_(clock) { (void)power; }
   void setPack(const terrain::IPackStatus* pack) { pack_ = pack; }
 
   const char* name() const override { return "launcher"; }
@@ -28,12 +28,9 @@ class LauncherApp : public IApp {
   void tick(uint32_t nowMs) override;
   void onKey(Key key, bool down, uint32_t nowMs) override;
   void onInput(Key key, ButtonEvent ev) override;
-  void onHeld(uint32_t heldMs) override;
-  bool wantsFrame(uint32_t nowMs) override { (void)nowMs; return dirty_; }
+  bool wantsFrame(uint32_t nowMs) override;
   uint32_t nextWakeMs(uint32_t nowMs) override { return nowMs + 10; }
   void draw(Bitmap1& bm, Adafruit_GFX& gfx, uint32_t nowMs) override;
-  bool handlesHold() const override { return true; }      // power off
-  bool comboExit() const override { return false; }      // already there
 
   int selected() const { return sel_; }
   int columns() const { return LauncherView::COLS; }
@@ -43,7 +40,6 @@ class LauncherApp : public IApp {
   void activate();
 
   IBattery& battery_;
-  IPower& power_;
   const AppRegistry& apps_;
   const BoxSettings& settings_;
   const WallClock& clock_;

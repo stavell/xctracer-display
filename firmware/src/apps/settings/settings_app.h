@@ -5,11 +5,11 @@
 //   platform/settings/compass_cal.h    the calibration flow, platform/settings/cal_view.h its screen
 //   platform/app_registry.h            the start-up app
 //
-// Rows: Compass calibration, Board mounting, Start-up app, Intro (on / off), Time zone, About, Home.
+// Rows: Calibrate compass, Mounting, Start-up app, Intro (on / off), Time zone, About.
 //
 // Input, single switch: short = next row, long = change the value / open (calibration: short cancels, long saves);
-// 3 s hold = back to the home screen (the host does that). Six buttons: UP / DOWN move, LEFT / RIGHT change a value
-// (mounting +-1, time zone +-30 min), A opens or changes, B goes back (a sub-screen, then home).
+// 3 s hold = the host's system sheet (Back / Home / Sleep / Power off). Six buttons (work at the same time): UP / DOWN move,
+// LEFT / RIGHT change a value (mounting +-1, time zone +-30 min), A opens or changes, B leaves a sub-screen.
 //
 // Flight safety: the compass sensors run only while the calibration screen is open and are switched off when it
 // closes or the app is left.
@@ -25,13 +25,11 @@
 class SettingsApp : public IApp {
  public:
   SettingsApp(IBattery& battery, ICompass& compass, IKeyStore& keys, BoxSettings& settings,
-              const AppRegistry& apps, const char* version, bool dpad = false)
-      : battery_(battery), compass_(compass), keys_(keys), settings_(settings), apps_(apps), version_(version), cal_(settings) {
-    model_.dpad = dpad;
-  }
+              const AppRegistry& apps, const char* version)
+      : battery_(battery), compass_(compass), keys_(keys), settings_(settings), apps_(apps), version_(version), cal_(settings) {}
   void setPack(const terrain::IPackStatus* pack) { pack_ = pack; }
 
-  enum Row { ROW_COMPASS, ROW_MOUNT, ROW_STARTUP, ROW_INTRO, ROW_TZ, ROW_ABOUT, ROW_HOME, ROW_COUNT };
+  enum Row { ROW_COMPASS, ROW_MOUNT, ROW_STARTUP, ROW_INTRO, ROW_TZ, ROW_ABOUT, ROW_COUNT };
   enum Screen { S_LIST, S_CAL, S_ABOUT };
 
   const char* name() const override { return "settings"; }
@@ -56,7 +54,6 @@ class SettingsApp : public IApp {
   void activate();
   void startCal();
   void stopCal(bool keep);
-  void goHome();
   void readSensors(uint32_t nowMs);
 
   IBattery& battery_;

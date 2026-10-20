@@ -11,18 +11,10 @@ void SettingsView::drawList(const Bitmap1& bm, const SettingsModel& m) {
     const DrawMode ink = on ? DRAW_SET : DRAW_CLEAR;
     if (on) roundFill(bm, 4, y, W - 8, ROW_H - 4, 6, DRAW_CLEAR);
     else bm.hspan(14, y + ROW_H - 2, W - 28, DRAW_CLEAR);
-    drawText(bm, 14, y + 19, m.title[i], f_.mid, ink);
-    drawText(bm, 14, y + 33, m.sub[i], f_.small, ink);
+    drawText(bm, 14, y + 22, m.title[i], f_.mid, ink);
+    drawText(bm, 14, y + 40, m.sub[i], f_.small, ink);
   }
-  const int fy = ROW_Y + m.count * ROW_H + 6;
-  bm.hspan(0, fy, W, DRAW_CLEAR);
-  bm.hspan(0, fy + 1, W, DRAW_CLEAR);
-  if (m.heldMs >= 1500) {
-    centered(bm, f_.bold, W / 2, H - 18, "keep holding: home", DRAW_CLEAR);
-  } else {
-    centered(bm, f_.small, W / 2, H - 28, m.dpad ? "arrows: move, change    A: open" : "press: next    hold: change", DRAW_CLEAR);
-    centered(bm, f_.small, W / 2, H - 8, m.dpad ? "B: home" : "hold 3 s: home", DRAW_CLEAR);
-  }
+  hintLine(bm, f_, m.dpad ? "up/down: move    A: open" : "press: next    hold: change");
 }
 
 void SettingsView::drawAbout(const Bitmap1& bm, const AboutModel& m) {
@@ -54,5 +46,5 @@ void SettingsView::drawAbout(const Bitmap1& bm, const AboutModel& m) {
     drawText(bm, 10, y, "No map data credits:", f_.small, DRAW_CLEAR);
     drawText(bm, 10, y + 19, "no map pack is installed.", f_.small, DRAW_CLEAR);
   }
-  centered(bm, f_.small, W / 2, H - 5, "press: back", DRAW_CLEAR);
+  hintLine(bm, f_, m.dpad ? "A / B: back" : "press: back");
 }

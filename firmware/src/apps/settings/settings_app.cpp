@@ -8,13 +8,12 @@ void SettingsApp::begin(uint32_t nowMs) {
   sel_ = 0;
   heldMs_ = 0;
   model_.count = ROW_COUNT;
-  model_.title[ROW_COMPASS] = "Compass";
-  model_.title[ROW_MOUNT] = "Board mounting";
+  model_.title[ROW_COMPASS] = "Calibrate compass";
+  model_.title[ROW_MOUNT] = "Mounting";
   model_.title[ROW_STARTUP] = "Start-up app";
   model_.title[ROW_INTRO] = "Intro";
   model_.title[ROW_TZ] = "Time zone";
   model_.title[ROW_ABOUT] = "About";
-  model_.title[ROW_HOME] = "Home";
   battery_.update(nowMs);
   refresh();
   dirty_ = true;
@@ -26,8 +25,8 @@ void SettingsApp::end() {
 
 // The value shown under each row.
 void SettingsApp::refresh() {
-  snprintf(model_.sub[ROW_COMPASS], sizeof model_.sub[0], "%s", cal_.stored() ? "calibrated, hold to redo" : "not calibrated, hold to start");
-  snprintf(model_.sub[ROW_MOUNT], sizeof model_.sub[0], "position %d of 0-%d", settings_.mountIndex(), MOUNT_COUNT - 1);
+  snprintf(model_.sub[ROW_COMPASS], sizeof model_.sub[0], "%s", cal_.stored() ? "saved, open to redo" : "not calibrated yet");
+  snprintf(model_.sub[ROW_MOUNT], sizeof model_.sub[0], "position %d of %d", settings_.mountIndex() + 1, MOUNT_COUNT);
   const int cur = apps_.startupApp(keys_);
   const AppEntry* e = apps_.find(cur);
   snprintf(model_.sub[ROW_STARTUP], sizeof model_.sub[0], "now: %s", e ? e->title : "-");
@@ -36,7 +35,6 @@ void SettingsApp::refresh() {
   const int a = tz < 0 ? -tz : tz;
   snprintf(model_.sub[ROW_TZ], sizeof model_.sub[0], "UTC%c%02d:%02d", tz < 0 ? '-' : '+', a / 60, a % 60);
   snprintf(model_.sub[ROW_ABOUT], sizeof model_.sub[0], "version, map pack, credits");
-  snprintf(model_.sub[ROW_HOME], sizeof model_.sub[0], "back to the home screen");
 }
 
 void SettingsApp::startCal() {
@@ -52,10 +50,6 @@ void SettingsApp::stopCal(bool keep) {
   if (screen_ == S_CAL) screen_ = S_LIST;
   refresh();
   dirty_ = true;
-}
-
-void SettingsApp::goHome() {
-  if (nav()) nav()->openLauncher();
 }
 
 void SettingsApp::readSensors(uint32_t nowMs) {
@@ -106,7 +100,6 @@ void SettingsApp::activate() {
   switch (sel_) {
     case ROW_COMPASS: startCal(); break;
     case ROW_ABOUT: screen_ = S_ABOUT; dirty_ = true; break;
-    case ROW_HOME: goHome(); break;
     default: dpadStep_ = false; change(1); break;
   }
 }
@@ -128,7 +121,6 @@ void SettingsApp::onKey(Key key, bool down, uint32_t) {
   else if (key == KEY_LEFT) change(-1);
   else if (key == KEY_RIGHT) change(1);
   else if (key == KEY_ACTION) { dpadStep_ = true; activate(); }
-  else if (key == KEY_B) goHome();
 }
 
 void SettingsApp::onInput(Key key, ButtonEvent ev) {
@@ -147,13 +139,11 @@ void SettingsApp::onInput(Key key, ButtonEvent ev) {
   else if (ev == BTN_LONG) activate();
 }
 
-void SettingsApp::onHeld(uint32_t heldMs) {
-  if ((heldMs >= 1500) != (heldMs_ >= 1500)) dirty_ = true;
-  heldMs_ = heldMs;
-}
+void SettingsApp::onHeld(uint32_t heldMs) { heldMs_ = heldMs; }
 
 bool SettingsApp::wantsFrame(uint32_t nowMs) {
   if (dirty_) return true;
+  if (screen_ != S_CAL && (nav() && nav()->sixButtons()) != model_.dpad) return true;   // the hint follows the control used last
   return screen_ == S_CAL && nowMs - lastDraw_ >= 200;
 }
 
@@ -167,13 +157,14 @@ void SettingsApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
     c.fieldUt = cal_.fieldUt();
     c.stored = cal_.stored();
     c.battPct = batt;
-    c.heldMs = heldMs_;
-    c.holdWarning = "keep holding: cancel, home";
+    c.boxHint = true;
+    c.sixButtons = nav() && nav()->sixButtons();
     drawCompassCal(bm, view_.fonts(), c);
   } else if (screen_ == S_ABOUT) {
     AboutModel a;
     a.version = version_;
     a.battPct = batt;
+    a.dpad = nav() && nav()->sixButtons();
     a.packOk = pack_ && pack_->packOk();
     if (a.packOk) {
       a.packBytes = pack_->packBytes();
@@ -185,7 +176,7 @@ void SettingsApp::draw(Bitmap1& bm, Adafruit_GFX&, uint32_t nowMs) {
   } else {
     model_.selected = sel_;
     model_.battPct = batt;
-    model_.heldMs = heldMs_;
+    model_.dpad = nav() && nav()->sixButtons();
     view_.drawList(bm, model_);
   }
 }
