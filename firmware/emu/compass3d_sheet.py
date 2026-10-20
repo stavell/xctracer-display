@@ -25,18 +25,3 @@ for i, p in enumerate(files):
 out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(d, "compass3d_sheet.png")
 sheet.save(out)
 print("wrote", out)
-
-# The showcase for the docs: the dome at tilt 0 / 30 / 60 (clamped), the flat page twice, the weather sleep screen with its grid.
-if len(sys.argv) > 3:
-    pick = ["compass3d_01_tilt_0", "compass3d_05_tilt_30", "compass3d_05b_tilt_60_clamped", "compass3d_12_flat_se", "compass3d_13_flat_north", "sleep_clock"]
-    cap = ["dome, level", "dome, tilted 30", "dome, tilted 60 (drawn 38)", "flat page", "flat page, north", "weather sleep screen"]
-    ps = [os.path.join(d, p + ".pgm") for p in pick]
-    if all(os.path.exists(p) for p in ps):
-        sh = Image.new("L", (3 * (pw + gap) + gap, 2 * (ph + top + gap) + gap), 128)
-        dr = ImageDraw.Draw(sh)
-        for i, p in enumerate(ps):
-            x, y = gap + (i % 3) * (pw + gap), gap + (i // 3) * (ph + top + gap)
-            dr.text((x + 2, y + 4), cap[i], fill=255)
-            sh.paste(Image.open(p).convert("L"), (x, y + top))
-        sh.save(sys.argv[3])
-        print("wrote", sys.argv[3])

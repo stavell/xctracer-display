@@ -30,7 +30,6 @@ struct Run {
       b.tick(now);
     }
   }
-  void shortp() { b.r.input.press(now + 10, 120); hold(420); }
   void dump(const char* dir, const char* name) { b.r.panel.dump((std::string(dir) + "/compass3d_" + name + ".pgm").c_str()); }
 };
 
@@ -69,13 +68,6 @@ static void shots(const char* dir) {
   u.hold(120);
   u.dump(dir, "07_spin_after");
   u.hold(1500);
-  // the flat page (a short press): heading tape and numerals, level, field quality, weather
-  u.shortp();
-  u.move(135, 12, -6, 1000); u.hold(1200);
-  u.dump(dir, "12_flat_se");
-  u.move(358, 4, 3, 1500); u.hold(1200);
-  u.dump(dir, "13_flat_north");
-  u.shortp();                                     // back to the dome
   u.move(10, 110, 10, 1500); u.hold(1500);
   u.dump(dir, "08_upside_down");
   u.move(300, 15, 8, 1500); u.hold(2000);

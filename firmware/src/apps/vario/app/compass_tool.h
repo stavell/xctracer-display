@@ -1,7 +1,8 @@
 #pragma once
 // The compass & weather tool of the box image: the vario App without a tracer or laptop, together with the (empty) ports it needs,
 // as one object that can live in a LazyApp arena. It opens on the 3D compass (apps/compass3d: a card floating level in a glass
-// dome, 50 fps); a short press of the switch swaps to the flat page (big heading numerals, a heading tape, level, field quality, weather) and back. The menu (long press: back, Home) and the calibration screen are the App's own and take over the frame loop while
+// dome, 50 fps); a short press of the switch swaps to the flat dial and weather page of the vario (the page the tool always had),
+// and back. The menu (long press: back, Home) and the calibration screen are the App's own and take over the frame loop while
 // they are open, so every gesture that leaves the tool is unchanged.
 #include "apps/compass3d/compass3d.h"
 #include "apps/vario/app/app.h"
@@ -45,10 +46,9 @@ class CompassTool : private CompassToolCore, public VarioApp {   // the core is 
     }
     VarioApp::onInput(key, ev);
   }
-  // Game mode (a steady frame clock, 50 fps) while the dome or the flat compass page is on screen; the App's own change-driven cadence
-  // for its menu and calibration screens.
-  uint32_t frameIntervalMs() const override { return live() ? kFrameMs : 0; }
-  bool wantsFrame(uint32_t nowMs) override { return live() ? false : VarioApp::wantsFrame(nowMs); }
+  // Game mode (a steady frame clock) while the dome is on screen; the App's own change-driven cadence for the flat page and its screens.
+  uint32_t frameIntervalMs() const override { return use3d() ? kFrameMs : 0; }
+  bool wantsFrame(uint32_t nowMs) override { return use3d() ? false : VarioApp::wantsFrame(nowMs); }
   void step(uint32_t simMs, uint32_t dtMs) override {
     const App& a = CompassToolCore::app;
     compass3d::Input in;
@@ -72,14 +72,12 @@ class CompassTool : private CompassToolCore, public VarioApp {   // the core is 
     VarioApp::tick(nowMs);
   }
   void draw(Bitmap1& bm, Adafruit_GFX& gfx, uint32_t nowMs) override {
-    if (!live()) VarioApp::draw(bm, gfx, nowMs);
-    else if (flat_) view_.drawFlat(bm, nowMs);
-    else view_.draw(bm, nowMs);
+    if (use3d()) view_.draw(bm, nowMs);
+    else VarioApp::draw(bm, gfx, nowMs);
   }
 
  private:
-  bool live() const { return !CompassToolCore::app.listOpen() && !CompassToolCore::app.calibrating(); }
-  bool use3d() const { return !flat_ && live(); }
+  bool use3d() const { return !flat_ && !CompassToolCore::app.listOpen() && !CompassToolCore::app.calibrating(); }
   compass3d::Compass3d view_;
   bool flat_ = false;
   uint32_t nowMs_ = 0;

@@ -71,7 +71,6 @@ void Compass3d::reset() {
   greyed_ = 1.0f;
   simMs_ = 0;
   snap_ = true;
-  tapeInit_ = false;
   lastTenths_ = -2;
   lastTemp10_ = lastRh_ = -999999;
 }
@@ -99,11 +98,6 @@ void Compass3d::step(const Input& in, uint32_t dtMs, uint32_t simMs) {
   }
   const float trust = isfinite(in.trust) ? clampf(in.trust, 0.0f, 1.0f) : 1.0f;
   const float dist = ok ? clampf((0.8f - trust) * 1.25f, 0.0f, 1.0f) : 0.0f;   // 0 clean .. 1 rejected
-  if (ok && isfinite(in.headingDeg)) {                                  // the flat page's tape glides along the shortest arc
-    const float d = fmodf(in.headingDeg - tapeHdg_ + 540.0f, 360.0f) - 180.0f;
-    tapeHdg_ = tapeInit_ ? fmodf(tapeHdg_ + d * clampf(dt * 20.0f, 0.0f, 1.0f) + 360.0f, 360.0f) : in.headingDeg;
-    tapeInit_ = true;
-  }
   const float greyTarget = ok ? dist : 1.0f;
   greyed_ += 0.12f * (greyTarget - greyed_);
   if (!ok) return;                                                      // the card rests where it was
@@ -579,8 +573,9 @@ static const char* fmt1(char* b, size_t n, float v) {
   return b;
 }
 
-void Compass3d::heading(const Bitmap1& bm, int y, int dotX) {
+void Compass3d::heading(const Bitmap1& bm) {
   const int tenths = in_.valid ? bearingTenths(in_.headingDeg) : -1;       // the vario's helper: 359.96 reads 0.0, never 360.0
+  const int dotX = 156, y = 270;
   if (tenths != lastTenths_) {
     lastTenths_ = tenths;
     int k = 0;
@@ -606,8 +601,8 @@ void Compass3d::heading(const Bitmap1& bm, int y, int dotX) {
     digit_[g].draw(bm, x, y, DRAW_CLEAR);
     x += 36;
   }
-  circle(bm, dotX + 57, y + 13, 6, DRAW_CLEAR);                              // the degree sign
-  circle(bm, dotX + 57, y + 13, 5, DRAW_CLEAR);
+  circle(bm, 213, 283, 6, DRAW_CLEAR);                                       // the degree sign
+  circle(bm, 213, 283, 5, DRAW_CLEAR);
 }
 
 static const char* point8(float deg) {
@@ -634,41 +629,37 @@ void Compass3d::bubble(const Bitmap1& bm, const Frame& f) {
   bm.fillRect(bx - 2, by - 3, 2, 2, DRAW_SET);                               // a small glint
 }
 
-// A figure 8 about (cx, cy), 36 x 16: move the unit like this. ph >= 0 (radians) adds a dot travelling along it.
-static void figure8(const Bitmap1& bm, int cx, int cy, float ph) {
-  int px = 0, py = 0;
-  for (int i = 0; i <= 24; i++) {
-    const float t = (float)i * (2.0f * PI_F / 24.0f);
-    const int x = cx + roundi(18.0f * sinf(t)), y = cy + roundi(8.0f * sinf(2.0f * t));
-    if (i) { line(bm, px, py, x, y, DRAW_CLEAR); line(bm, px, py + 1, x, y + 1, DRAW_CLEAR); }
-    px = x; py = y;
-  }
-  if (ph >= 0) {
+void Compass3d::badges(const Bitmap1& bm, uint32_t nowMs) {
+  if (!in_.calibrated) {                                                     // a figure 8: move the unit like this
+    const int cx = 214, cy = 13;
+    int px = 0, py = 0;
+    for (int i = 0; i <= 24; i++) {
+      const float t = (float)i * (2.0f * PI_F / 24.0f);
+      const int x = cx + roundi(18.0f * sinf(t)), y = cy + roundi(8.0f * sinf(2.0f * t));
+      if (i) { line(bm, px, py, x, y, DRAW_CLEAR); line(bm, px, py + 1, x, y + 1, DRAW_CLEAR); }
+      px = x; py = y;
+    }
+    const float ph = (float)(nowMs % 1800) * (2.0f * PI_F / 1800.0f);
     fillDisc(bm, cx + roundi(18.0f * sinf(ph)), cy + roundi(8.0f * sinf(2.0f * ph)), 4, DRAW_CLEAR);
     fillDisc(bm, cx + roundi(18.0f * sinf(ph)), cy + roundi(8.0f * sinf(2.0f * ph)), 2, DRAW_SET);
   }
-}
-
-// A horseshoe magnet about (cx, cy), 26 x 22.
-static void magnet(const Bitmap1& bm, int cx, int cy) {
-  for (int a = 0; a <= 12; a++) {
-    const float t = PI_F * (float)a / 12.0f;
-    fillDisc(bm, cx + roundi(10.0f * cosf(t)), cy - roundi(10.0f * sinf(t)) + 6, 2, DRAW_CLEAR);
+  if (in_.valid && in_.trust < 0.8f) {                                       // a horseshoe magnet
+    const int cx = 26, cy = 14;
+    for (int a = 0; a <= 12; a++) {
+      const float t = PI_F * (float)a / 12.0f;
+      const int x = cx + roundi(10.0f * cosf(t)), y = cy - roundi(10.0f * sinf(t)) + 6;
+      fillDisc(bm, x, y, 2, DRAW_CLEAR);
+    }
+    bm.fillRect(cx - 13, cy + 3, 6, 9, DRAW_CLEAR);
+    bm.fillRect(cx + 7, cy + 3, 6, 9, DRAW_CLEAR);
+    bm.fillRect(cx - 12, cy + 8, 4, 4, DRAW_SET);
+    bm.fillRect(cx + 8, cy + 8, 4, 4, DRAW_SET);
   }
-  bm.fillRect(cx - 13, cy + 3, 6, 9, DRAW_CLEAR);
-  bm.fillRect(cx + 7, cy + 3, 6, 9, DRAW_CLEAR);
-  bm.fillRect(cx - 12, cy + 8, 4, 4, DRAW_SET);
-  bm.fillRect(cx + 8, cy + 8, 4, 4, DRAW_SET);
-}
-
-void Compass3d::badges(const Bitmap1& bm, uint32_t nowMs) {
-  if (!in_.calibrated) figure8(bm, 214, 13, (float)(nowMs % 1800) * (2.0f * PI_F / 1800.0f));
-  if (in_.valid && in_.trust < 0.8f) magnet(bm, 26, 14);
 }
 
 void Compass3d::readouts(const Bitmap1& bm, const Frame& f, uint32_t nowMs) {
   fonts_.ensure(bm.rotation);
-  heading(bm, 270, 156);
+  heading(bm);
   bubble(bm, f);
   badges(bm, nowMs);
   if (in_.valid) ui::centered(bm, fonts_.mid, 120, 21, point8(in_.headingDeg), DRAW_CLEAR);
@@ -717,109 +708,6 @@ void Compass3d::draw(const Bitmap1& bm, uint32_t nowMs) {
   glass(bm, f);
   lubber(bm);
   readouts(bm, f, nowMs);
-}
-
-// ---- the flat page: the most legible one ----------------------------------------------------------------------------------------------
-// Heading in big numerals and its point, a full-width heading tape (120 degrees, 2 px per degree, smooth at 50 fps) with a fixed notch,
-// the bubble level, the field quality (magnet + bar) and the calibration state, and the same weather strip as the dome.
-static void smallInt(char* b, int v) {
-  char* p = b;
-  if (v >= 100) *p++ = (char)('0' + v / 100);
-  if (v >= 10) *p++ = (char)('0' + (v / 10) % 10);
-  *p++ = (char)('0' + v % 10);
-  *p = 0;
-}
-
-void Compass3d::tape(const Bitmap1& bm) {
-  const int y0 = 108, y1 = 196;
-  const float h = in_.valid && tapeInit_ ? tapeHdg_ : 0.0f;
-  bm.fillRect(0, y0, W, 2, DRAW_CLEAR);
-  bm.fillRect(0, y1 - 1, W, 2, DRAW_CLEAR);
-  int a = (int)h - 61;
-  a -= ((a % 5) + 5) % 5;
-  for (; a <= (int)h + 62; a += 5) {
-    const int x = 120 + roundi(((float)a - h) * 2.0f);
-    if (x < -20 || x > W + 20) continue;
-    const int deg = ((a % 360) + 360) % 360;
-    const int len = deg % 30 == 0 ? 36 : deg % 10 == 0 ? 24 : 13;
-    bm.vline(x, y0 + 2, y0 + 2 + len, DRAW_CLEAR);
-    if (deg % 10 == 0) bm.vline(x + 1, y0 + 2, y0 + 2 + len, DRAW_CLEAR);
-    char s[4];
-    if (deg % 90 == 0 && x > 14 && x < W - 14) {                                             // N E S W: bold, N reversed
-      static const char* L[4] = {"N", "E", "S", "W"};
-      const char* t = L[deg / 90];
-      if (deg == 0) {
-        bm.fillRect(x - 15, y0 + 40, 31, 28, DRAW_CLEAR);
-        ui::centered(bm, fonts_.mid, x, y0 + 62, t, DRAW_SET);
-      } else {
-        ui::centered(bm, fonts_.mid, x, y0 + 62, t, DRAW_CLEAR);
-      }
-    } else if (deg % 30 == 0 && x > 26 && x < W - 26) {                                      // numbers every 30 degrees, clear of the faded ends
-      smallInt(s, deg);
-      ui::centered(bm, fonts_.bold, x, y0 + 60, s, DRAW_CLEAR);
-    }
-  }
-  for (int k = 0; k < 3; k++) {                                                              // the drum falls away at the ends
-    static const int lv[3] = {13, 10, 7};
-    for (int i = 0; i < 8; i++) { col(bm, k * 8 + i, y0 + 2, y1 - 2, lv[2 - k], OP_AND); col(bm, W - 1 - k * 8 - i, y0 + 2, y1 - 2, lv[2 - k], OP_AND); }
-  }
-  // the lubber notch: a black pointer rising from the bottom rule, haloed, with a small one hanging from the top rule
-  for (int row = 0; row < 20; row++) {
-    const int half = 9 - row * 9 / 20;
-    bm.hspan(120 - half - 2, y1 - 1 - row, 2 * half + 5, DRAW_SET);
-  }
-  for (int row = 0; row < 18; row++) {
-    const int half = 9 - row * 9 / 18;
-    bm.hspan(120 - half, y1 - 1 - row, 2 * half + 1, DRAW_CLEAR);
-  }
-  for (int row = 0; row < 9; row++) bm.hspan(120 - 5 + row / 2, y0 + 2 + row, 11 - row, DRAW_CLEAR);
-}
-
-void Compass3d::drawFlat(const Bitmap1& bm, uint32_t nowMs) {
-  if (bm.rotation != 1 || bm.w != 400 || bm.h != 240 || bm.stride != 50) return;
-  if (!built_) build(bm);
-  stats_ = Stats();
-  fonts_.ensure(bm.rotation);
-  const Frame f = frame(false);
-  badges(bm, nowMs);
-  ui::roundFrame(bm, 6, 30, 228, 66, 10, 2, DRAW_CLEAR);
-  heading(bm, 36, 168);
-  if (in_.valid) ui::centered(bm, fonts_.mid, 29, 70, point8(in_.headingDeg), DRAW_CLEAR);
-  tape(bm);
-  // the bubble level, bigger than the dome's: full travel at 15 degrees
-  {
-    const int vx = 52, vy = 268, vr = 36;
-    fillDisc(bm, vx, vy, vr + 2, DRAW_CLEAR);
-    fillDisc(bm, vx, vy, vr, DRAW_SET);
-    fillDisc(bm, vx, vy, vr, Gray(13));
-    circle(bm, vx, vy, 20, DRAW_CLEAR);
-    circle(bm, vx, vy, 5, DRAW_CLEAR);
-    line(bm, vx - vr, vy, vx - 24, vy, DRAW_CLEAR); line(bm, vx + 24, vy, vx + vr, vy, DRAW_CLEAR);
-    line(bm, vx, vy - vr, vx, vy - 24, DRAW_CLEAR); line(bm, vx, vy + 24, vx, vy + vr, DRAW_CLEAR);
-    const float mag = sqrtf(f.tx * f.tx + f.ty * f.ty), lim = 0.2588f, k = mag > lim ? lim / mag : 1.0f;
-    const int bx = vx + roundi(f.tx * k * (22.0f / lim)), by = vy - roundi(f.ty * k * (22.0f / lim));
-    fillDisc(bm, bx, by, 11, DRAW_CLEAR);
-    fillDisc(bm, bx, by, 9, DRAW_SET);
-    fillDisc(bm, bx, by, 9, Gray(11));
-    bm.fillRect(bx - 4, by - 5, 3, 3, DRAW_SET);
-  }
-  // field quality: the magnet and a bar of ten segments (the AHRS trust of the field); the figure 8 and a dot when the calibration is stored
-  {
-    magnet(bm, 122, 244);
-    const int lit = in_.valid ? roundi(clampf(in_.trust, 0.0f, 1.0f) * 10.0f) : 0;
-    for (int i = 0; i < 10; i++) {
-      const int x = 152 + i * 8;
-      if (i < lit) bm.fillRect(x, 232, 6, 22, DRAW_CLEAR);
-      else { bm.fillRect(x, 232, 6, 22, DRAW_CLEAR); bm.fillRect(x + 1, 233, 4, 20, DRAW_SET); }
-    }
-    figure8(bm, 140, 298, in_.calibrated ? -1.0f : (float)(nowMs % 1800) * (2.0f * PI_F / 1800.0f));
-    if (in_.calibrated) { fillDisc(bm, 206, 298, 10, DRAW_CLEAR); }
-    else { fillDisc(bm, 206, 298, 10, DRAW_CLEAR); fillDisc(bm, 206, 298, 7, DRAW_SET); line(bm, 199, 305, 213, 291, DRAW_CLEAR); line(bm, 199, 306, 213, 292, DRAW_CLEAR); }
-  }
-  ui::roundFrame(bm, 6, 338, 228, 56, 8, 2, DRAW_CLEAR);
-  bm.vline(82, 344, 388, DRAW_CLEAR);
-  bm.vline(158, 344, 388, DRAW_CLEAR);
-  weatherStrip(bm);
 }
 
 }  // namespace compass3d
