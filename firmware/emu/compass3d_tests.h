@@ -362,12 +362,11 @@ static void in_the_box() {
   CHECK(b.compassTool->view3d().input().valid);
   CHECK(b.compassTool->view3d().readoutTenths() == bearingTenths(core.ahrs().heading()));
   NEAR(angDist(core.ahrs().heading(), 200.0f), 0, 2.0);
-  u.shortp();                                                            // the flat dial and weather page the tool always had
-  CHECK(!b.compassTool->showing3d() && b.compassTool->flatPage() && !b.host.gameMode());
-  CHECK(b.compassTool->core().buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);
+  u.shortp();                                                            // the flat page: heading tape, level, weather
+  CHECK(!b.compassTool->showing3d() && b.compassTool->flatPage() && b.host.gameMode());
   const int p1 = b.r.panel.presents;
-  u.run(500);
-  CHECK(b.r.panel.presents > p1);                                        // it animates and refreshes like before
+  u.run(1000);
+  CHECK(b.r.panel.presents - p1 >= 45);                                  // the tape scrolls at 50 fps
   u.shortp();
   CHECK(b.compassTool->showing3d() && b.host.gameMode());
   u.longp();                                                             // the menu replaces the dome and runs on the App's own cadence

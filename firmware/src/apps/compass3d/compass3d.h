@@ -50,7 +50,8 @@ class Compass3d {
   void reset();
   // One fixed step. simMs is the app's simulation clock (the wobble of a disturbed field runs on it).
   void step(const Input& in, uint32_t dtMs, uint32_t simMs);
-  void draw(const Bitmap1& bm, uint32_t nowMs);
+  void draw(const Bitmap1& bm, uint32_t nowMs);            // the dome
+  void drawFlat(const Bitmap1& bm, uint32_t nowMs);        // the flat page: numerals, heading tape, bubble, field quality, weather
 
   // --- for tests and tools ---
   const Input& input() const { return in_; }
@@ -99,12 +100,15 @@ class Compass3d {
   void bubble(const Bitmap1& bm, const Frame& f);
   void badges(const Bitmap1& bm, uint32_t nowMs);
   void weatherStrip(const Bitmap1& bm);
-  void heading(const Bitmap1& bm);
+  void heading(const Bitmap1& bm, int y, int dotX);
+  void tape(const Bitmap1& bm);
 
   Input in_;
   mutable Stats stats_;
   float qc_[4] = {1, 0, 0, 0};                      // card orientation, device -> world
   float wc_[3] = {0, 0, 0};                         // card angular velocity (world frame, rad/s)
+  float tapeHdg_ = 0;                               // the heading the flat page's tape shows (glides along the shortest arc)
+  bool tapeInit_ = false;
   float yawWobble_ = 0;                             // rad, the disturbed field shakes the card
   float greyed_ = 0;                                // 0..1 how much the card is greyed (disturbance, no data)
   uint32_t simMs_ = 0;

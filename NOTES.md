@@ -1328,3 +1328,13 @@ orientation (`MockCompass::gyroFromMotion`, needs `nowMs` from `Box::tick`), oth
 `build.sh` writes `out/compass3d_*.png` and the sheet `out/compass3d_sheet.png` (copy: `docs/screens/compass3d_sheet.png`); `out/emu c3shots out` renders only these.
 Lessons: a mock gyro that returns exactly 0 trips the AHRS stuck-gyro guard (80 identical samples) - the first renders showed dashes; the dome's glass highlight
 has to be white strokes on the dark liquid, on the pale card it would not show.
+
+### 3D compass follow-ups (2026-10-20)
+
+- Tilt clamp: the drawn tilt of the card is soft-limited to 38 degrees (`kTiltMax`; eases from 28 degrees, `28 + 10 d / (d + 10)`), so the dome never turns edge-on;
+  `axes()` and the bubble keep the real attitude. Beyond ~36 degrees a graphic cue fades in on the bubble level (heavier vial rim, thicker bubble).
+- Strip under the dome: temperature | humidity | pressure with the 3 h arrow (`WeatherLog::latest()` / `tendency()` and `clockview::trend`, the sleep screen's own). The tool gets
+  the box's `WeatherLog` through `CompassTool::setWeather`. The bubble level moved to the dome's free bottom-left corner.
+- Sleep screen: one-decimal temperature (stroke numerals now have a decimal point; unit is just the ring, so it still clears the pictogram), 6 h dotted grid on the chart.
+- Flat page (`Compass3d::drawFlat`): heading numerals (shared stroke-numeral atlases), point name, tape (2 px / degree, 5 / 10 / 30 degree ticks, N E S W bold with N reversed,
+  smoothed on the shortest arc), notch, level, trust bar + calibration state, same strip. Game mode like the dome (20 ms).

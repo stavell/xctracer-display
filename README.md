@@ -422,7 +422,7 @@ in a glass dome and points north while the box is tilted and turned (AHRS quater
 with a fixed light, soft shadow, glass reflections). The card follows through a damped spring like a liquid compass (a little overshoot);
 the number below is the exact heading (`0.0`..`359.9`, the vario's helper), with a bubble level and temperature / humidity. No calibration
 shows a figure-8 hint, a disturbed field greys and shakes the card (magnet icon), no attitude shows dashes. A short press of the switch swaps
-to the flat dial and weather page; the long press menu (Home) and every other way out are unchanged. Try it: `build.sh play box`, open Compass,
+to the flat page (big heading numerals, a 120 degree scrolling heading tape with a fixed notch, bubble level, field-quality bar, calibration state, weather); the long press menu (Home) and every other way out are unchanged. Try it: `build.sh play box`, open Compass,
 arrows tilt the virtual box, `,` `.` turn it.
 
 ![3D compass: turning, tilting, a quick spin, disturbed field, no calibration, no sensor](docs/screens/compass3d_sheet.png)
