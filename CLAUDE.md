@@ -23,7 +23,6 @@ right is worse than no data.
       sensors/   compass tilt + hard-iron, AHRS, heading smoother, mount table, motion.h (MotionService: mounting + calibration + compass +
                  gyro fusion behind start() / poll(now) / stop(): heading, quaternion, tilt, accel, gyro, trust; the vario, the compass app and the
                  calibration use it, a game can)
-=======
       panel/     pure panel helpers: line diff, Sharp frame packing
       input/     button state machine, A+B combo hold, key debounce
       ui/        the system sheet (Back / Home / Sleep / Power off overlay the host draws over any app)
