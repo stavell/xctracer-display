@@ -1,0 +1,120 @@
+{
+ "description": "3 worktrees of one repo: same species and label, three variants",
+ "repos": {
+  "/work/widgets": [
+   "/repos/widgets/.git",
+   "widgets"
+  ],
+  "/work/widgets-wt1": [
+   "/repos/widgets/.git",
+   "widgets"
+  ],
+  "/work/widgets-wt2": [
+   "/repos/widgets/.git",
+   "widgets"
+  ],
+  "/work/other": [
+   "/work/other",
+   "other"
+  ]
+ },
+ "steps": [
+  {
+   "t": 0,
+   "ev": {
+    "session_id": "a",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/widgets",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 1,
+   "ev": {
+    "session_id": "b",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/widgets-wt1",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 2,
+   "ev": {
+    "session_id": "c",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/widgets-wt2",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 3,
+   "ev": {
+    "session_id": "d",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/other",
+    "source": "startup"
+   },
+   "expect": {
+    "same_species": [
+     "a",
+     "b",
+     "c"
+    ],
+    "distinct_variants": [
+     "a",
+     "b",
+     "c"
+    ],
+    "sessions": {
+     "a": {
+      "variant": 0,
+      "label": "WIDG"
+     },
+     "b": {
+      "variant": 1,
+      "label": "WIDG"
+     },
+     "c": {
+      "variant": 2,
+      "label": "WIDG"
+     },
+     "d": {
+      "variant": 0,
+      "label": "OTHE"
+     }
+    }
+   }
+  },
+  {
+   "t": 4,
+   "ev": {
+    "session_id": "a",
+    "hook_event_name": "SessionEnd",
+    "reason": "other"
+   },
+   "expect": {
+    "sessions": {
+     "b": {
+      "variant": 1
+     }
+    }
+   }
+  },
+  {
+   "t": 5,
+   "ev": {
+    "session_id": "e",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/widgets",
+    "source": "startup"
+   },
+   "expect": {
+    "sessions": {
+     "e": {
+      "variant": 0
+     }
+    }
+   }
+  }
+ ]
+}
