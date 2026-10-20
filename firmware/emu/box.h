@@ -67,7 +67,9 @@ struct Box {
   App& varioCore() { return vario->core(); }                // the vario must be the active app
   static CompassTool* makeCompass(void* mem, void* ctx) {
     Box& b = *static_cast<Box*>(ctx);
-    return new (mem) CompassTool(b.r.panel, b.r.battery, b.r.settings, b.r.compass, b.r.thermo, b.r.power, cfg(true));
+    CompassTool* t = new (mem) CompassTool(b.r.panel, b.r.battery, b.r.settings, b.r.compass, b.r.thermo, b.r.power, cfg(true));
+    t->setWeather(&b.weather);
+    return t;
   }
   static TetrisApp* makeTetris(void* mem, void* ctx) {
     Box& b = *static_cast<Box*>(ctx);

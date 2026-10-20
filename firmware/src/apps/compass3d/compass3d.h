@@ -25,6 +25,9 @@ struct Input {
   float trust = 1.0f;            // Ahrs::trust(): 1 = clean field, 0 = field rejected (magnetic disturbance)
   bool calibrated = true;        // a magnetometer calibration is stored
   float tempC = NAN, rhPct = NAN;
+  int pressure10 = 0;            // hPa x 10 from the WeatherLog, 0 = no reading yet
+  bool trendOk = false;          // WeatherLog::tendency(): needs 3 h of history
+  int trendCls = 0;              // -2 falling fast .. +2 rising fast
 };
 
 class Compass3d {
@@ -33,7 +36,7 @@ class Compass3d {
   static const int kSeg = 72;                       // card rim segments (5 degrees each)
   // Screen layout (pixels) and the camera.
   static const int DCX = 120, DCY = 140;            // dome centre
-  static const int kVialX = 38, kVialY = 366, kVialR = 26;   // the bubble level
+  static const int kVialX = 22, kVialY = 240, kVialR = 18;   // the bubble level, in the free bottom-left corner of the dome's square
   static const int RG = 102, RB = 116;              // glass and bezel radius
   static constexpr float kCardPx = 92.0f;           // card radius on the screen when seen from straight above
   static constexpr float kDist = 3.4f;              // camera distance in card radii
@@ -95,6 +98,7 @@ class Compass3d {
   void readouts(const Bitmap1& bm, const Frame& f, uint32_t nowMs);
   void bubble(const Bitmap1& bm, const Frame& f);
   void badges(const Bitmap1& bm, uint32_t nowMs);
+  void weatherStrip(const Bitmap1& bm);
   void heading(const Bitmap1& bm);
 
   Input in_;
@@ -124,7 +128,8 @@ class Compass3d {
   char hdgText_[8] = "";
   int8_t hdgGlyph_[6] = {};
   int lastTemp10_ = -999999, lastRh_ = -999999;
-  char tempText_[12] = "", rhText_[8] = "";
+  char tempText_[12] = "", rhText_[8] = "", pressText_[8] = "";
+  int lastPress_ = -1;
 };
 
 }  // namespace compass3d

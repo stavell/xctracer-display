@@ -46,6 +46,8 @@ static void shots(const char* dir) {
   b.r.thermo.set(21.4f, 48);
   b.host.start(Box::APP_COMPASS, u.now);
   u.hold(3000);                                   // the AHRS seeds and settles
+  b.weather.clear();                              // a falling barometer over 5 h, so the tendency arrow shows
+  for (int i = 0; i < 30; i++) b.weather.push(1016.0f - 0.11f * (float)i);
   u.dump(dir, "00_flat_north");
   u.move(135, 0, 0, 1500); u.hold(1200);
   u.dump(dir, "01_tilt_0");
@@ -90,6 +92,7 @@ static void shots(const char* dir) {
   Run w(d);
   d.r.compass.gyro = false;
   d.r.thermo.set(21.4f, 48);
+  d.weather.clear();                              // no pressure yet: dashes
   d.host.start(Box::APP_COMPASS, w.now);
   w.hold(1500);
   w.dump(dir, "11_no_data");

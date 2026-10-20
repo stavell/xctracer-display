@@ -160,7 +160,9 @@ static LazyApp<VarioBox> varioApp(arena, "vario", makeVario);
 
 // The compass & weather tool: the same App without a tracer or laptop, always on the compass page.
 static CompassTool* makeCompass(void* mem, void*) {
-  return new (mem) CompassTool(panel, battery, boxSettings, compassHw, thermo, power, appConfig(true));
+  CompassTool* t = new (mem) CompassTool(panel, battery, boxSettings, compassHw, thermo, power, appConfig(true));
+  t->setWeather(&weather);
+  return t;
 }
 static LazyApp<CompassTool> compassApp(arena, "compass", makeCompass);
 

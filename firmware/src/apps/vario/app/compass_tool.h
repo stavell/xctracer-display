@@ -8,6 +8,7 @@
 #include "apps/vario/app/app.h"
 #include "apps/vario/app/null_ports.h"
 #include "apps/vario/app/vario_app.h"
+#include "platform/power/weather.h"
 
 struct CompassToolCore {
   NullTracer noTracer;
@@ -29,6 +30,7 @@ class CompassTool : private CompassToolCore, public VarioApp {   // the core is 
   compass3d::Compass3d& view3d() { return view_; }
   bool showing3d() const { return use3d(); }
   bool flatPage() const { return flat_; }
+  void setWeather(const WeatherLog* w) { weather_ = w; }     // the 24 h pressure log of the box (sampled by the main loop)
 
   void begin(uint32_t nowMs) override {
     flat_ = false;
@@ -59,6 +61,10 @@ class CompassTool : private CompassToolCore, public VarioApp {   // the core is 
     in.calibrated = a.compass().calibration().valid;
     in.tempC = a.ambientC(nowMs_);
     in.rhPct = a.ambientRh(nowMs_);
+    if (weather_) {
+      in.pressure10 = weather_->latest();
+      in.trendOk = weather_->tendency(in.trendCls);
+    }
     view_.step(in, dtMs, simMs);
   }
   void tick(uint32_t nowMs) override {
@@ -75,4 +81,5 @@ class CompassTool : private CompassToolCore, public VarioApp {   // the core is 
   compass3d::Compass3d view_;
   bool flat_ = false;
   uint32_t nowMs_ = 0;
+  const WeatherLog* weather_ = nullptr;
 };

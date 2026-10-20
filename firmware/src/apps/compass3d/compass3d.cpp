@@ -6,6 +6,7 @@ HOT_FILE_O3
 #include "platform/gfx/shapes.h"
 #include "platform/gfx/strokes.h"
 #include "platform/util/angle.h"
+#include "platform/power/clock_view.h"                              // the 3 h tendency arrow (clockview::trend) is the sleep screen's
 #include "platform/util/fastmem.h"
 
 namespace compass3d {
@@ -357,15 +358,16 @@ void Compass3d::buildPlate() {
   pb.vline(12, 270, 323, DRAW_CLEAR);
   pb.vline(13, 272, 323, DRAW_CLEAR);
   // vial and the weather cells
-  fillDisc(pb, kVialX, kVialY, 28, DRAW_CLEAR);
-  fillDisc(pb, kVialX, kVialY, 26, DRAW_SET);
-  fillDisc(pb, kVialX, kVialY, 26, Gray(13));
-  circle(pb, kVialX, kVialY, 14, DRAW_CLEAR);
-  circle(pb, kVialX, kVialY, 4, DRAW_CLEAR);
-  line(pb, kVialX - 26, kVialY, kVialX - 19, kVialY, DRAW_CLEAR); line(pb, kVialX + 19, kVialY, kVialX + 26, kVialY, DRAW_CLEAR);
-  line(pb, kVialX, kVialY - 26, kVialX, kVialY - 19, DRAW_CLEAR); line(pb, kVialX, kVialY + 19, kVialX, kVialY + 26, DRAW_CLEAR);
-  ui::roundFrame(pb, 76, 338, 158, 56, 8, 2, DRAW_CLEAR);
-  pb.vline(155, 344, 388, DRAW_CLEAR);
+  fillDisc(pb, kVialX, kVialY, kVialR + 2, DRAW_CLEAR);
+  fillDisc(pb, kVialX, kVialY, kVialR, DRAW_SET);
+  fillDisc(pb, kVialX, kVialY, kVialR, Gray(13));
+  circle(pb, kVialX, kVialY, 9, DRAW_CLEAR);
+  circle(pb, kVialX, kVialY, 3, DRAW_CLEAR);
+  line(pb, kVialX - kVialR, kVialY, kVialX - 13, kVialY, DRAW_CLEAR); line(pb, kVialX + 13, kVialY, kVialX + kVialR, kVialY, DRAW_CLEAR);
+  line(pb, kVialX, kVialY - kVialR, kVialX, kVialY - 13, DRAW_CLEAR); line(pb, kVialX, kVialY + 13, kVialX, kVialY + kVialR, DRAW_CLEAR);
+  ui::roundFrame(pb, 6, 338, 228, 56, 8, 2, DRAW_CLEAR);                              // temperature | humidity | pressure
+  pb.vline(82, 344, 388, DRAW_CLEAR);
+  pb.vline(158, 344, 388, DRAW_CLEAR);
 }
 
 // ---- the scene -----------------------------------------------------------------------------------------------------------
@@ -611,20 +613,20 @@ static const char* point8(float deg) {
 }
 
 void Compass3d::bubble(const Bitmap1& bm, const Frame& f) {
-  // The bubble sits at the high side of the vial: toward where "up" leans in the device frame. Full travel at 15 degrees; beyond the
+  // The bubble sits at the high side of the vial: toward where "up" leans in the device frame. Full travel at 15 degrees (9 px); beyond the
   // dome's tilt limit the cue fades in: a heavy rim on the vial and a bigger, thick-edged bubble pinned at the edge.
   const float mag = sqrtf(f.tx * f.tx + f.ty * f.ty);
   const float lim = 0.2588f;                                                 // sin 15 degrees
   const float k = mag > lim ? lim / mag : 1.0f;
-  const int bx = kVialX + roundi(f.tx * k * (15.0f / lim)), by = kVialY - roundi(f.ty * k * (15.0f / lim));
+  const int bx = kVialX + roundi(f.tx * k * (9.0f / lim)), by = kVialY - roundi(f.ty * k * (9.0f / lim));
   const int heavy = f.cue > 0.66f ? 2 : f.cue > 0.2f ? 1 : 0;
   if (heavy) {
     for (int r = kVialR + 1; r >= kVialR - 1 - heavy; r--) circle(bm, kVialX, kVialY, r, DRAW_CLEAR);
   }
-  fillDisc(bm, bx, by, 9 + heavy, DRAW_CLEAR);
-  fillDisc(bm, bx, by, 7, DRAW_SET);
-  fillDisc(bm, bx, by, 7, Gray(heavy ? 5 : 11));
-  bm.fillRect(bx - 3, by - 4, 3, 2, DRAW_SET);                               // a small glint
+  fillDisc(bm, bx, by, 7 + heavy, DRAW_CLEAR);
+  fillDisc(bm, bx, by, 5, DRAW_SET);
+  fillDisc(bm, bx, by, 5, Gray(heavy ? 5 : 11));
+  bm.fillRect(bx - 2, by - 3, 2, 2, DRAW_SET);                               // a small glint
 }
 
 void Compass3d::badges(const Bitmap1& bm, uint32_t nowMs) {
@@ -661,7 +663,11 @@ void Compass3d::readouts(const Bitmap1& bm, const Frame& f, uint32_t nowMs) {
   bubble(bm, f);
   badges(bm, nowMs);
   if (in_.valid) ui::centered(bm, fonts_.mid, 120, 21, point8(in_.headingDeg), DRAW_CLEAR);
-  // weather cells
+  weatherStrip(bm);
+}
+
+// Temperature, humidity and pressure with its 3 h tendency, in the three cells of the strip at the bottom (the cells' frame is in the plate).
+void Compass3d::weatherStrip(const Bitmap1& bm) {
   const int t10 = isfinite(in_.tempC) ? roundi(in_.tempC * 10.0f) : -999998;
   const int rh = isfinite(in_.rhPct) ? roundi(in_.rhPct) : -999998;
   if (t10 != lastTemp10_) { lastTemp10_ = t10; fmt1(tempText_, sizeof tempText_, in_.tempC); }
@@ -670,10 +676,26 @@ void Compass3d::readouts(const Bitmap1& bm, const Frame& f, uint32_t nowMs) {
     if (rh == -999998) { rhText_[0] = '-'; rhText_[1] = '-'; rhText_[2] = 0; }
     else { char* p = rhText_; if (rh >= 100) *p++ = (char)('0' + rh / 100); if (rh >= 10) *p++ = (char)('0' + (rh / 10) % 10); *p++ = (char)('0' + rh % 10); *p = 0; }
   }
-  ui::centered(bm, fonts_.mid, 116, 380, tempText_, DRAW_CLEAR);
-  ui::centered(bm, fonts_.small, 116, 359, "TEMP C", DRAW_CLEAR);
-  ui::centered(bm, fonts_.mid, 195, 380, rhText_, DRAW_CLEAR);
-  ui::centered(bm, fonts_.small, 195, 359, "RH %", DRAW_CLEAR);
+  if (in_.pressure10 != lastPress_) {
+    lastPress_ = in_.pressure10;
+    const int hpa = (in_.pressure10 + 5) / 10;
+    if (in_.pressure10 <= 0 || hpa > 1999) { pressText_[0] = '-'; pressText_[1] = '-'; pressText_[2] = 0; }
+    else {
+      char* p = pressText_;
+      if (hpa >= 1000) *p++ = (char)('0' + hpa / 1000);
+      *p++ = (char)('0' + (hpa / 100) % 10); *p++ = (char)('0' + (hpa / 10) % 10); *p++ = (char)('0' + hpa % 10); *p = 0;
+    }
+  }
+  ui::centered(bm, fonts_.small, 44, 359, "TEMP C", DRAW_CLEAR);
+  ui::centered(bm, fonts_.mid, 44, 380, tempText_, DRAW_CLEAR);
+  ui::centered(bm, fonts_.small, 120, 359, "RH %", DRAW_CLEAR);
+  ui::centered(bm, fonts_.mid, 120, 380, rhText_, DRAW_CLEAR);
+  ui::centered(bm, fonts_.small, 196, 359, "hPa", DRAW_CLEAR);
+  const bool arrow = in_.pressure10 > 0 && in_.trendOk;
+  const int tw = textWidth(pressText_, fonts_.mid), total = tw + (arrow ? 18 : 0);
+  const int x0 = 196 - total / 2;
+  drawText(bm, x0, 380, pressText_, fonts_.mid, DRAW_CLEAR);
+  if (arrow) clockview::trend(bm, x0 + tw + 10, 371, in_.trendCls);
 }
 
 void Compass3d::draw(const Bitmap1& bm, uint32_t nowMs) {
