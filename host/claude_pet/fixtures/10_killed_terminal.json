@@ -1,0 +1,86 @@
+{
+ "description": "no SessionEnd: removed after 2 h, a waiting one after 12 h",
+ "repos": {},
+ "steps": [
+  {
+   "t": 0,
+   "ev": {
+    "session_id": "wait1",
+    "hook_event_name": "PermissionRequest",
+    "cwd": "/work/demo"
+   },
+   "expect": {
+    "sessions": {
+     "wait1": {
+      "state": "PERMISSION"
+     }
+    }
+   }
+  },
+  {
+   "t": 0,
+   "ev": {
+    "session_id": "idle1",
+    "hook_event_name": "UserPromptSubmit",
+    "cwd": "/work/demo"
+   }
+  },
+  {
+   "t": 1,
+   "ev": {
+    "session_id": "idle1",
+    "hook_event_name": "Stop"
+   }
+  },
+  {
+   "t": 7200,
+   "tick": true,
+   "expect": {
+    "sessions": {
+     "idle1": {
+      "state": "IDLE"
+     },
+     "wait1": {
+      "state": "PERMISSION"
+     }
+    }
+   }
+  },
+  {
+   "t": 7201,
+   "tick": true,
+   "expect": {
+    "absent": [
+     "idle1"
+    ],
+    "sessions": {
+     "wait1": {
+      "state": "PERMISSION"
+     }
+    }
+   }
+  },
+  {
+   "t": 43199,
+   "tick": true,
+   "expect": {
+    "sessions": {
+     "wait1": {
+      "state": "PERMISSION"
+     }
+    }
+   }
+  },
+  {
+   "t": 43200,
+   "tick": true,
+   "expect": {
+    "absent": [
+     "wait1"
+    ],
+    "hidden": 0,
+    "slots": 0
+   }
+  }
+ ]
+}

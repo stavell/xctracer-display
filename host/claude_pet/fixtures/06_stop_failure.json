@@ -1,0 +1,52 @@
+{
+ "description": "StopFailure -> FAILED, IDLE after 60 minutes",
+ "repos": {},
+ "steps": [
+  {
+   "t": 0,
+   "ev": {
+    "session_id": "sess-a",
+    "hook_event_name": "UserPromptSubmit",
+    "cwd": "/work/demo"
+   }
+  },
+  {
+   "t": 1,
+   "ev": {
+    "session_id": "sess-a",
+    "hook_event_name": "StopFailure",
+    "error": "rate_limit",
+    "last_assistant_message": "API Error"
+   },
+   "expect": {
+    "sessions": {
+     "sess-a": {
+      "state": "FAILED"
+     }
+    }
+   }
+  },
+  {
+   "t": 3600,
+   "tick": true,
+   "expect": {
+    "sessions": {
+     "sess-a": {
+      "state": "FAILED"
+     }
+    }
+   }
+  },
+  {
+   "t": 3601,
+   "tick": true,
+   "expect": {
+    "sessions": {
+     "sess-a": {
+      "state": "IDLE"
+     }
+    }
+   }
+  }
+ ]
+}

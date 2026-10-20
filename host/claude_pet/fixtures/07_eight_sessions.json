@@ -1,0 +1,286 @@
+{
+ "description": "8 sessions; hidden ones that wait take the lowest-ranked visible slot",
+ "repos": {},
+ "steps": [
+  {
+   "t": 0,
+   "ev": {
+    "session_id": "s1",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/p1",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 1,
+   "ev": {
+    "session_id": "s2",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/p2",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 2,
+   "ev": {
+    "session_id": "s3",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/p3",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 3,
+   "ev": {
+    "session_id": "s4",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/p4",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 4,
+   "ev": {
+    "session_id": "s5",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/p5",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 5,
+   "ev": {
+    "session_id": "s6",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/p6",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 6,
+   "ev": {
+    "session_id": "s7",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/p7",
+    "source": "startup"
+   }
+  },
+  {
+   "t": 7,
+   "ev": {
+    "session_id": "s8",
+    "hook_event_name": "SessionStart",
+    "cwd": "/work/p8",
+    "source": "startup"
+   },
+   "expect": {
+    "hidden": 2,
+    "hidden_waiting": 0,
+    "sessions": {
+     "s1": {
+      "slot": 0
+     },
+     "s2": {
+      "slot": 1
+     },
+     "s3": {
+      "slot": 2
+     },
+     "s4": {
+      "slot": 3
+     },
+     "s5": {
+      "slot": 4
+     },
+     "s6": {
+      "slot": 5
+     },
+     "s7": {
+      "slot": null
+     },
+     "s8": {
+      "slot": null
+     }
+    }
+   }
+  },
+  {
+   "t": 8,
+   "ev": {
+    "session_id": "s1",
+    "hook_event_name": "UserPromptSubmit"
+   }
+  },
+  {
+   "t": 9,
+   "ev": {
+    "session_id": "s2",
+    "hook_event_name": "UserPromptSubmit"
+   }
+  },
+  {
+   "t": 10,
+   "ev": {
+    "session_id": "s3",
+    "hook_event_name": "Stop"
+   }
+  },
+  {
+   "t": 11,
+   "ev": {
+    "session_id": "s5",
+    "hook_event_name": "UserPromptSubmit"
+   }
+  },
+  {
+   "t": 12,
+   "ev": {
+    "session_id": "s6",
+    "hook_event_name": "Stop"
+   },
+   "expect": {
+    "sessions": {
+     "s1": {
+      "state": "WORKING"
+     },
+     "s3": {
+      "state": "DONE"
+     },
+     "s4": {
+      "state": "IDLE"
+     }
+    }
+   }
+  },
+  {
+   "t": 13,
+   "ev": {
+    "session_id": "s8",
+    "hook_event_name": "PermissionRequest"
+   },
+   "expect": {
+    "hidden": 2,
+    "hidden_waiting": 0,
+    "sessions": {
+     "s8": {
+      "state": "PERMISSION",
+      "slot": 3
+     },
+     "s4": {
+      "slot": null
+     },
+     "s1": {
+      "slot": 0
+     },
+     "s7": {
+      "slot": null
+     }
+    }
+   }
+  },
+  {
+   "t": 14,
+   "ev": {
+    "session_id": "s7",
+    "hook_event_name": "PermissionRequest"
+   },
+   "expect": {
+    "hidden": 2,
+    "hidden_waiting": 0,
+    "sessions": {
+     "s7": {
+      "state": "PERMISSION",
+      "slot": 0
+     },
+     "s1": {
+      "slot": null
+     },
+     "s8": {
+      "slot": 3
+     },
+     "s4": {
+      "slot": null
+     }
+    }
+   }
+  },
+  {
+   "t": 15,
+   "ev": {
+    "session_id": "s2",
+    "hook_event_name": "PermissionRequest"
+   }
+  },
+  {
+   "t": 16,
+   "ev": {
+    "session_id": "s3",
+    "hook_event_name": "PermissionRequest"
+   }
+  },
+  {
+   "t": 17,
+   "ev": {
+    "session_id": "s5",
+    "hook_event_name": "PermissionRequest"
+   }
+  },
+  {
+   "t": 18,
+   "ev": {
+    "session_id": "s6",
+    "hook_event_name": "PermissionRequest"
+   },
+   "expect": {
+    "hidden": 2,
+    "hidden_waiting": 0,
+    "slots": 6
+   }
+  },
+  {
+   "t": 19,
+   "ev": {
+    "session_id": "s4",
+    "hook_event_name": "Elicitation"
+   },
+   "expect": {
+    "hidden": 2,
+    "hidden_waiting": 1,
+    "slots": 6,
+    "sessions": {
+     "s4": {
+      "state": "QUESTION",
+      "slot": null
+     },
+     "s7": {
+      "slot": 0
+     },
+     "s8": {
+      "slot": 3
+     }
+    }
+   }
+  },
+  {
+   "t": 20,
+   "ev": {
+    "session_id": "s2",
+    "hook_event_name": "SessionEnd",
+    "reason": "other"
+   },
+   "expect": {
+    "hidden": 1,
+    "hidden_waiting": 0,
+    "slots": 6,
+    "sessions": {
+     "s4": {
+      "slot": 1
+     },
+     "s1": {
+      "slot": null
+     }
+    }
+   }
+  }
+ ]
+}
