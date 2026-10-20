@@ -1,5 +1,6 @@
 #include "apps/vario/hw/diagnostics.h"
 #include <Arduino.h>
+#include <new>
 #ifdef DIAGNOSTICS
 #include "utility/debug.h"
 #endif
@@ -71,13 +72,15 @@ static void runBench() {
 }
 
 // One-off timing of the whole data path: 120 s of a circling flight (wind fit, circling detection, thermal
-// finder and memory run every second) through a private FlightModel, plus a compass update.
-static FlightModel benchFm;
+// finder and memory run every second) through a private FlightModel, plus a compass update. The model (36 kB) lives on the
+// heap for the length of the run, not in .bss: it was 36 kB of static RAM that only this one-off needed (NOTES, "RAM budget").
 static uint32_t benchFeedAvgUs = 0, benchFeedMaxUs = 0, benchCompassUs = 0, benchAhrsUs = 0;
 static bool benchDone = false;
 static void runFlightBench() {
   if (benchDone) return;
   benchDone = true;
+  FlightModel* const benchFm = new (std::nothrow) FlightModel;
+  if (!benchFm) return;                                // no room: no timing line, nothing else changes
   uint32_t sum = 0, mx = 0;
   const double D2R = 0.017453292519943295;
   double x = 0, y = 0, hdg = 40;
@@ -89,11 +92,12 @@ static void runFlightBench() {
     s.speedKmh = (float)(hypot(gx, gy) * 3.6); s.course = (float)fmod(atan2(gx, gy) / D2R + 360, 360);
     s.vario = 2.5f; s.alt = 1400.0f + i; s.hh = 12; s.mm = i / 60; s.ss = i % 60;
     uint32_t t0 = fastMicros();
-    benchFm.feed(s);
+    benchFm->feed(s);
     uint32_t dt = fastMicros() - t0;
     sum += dt;
     if (dt > mx) mx = dt;
   }
+  delete benchFm;
   benchFeedAvgUs = sum / 120;
   benchFeedMaxUs = mx;
   Compass c;
