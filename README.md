@@ -7,6 +7,7 @@ memory LCD (240x400 in use). It is also a BLE peripheral (`SharpDisplay`) so a l
 replay a recorded flight into it and, in a legacy mode, draw frames. One user switch operates it.
 Hardware: Adafruit Feather nRF52840 Sense, LiPo, PlatformIO with the Arduino framework.
 
+- `docs/PLATFORM.md`: the developer guide: how to build another app (frame loop, input, ports, motion service, graphics, tests) with a working example, `firmware/src/apps/examples/level/`.
 - `NOTES.md`: measurements, findings and the open-items list.
 - `PLAN.md`: the current review and improvement plan.
 - `docs/MATH.md`: the maths: wind circle fit and Kalman filter, wind and temperature profile,

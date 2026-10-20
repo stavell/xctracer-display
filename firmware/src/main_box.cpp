@@ -5,6 +5,9 @@
 #include <Wire.h>
 #include <bluefruit.h>
 #include "apps/compass/compass_app.h"
+#ifdef WITH_EXAMPLES
+#include "apps/examples/level/level_app.h"
+#endif
 #include "apps/games/sim/sim_box.h"
 #include "apps/intro/intro_app.h"
 #include "apps/games/tetris/tetris_app.h"
@@ -85,7 +88,11 @@ static AppConfig appConfig() {
   return c;
 }
 // App indices in the host; the home screen lists all but itself.
-enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO };
+enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO
+#ifdef WITH_EXAMPLES
+       , APP_LEVEL                              // the example app of docs/PLATFORM.md, index = the order of host.add()
+#endif
+};
 
 // The apps that are not the start-up app share ONE RAM block (see platform/lazy_app.h): each is built when it is opened
 // and destroyed when it is left. Statically they cost 93 + 44 kB of .bss and left the image with 2 kB of heap, too little
@@ -206,6 +213,10 @@ static intro::IntroApp* makeIntro(void* mem, void*) {
   return i;
 }
 static LazyApp<intro::IntroApp> introApp(arena, "intro", makeIntro);
+#ifdef WITH_EXAMPLES                            // env feather_sense_box_examples: the Level example app, same arena (it is far smaller than the sim)
+static examples::LevelApp* makeLevel(void* mem, void*) { return new (mem) examples::LevelApp(battery, compassHw, boxSettings); }
+static LazyApp<examples::LevelApp> levelApp(arena, "level", makeLevel);
+#endif
 static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);
 static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, FW_VERSION);
 
@@ -288,6 +299,9 @@ void setup() {
   host.add(launcher);
   host.add(simApp);
   host.add(introApp);
+#ifdef WITH_EXAMPLES
+  host.add(levelApp);
+#endif
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&gameLog);
   host.setLinkGate(&laptopGate);
@@ -297,6 +311,9 @@ void setup() {
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
   registry.add("Sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
+#ifdef WITH_EXAMPLES
+  registry.add("Level", "example", "bubble level from the tilt sensor", APP_LEVEL, ICON_GENERIC, false);
+#endif
   registry.add("Settings", "setup", "compass, mounting, time", APP_SETTINGS, ICON_SETTINGS, false);
   power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION, &weather, &thermo, &baro, &retention});
   startStartupApp(true);

@@ -1,6 +1,7 @@
 # CLAUDE.md
 
 Guidance for AI agents (and humans) working in this repository. Read this before changing code.
+`docs/PLATFORM.md` is the entry point for writing a new app (and the Level example app).
 `NOTES.md` holds measurements and findings; `PLAN.md` the current improvement plan; `README.md` the
 user-facing overview.
 
@@ -49,6 +50,7 @@ right is worse than no data.
     firmware/src/apps/games/tetris/   rules, 1-bit view, TetrisApp
     firmware/src/apps/games/sim/      the flight sim (SimApp, HUD, top-down view, tilt control; SimBox = the box's build of it) on platform/gfx3d
     firmware/src/apps/intro/          the start-up animation (IntroApp: uses platform/gfx3d)
+    firmware/src/apps/examples/level/ Level: the example app of docs/PLATFORM.md (emulator only; the box builds it with -DWITH_EXAMPLES, env feather_sense_box_examples)
     firmware/src/main_vario.cpp   wiring only; one main_<image>.cpp per firmware image (main_vario: vario only,
                                   main_box: home screen + vario + Tetris + compass + Settings + sim + intro;
                                   `-DSIM_BENCH` builds the box straight into the sim with a micro-benchmark, see NOTES)

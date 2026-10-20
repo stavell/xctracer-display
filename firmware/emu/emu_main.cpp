@@ -49,6 +49,7 @@
 #include "map_page_shots.h"
 #include "intro_shots.h"
 #include "compass3d_shots.h"
+#include "level_shots.h"
 
 static void watchdog(int) {
   fputs("WATCHDOG: the emulator is stuck (infinite loop?)\n", stderr);
@@ -184,7 +185,7 @@ static void renderGray(const std::string& out, int rot) {
 static bool gCountMode = false;
 
 static int cmdShots(const std::string& out, int rot) {
-  if (!gCountMode) { ts::shots(out.c_str()); bs::shots(out.c_str()); ms::shots(out.c_str()); simshots::fixtureShots(out.c_str()); is::shots(out.c_str()); c3s::shots(out.c_str()); }
+  if (!gCountMode) { ts::shots(out.c_str()); bs::shots(out.c_str()); ms::shots(out.c_str()); simshots::fixtureShots(out.c_str()); is::shots(out.c_str()); c3s::shots(out.c_str()); levelshots::shots(out.c_str()); }
   struct Sc { const char* name; };
   const char* names[] = {"live", "nowind", "tail", "head", "big", "nofix", "status", "list", "thermal", "thermal_lost", "thermal_memory", "mag",
                          "center", "center_first", "center_none", "center_left", "center_off", "center_half", "profile", "profile_short", "profile_empty", "profile_temp", "profile_inversion", "profile_temp_only", "home", "home_unreachable", "home_provisional", "standalone", "standalone_nodata"};

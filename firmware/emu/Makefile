@@ -22,6 +22,7 @@ G3D := $P/gfx3d/glider.cpp $P/gfx3d/height_cache.cpp $P/gfx3d/air.cpp $P/gfx3d/w
 SIM := $(G3D) $M/topdown.cpp $M/sim_hud.cpp $M/sim_app.cpp
 LAUNCHER := $L/launcher_app.cpp $L/launcher_view.cpp
 INTRO := ../src/apps/intro/intro_app.cpp
+LEVEL := ../src/apps/examples/level/level_app.cpp
 COMPASS3D := ../src/apps/compass3d/compass3d.cpp ../src/apps/compass/compass_app.cpp
 SETTINGS := $S/settings_app.cpp $S/settings_view.cpp $P/settings/box_settings.cpp $P/settings/compass_cal.cpp $P/settings/cal_view.cpp
 GFX := $P/util/fastmem.cpp $P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $P/gfx/ui.cpp $P/gfx/widgets/compass_dial.cpp $P/gfx/icons.cpp $P/ui/system_sheet.cpp
@@ -49,7 +50,7 @@ define RULES
 $(foreach s,$(2),$(eval $(call RULE,$(1),$(s),$(3))))
 endef
 
-LIBSRC_SAN := $(VARIO) $(GFX) $(TETRIS) $(SIM) $(INTRO) $(COMPASS3D) $(LAUNCHER) $(SETTINGS) $(TERRAIN) $(STORAGE) $(GFXHOST)
+LIBSRC_SAN := $(VARIO) $(GFX) $(TETRIS) $(SIM) $(INTRO) $(COMPASS3D) $(LEVEL) $(LAUNCHER) $(SETTINGS) $(TERRAIN) $(STORAGE) $(GFXHOST)
 LIBSRC_O2 := $(SIM) $(INTRO) $(COMPASS3D) $(GFX) $(VARIO) $(SETTINGS) $(TETRIS) $(LAUNCHER) $(TERRAIN) $(GFXHOST)
 
 $(eval $(call RULES,san,$(LIBSRC_SAN) emu_main.cpp tests.cpp,SAN_F))
