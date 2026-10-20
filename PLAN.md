@@ -286,7 +286,10 @@ User additions (2026-10-19):
 - **A 3D compass**: done 2026-10-19 (`apps/compass3d`, NOTES "3D compass"): the Compass & weather tool opens on a glass dome with a
   perspective compass card (AHRS-driven, spring-damped, dither-shaded, 50 fps game frame mode); a short press swaps to the flat dial +
   weather page the tool had. The vario's own compass page stays the flat dial. Still to do: measure the frame time on the device (estimate
-  6.5-7 ms draw), pressure on the weather strip (the tool has no barometer reading), maybe a tilt-limit option for a box held upright.
+  6.5-7 ms draw). Done 2026-10-20: drawn card tilt eased to at most 38 deg (bubble keeps the real tilt), pressure + 3 h arrow on the strip.
+  A heading-tape flat page was tried and dropped (user prefers the flat dial).
+- **Vario heading display** (later, only if wanted): the user may want the compass tool's look on the vario's heading; the vario stays as it
+  is for now ("it is doing its job").
 - **Start-up animation**: done 2026-10-19 (`apps/intro`, NOTES "Start-up animation"); frame time and the added time to the first vario frame still to be measured on the device.
 - **Sun shading on the vario's map page**: done 2026-10-19 (see NOTES.md, "Map page: no more 1.9 s stall"); the sim's top-down map could still use the same sun.
 - Intro measured on the device (15ab75e): start 0.29 s (height fill 0.23 s), first second 44.5 fps (draw 21 ms),
