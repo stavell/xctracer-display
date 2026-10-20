@@ -35,7 +35,7 @@ I used the IGC files with GPS altitude. Sopot has pressure altitude 0, so I swap
 - The median angle error is 58-64 degrees. A 60 degree error on an arrow is a coin flip about which half-circle to shift into.
 - Following the cue gave no measurable gain (-0.33 vs -0.75 m/s is worse in both cases). That comparison is confounded, because a pilot who moves is usually in a worse bit. Only a flight with the pilot using the cue can answer it.
 - The distance error of about 40 m is larger than a typical paraglider thermal core, so the "shift by X m" number and the rings promise precision the data cannot support.
-- The rendered page (`docs/screens/center_cue.png`) is busy: ten elements, two circle trails, three overlaid rings and a lean arrow. Nothing says "flatten now, go left".
+- The rendered page (`center_cue.png` (a render in emu/out; the committed copy was removed in v1.0)) is busy: ten elements, two circle trails, three overlaid rings and a lean arrow. Nothing says "flatten now, go left".
 - The emulator's full test run also reports 2 failures (`sim_playability`, `sim_day_settings`, "ended without finishing"). They are in the flight simulator, not the vario, and may be only an artefact of my environment. I did not investigate.
 
 ## What matches good practice

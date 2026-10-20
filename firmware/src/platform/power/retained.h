@@ -1,6 +1,6 @@
 #pragma once
 // Retained state: the barometer history (WeatherLog) and the wall clock survive a restart. A copy lives in a block of
-// RAM that no start-up code clears (the device puts it in a .noinit section, platform/hw/retention_nrf.h) and, for the System
+// RAM that no start-up code clears (the device puts it in the top 4 kB page of RAM, platform/hw/retention_nrf.h) and, for the System
 // OFF of the power-off, is kept powered. Pure code: this file is the block layout, its checksum, the restore and the
 // bookkeeping; the device only decides where the block lives and which RAM stays on.
 //

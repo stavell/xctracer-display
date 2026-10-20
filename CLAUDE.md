@@ -20,7 +20,7 @@ right is worse than no data.
       gfx/       1-bit renderer: Bitmap1, gray dither, glyph atlas, font, shapes, icons, ui (title bar, rounded boxes);
                  widgets/ shared drawings (compass_dial: the heading-up dial, drawn through a DialPen)
       power/     clock sleep state machine, its screen (clock + weather station), pressure log (weather.h), retained.h (the log and the
-                 clock kept in .noinit RAM across resets and System OFF), wth_line.h (the "wth" status line)
+                 clock kept in a RAM page across resets and System OFF), pwr_log.h (the "pwr" event ring), wth_line.h (the "wth" status line)
       sensors/   compass tilt + hard-iron, AHRS, heading smoother, mount table, motion.h (MotionService: mounting + calibration + compass +
                  gyro fusion behind start() / poll(now) / stop(): heading, quaternion, tilt, accel, gyro, trust; the vario, the compass app and the
                  calibration use it, a game can)
@@ -30,7 +30,6 @@ right is worse than no data.
       settings/  BoxSettings (time zone, mounting, magnetometer calibration over the key store), CompassCal (the calibration
                  flow) and its screen: shared by the vario and the Settings app
       storage/   map pack in a NOR flash: flash port (IFlash), flash header, USB serial frames + loader state machine, pack block reader
-      power/     clock sleep (box image power off): state machine + clock screen; hw/power_nrf.cpp runs it
       util/      spsc_ring, types (Vec3, MagCal, finite-math guard), fastmem (word-wide fills / copies), hot.h (HOT_FILE_O3: per-file -O3 on the device for measured hot loops)
       hw/        generic drivers: QSPI flash + PackService (map pack, USB loader), panel, buttons (+ keymap.h for the six front buttons), battery, power, compass/thermo
                  sensors, key store (boot app, high scores, shared settings), watchdog, pins
@@ -52,7 +51,7 @@ right is worse than no data.
     firmware/src/apps/intro/          the start-up animation (IntroApp: uses platform/gfx3d)
     firmware/src/apps/examples/level/ Level: the example app of docs/PLATFORM.md (emulator only; the box builds it with -DWITH_EXAMPLES, env feather_sense_box_examples)
     firmware/src/main_vario.cpp   wiring only; one main_<image>.cpp per firmware image (main_vario: vario only,
-                                  main_box: home screen + vario + Tetris + compass + Settings + sim + intro;
+                                  main_box: home screen + vario + Tetris + compass + Settings + sim + intro (+ Level with -DWITH_EXAMPLES);
                                   `-DSIM_BENCH` builds the box straight into the sim with a micro-benchmark, see NOTES)
     firmware/emu/        PC emulator: the same platform + apps with mock ports, tests, screen renders, the PC player
                          (play.cpp: `build.sh play tetris|box`), box.h = the whole box over mocks
@@ -104,15 +103,15 @@ right is worse than no data.
 - **Measure, do not assume.** Fonts, timings and layouts were wrong every time they were guessed. Render
   screens with the emulator and look at them; time things on the device via the serial status line.
 
-- **USB bench commands.** `APP <name>` / `APP?` on the USB serial port (box image; `platform/storage/log_shell.h`, wired in
+- **USB bench commands.** `APP <name>` / `APP?`, `TIME`, `REBOOT` on the USB serial port (box image; `platform/storage/log_shell.h`, wired in
   `main_box.cpp`) open an app by registry name (launcher, vario, compass, tetris, settings, sim) through the host's normal switch
   and print the active one. They are a bench tool that needs a PC on the cable, not a gesture: the flight-safety rule above is
-  about the pilot's hands and is unchanged (no command, no menu entry and no BLE path does this). `TIME epoch tz` sets the clock.
+  about the pilot's hands and is unchanged (no command, no menu entry and no BLE path does this). `TIME epoch tz` sets the clock (`host/settime.py`), `REBOOT` saves the retained page and soft-resets.
 - **Retained RAM.** `retained::Block` (312 B) and the `pwrlog` event ring (584 B) live in the top 4 kB of RAM (`.retained`, NOBITS, at
   0x2003f000; `platformio.ini` box env: `--defsym=__StackTop`, `--section-start`; `RETAINED_NOINIT`), in `main_box.cpp` only. A `.noinit`
   low in RAM does NOT survive a reset: the Adafruit bootloader runs on every reset and rewrites it (measured, NOTES "Retention across
   resets"). The block holds the pressure log and the clock epoch with a CRC-32; `platform/hw/retention_nrf.cpp` keeps its RAM
-  sections powered in System OFF. Anything else added there needs a version bump. Survives: reset, `REBOOT`, watchdog, System OFF.
+  sections powered in System OFF. Anything else added there needs a version bump. Survives: reset, `REBOOT`, System OFF (the watchdog would too, but it is not started in either image: `watchdog::start` is disabled).
   Lost: a USB flash (DFU), battery out. The `pwr` lines at boot print the event ring (switch events, app switches, sheet acts, power
   entries) of the last run. Bench `REBOOT` saves the block and soft-resets.
 
@@ -120,9 +119,9 @@ right is worse than no data.
 
     firmware/emu/build.sh                 # emulator: all tests (sanitizers on) + screen PNGs in emu/out/
     firmware/emu/build.sh replay <lines> <outdir> [--hz 3 --inject --mix live.txt --thermal]
-    firmware/emu/build.sh play box        # the whole box on the PC in an SDL window (keys: see README, "Box on the PC")
+    firmware/emu/build.sh play box        # the whole box on the PC in an SDL window (keys: see README, "The box on the PC")
     firmware/emu/build.sh smoke           # headless scripted run of the box: launcher, vario, Tetris, tool -> emu/out/box_*.png
-    cd firmware && ../.venv/bin/pio run              # device builds: feather_sense (vario only), feather_sense_diag, feather_sense_box
+    cd firmware && ../.venv/bin/pio run              # device builds: feather_sense (vario only), feather_sense_diag, feather_sense_box (+ feather_sense_box_examples)
     scripts/flash.sh [env]                # flash over USB (default feather_sense): checks the port is free, verifies "Device programmed."
     scripts/stack_check.py                # static worst-case stack depth from loop() / setup() of the built images (needs pio run first)
 
@@ -148,7 +147,7 @@ Line files for replays: `python host/make_lines.py igc <file.igc> --start S --se
   port for uploads; a forgotten logger starved the upload and left the board stuck in the bootloader.
   Read the status for a fixed number of seconds, then close the port. Flash only with `scripts/flash.sh`.
 - Serial status (115200, only printed when a terminal is attached): `st ...` (data, timing), `dev ...`
-  (saved/connected tracer), `raw ...` (last line received), `cmp ...` (compass sensors).
+  (saved/connected tracer), `raw ...` (last line received), `cmp ...` (compass sensors, `rec=` bus recoveries), `wth ...` (pressure, battery, `log=`, `ret=`), `pwr ...` (last run's events), `gm ...` (game fps).
 - `python host/igc_replay.py <igc> --start 4185 --speed 3 --page thermal` replays a real flight.
 - After killing a replay, wait about 10 s before reconnecting (the box holds the stale connection).
 - `python host/ctl.py` sets the name filter, time zone, simulator, page, compass calibration.

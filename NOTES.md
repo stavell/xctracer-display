@@ -1,9 +1,63 @@
 # Findings, measurements and open items
 
+Contents (sections in file order; the date, where a section has one, is in its title):
+
+- Hardware facts (verified on the unit)
+- XC Tracer Mini III GPS (verified from a capture)
+- Software findings
+- Wind estimate
+- Thermal assistant
+- Testing without the device
+- Magnetic compass
+- Maths load (estimate, not yet measured on the device)
+- Fuzz, soak and clock-wrap testing (emulator)
+- Upload failure and recovery (2026-10-15)
+- Watchdog (wired in, then DISABLED: see above)
+- Power (not measured)
+- Clock sleep: power off that keeps the time (2026-10-19, emulator and builds only, NOT flashed, NOT measured)
+- Open items
+- Fast math removed every NaN check on the device (2026-10-15)
+- Drawing speed (2026-10-15, diagnostics build profiler)
+- Continuous thermal map (2026-10-16, emulator only, not yet on the device)
+- Tetris and the PC player (2026-10-16, emulator only)
+- Box: platform frame loop, launcher, stack check (2026-10-16, emulator and builds only, not flashed)
+- Terrain and map pack, step 1 (2026-10-16, pure code + host tool)
+- Terrain on the vario: AGL and the map page (2026-10-16, emulator only, not flashed)
+- Launcher refactor: home screen, Settings, shared box settings (2026-10-16, emulator and builds only, not flashed)
+- Flight simulator, step 1 (2026-10-16, emulator and builds only, not flashed)
+- Climb column and the centring page (2026-10-16, emulator and builds only, not flashed)
+- Centring page: one cue (2026-10-19, emulator only, not flashed)
+- Flight simulator: time acceleration (x1 / x3 / x5, default x3)
+- Wind EKF locked high (2026-10-17)
+- Wind: a fresh circle fit beats the EKF (2026-10-20)
+- Flight simulator: playable air, chase camera, Day settings (2026-10-17)
+- Flight simulator: clouds and thermals in the 3D view (2026-10-17)
+- RAM budget: the box image that did not boot (2026-10-18)
+- Map pack in the QSPI flash (2026-10-18)
+- Build and test time (2026-10-19)
+- Sim speed pass on the device (2026-10-19, WIP, branch worktree-agent-ad3c1ea7a384b0273)
+- CPU options pass (2026-10-19) — no board on USB, so no device timing
+- Float map maths and integer number text (2026-10-19) — PC only, no device timing
+- Map page: no more 1.9 s stall, sun-lit hillshade, paper-plane pilot (2026-10-19)
+- Sim leftovers pass (2026-10-19, device, SIM_BENCH image, x3 time, box over the Sopot map pack)
+- Start-up animation (2026-10-19)
+- Flight log and gyro dead reckoning (2026-10-19)
+- Clock setting, intro skip, sleep ring (2026-10-19)
+- 3D compass (2026-10-19, PC only, no device timing)
+- Motion service, compass app, retained RAM, bench commands (2026-10-20, PC + build checks, no device timing)
+- Wrap-up: platform/gfx3d, sim test robustness, diag heap (2026-10-20)
+- Device pass: frozen compass, self power-off, retention (2026-10-20, box image on the board)
+- Planning history moved from PLAN.md (2026-10-20)
+
+Sections are a log: later ones can supersede earlier ones, and a superseded section says so in its first line.
+
 What was learned while building this, so it does not have to be rediscovered. The README says what the
 project is and how to run it; this file says what we found and why things are the way they are.
 
 ## Hardware facts (verified on the unit)
+
+Superseded in part (2026-10-20): the sensors are used now (compass, thermometer, barometer in the box image) and the sizes in the last line are
+the 2026-10-15 ones; current RAM and flash are in "RAM budget" and the build output.
 
 - Board: Feather nRF52840 Sense. I2C scan found all five sensors (0x1C LIS3MDL, 0x39 APDS9960, 0x44 SHT30,
   0x6A LSM6DS33, 0x77 BMP280). The sensors are unused by the vario firmware; the old sensor dashboard
@@ -138,6 +192,8 @@ project is and how to run it; this file says what we found and why things are th
 
 ## Maths load (estimate, not yet measured on the device)
 
+Superseded by the measured numbers in "Drawing speed" and "Sim speed pass on the device" (2026-10-20).
+
 - The Cortex-M4F has a single-precision FPU; `double` is software (about 10-30x slower). `double` is used in
   the wind fit, the thermal finder and memory, the flight model's lat/lon arithmetic and the parser's `atof`.
   Everything drawn is `float`.
@@ -196,6 +252,8 @@ project is and how to run it; this file says what we found and why things are th
 
 ## Watchdog (wired in, then DISABLED: see above)
 
+State on 2026-10-20: `watchdog::start` is not called in either image (`main_vario.cpp` has it commented out); only `feed()` runs.
+
 - 8 s nRF52 WDT, started right after the power-on gate, fed every loop iteration and inside the power-off
   waits. Once started it cannot be stopped and it survives soft resets; the Adafruit bootloader feeds a
   running WDT in its DFU wait loop (checked in its source), so USB uploads should keep working.
@@ -221,6 +279,9 @@ project is and how to run it; this file says what we found and why things are th
 
 ## Clock sleep: power off that keeps the time (2026-10-19, emulator and builds only, NOT flashed, NOT measured)
 
+Superseded in part (2026-10-20): the clock reads `--:--` after 30 days without a time, not 12 h (`platform/clock.h`); the history and the clock now
+survive resets and System OFF ("Device pass: frozen compass, self power-off, retention"); "lost at reset / System OFF" below is the old state.
+
 Design. The box image's power-off (the 3 s hold) is two steps (the Settings "Power off" row and its slot are gone; the slot stays reserved as
 `SLOT_POWER_MODE_UNUSED`): it no longer enters System OFF at once, but starts the clock sleep; holding on 3 s more
 (`ClockSleep::kOffHoldMs`, counted from the start of the sleep, i.e. after the ~1 s radio stop; a 12-step bar under the clock, `clockview::countdown`) goes to System OFF.
@@ -236,7 +297,7 @@ loop restarts the start-up app, with the intro (`PowerNrf::takeResumed()` -> `st
   and after a tap; with unknown time it only looks once a minute. A press must last 1 s to wake (the same anti-pocket rule as
   `gateOnWake`); the hold that powered off must be released first. Battery at or below 2 % on two readings 2 s apart ->
   System OFF (the battery is read about once a minute and on a tap; the percent table puts 2 % near 3.4 V).
-- Screen (`platform/power/clock_view.h`, redesigned as an e-paper desk clock, see docs/screens/sleep_station_sheet.png): 12 px margins, hairlines between three blocks.
+- Screen (`platform/power/clock_view.h`, redesigned as an e-paper desk clock, see the sleep_station_* renders in emu/out): 12 px margins, hairlines between three blocks.
   Hero time in round-capped stroke numerals (`platform/gfx/strokes.h`: a disc stamped along lines and arcs, geometric sans, 13 px stroke, 44 x 99 px per numeral, tabular cells, colon = two dots); `--:--` as dashes when the time is unknown or older than 12 h (staleness rule of `clock.h`). Battery: outline with a level, no digits.
   Small text uses the shared Font1 cache (Sans 9, SansBold 12, and SansBold 18 built by this screen only).
 - Device wait (`power_nrf.cpp`): `ulTaskNotifyTake` with a timeout on the loop task, woken by a GPIOTE interrupt on the switch
@@ -277,6 +338,8 @@ Open risks: GPIOTE wake and tickless idle under Bluefruit are untested on the ha
 edge, the 20 ms poll after the next wake still catches a hold; `radios_.resume()` restarts only the laptop advertising.
 
 ## Open items
+
+Superseded by PLAN.md "Open / needs hardware" and "Parked ideas" (2026-10-20). The list below is the 2026-10-15 state.
 
 1. Verify the tracer's speed unit and behaviour with a real GPS fix, outdoors.
 2. Auto-switch to the thermal page while circling (the Maxx does this; about 16 s back to the main page).
@@ -613,7 +676,7 @@ the climb so far. The core maths stayed.
 **What the page shows (no words):** heading up, the centre of the newest turn in the middle; the last two turns, thick where it climbed;
 a bead at the best lift of the turn; the core as a target and a fat arrow centre to core (length = distance); dotted rings 25 / 50 m;
 the climb now (number), a gauge (bar turn average, diamond best, triangle now); lean arrow (length = tilt); trend glyph; strength-by-height bars.
-It needs two full turns (about 50 s): after one turn the cue is too often a circle that is not one. Screens: `docs/screens/center_cue.png`,
+It needs two full turns (about 50 s): after one turn the cue is too often a circle that is not one. Screens: `center_cue.png` (a render in emu/out; the committed copy was removed in v1.0),
 `center_sequence.png` (SVE climb from 4185 s, Sopot climb), scenarios `center*` in `build.sh`.
 
 **Real climbs** (SVE flight from `--start 4185`, Sopot `--start 1100` and `3100`, Sopot with the GPS altitude since its pressure altitude is 0):
@@ -663,7 +726,7 @@ from the circle centre, quantised in the air frame, so the wedge turns round the
 is the number underneath. Removed from the page: lean arrow, strength-by-height bars, climb gauge, trend glyph, the older turn's trail, the 25 / 50 m rings,
 the shift distance and the fat arrow, the wind arrow. Their maths stays in `thermal3d` (lean, bands, trend, tests); the Profile page is the wind profile, so
 there was no place to move them to: they are dropped from the display, not relocated. Ink at a glance: ring, wedge, triangle, one number (was about ten
-elements). Frames: `center_off` (circling 24 m off the core), `docs/screens/center_cue.png`, `center_sequence.png` (the SVE climb, one frame per 2-4 s).
+elements). Frames: `center_off` (circling 24 m off the core), `center_cue.png` (a render in emu/out; the committed copy was removed in v1.0), `center_sequence.png` (the SVE climb, one frame per 2-4 s).
 
 **Estimate (2):** walk back from the newest point along the circling run in progress (turn rate >= 4 deg/s, 8 s gaps bridged); from 180 degrees of
 turn on, use all of the run up to one full turn (the newest 360 degrees afterwards). A part of a turn has its circle centre fitted (Kasa least squares,
@@ -929,7 +992,7 @@ methods as step 1, `build.sh simbench`): renderer unchanged 12.3 ms (cycle count
 ## Flight simulator: clouds and thermals in the 3D view (2026-10-17)
 
 User: "can we have the thermals visible in the 3D mode?" `sim/sky3d.*` (`SkyFx`), `Air::columns` / `columnPoint` (`ColumnInfo`), a depth buffer in
-`VoxelView`. Renders: `docs/screens/sim_thermal_styles.png` (contact sheet: approaching a thermal at 2.3 km and circling in it, assist off and the
+`VoxelView`. Renders: `sim_thermal_styles.png` (a render in emu/out; the committed copy was removed in v1.0) (contact sheet: approaching a thermal at 2.3 km and circling in it, assist off and the
 three styles), `sim_clouds_approach.png`, `sim_thermal_approach_bubbles.png`; `build.sh simdemo [PACK] [OUTDIR]` makes them (real pack),
 `build.sh simtests [sky_fx]` runs the sim tests alone in seconds (no sanitizers).
 
@@ -1364,7 +1427,7 @@ Not flashed: the device has the user's clock set.
 
 PC player: arrows tilt the virtual box, `0` levels it, `T` = mouse tilt, `,` `.` / wheel turn it; the mock compass has a gyro that follows the scripted
 orientation (`MockCompass::gyroFromMotion`, needs `nowMs` from `Box::tick`), otherwise the zero-rate mock gyro makes the AHRS lag seconds behind.
-`build.sh` writes `out/compass3d_*.png` and the sheet `out/compass3d_sheet.png` (copy: `docs/screens/compass3d_sheet.png`); `out/emu c3shots out` renders only these.
+`build.sh` writes `out/compass3d_*.png` and the sheet `out/compass3d_sheet.png`; `out/emu c3shots out` renders only these.
 Lessons: a mock gyro that returns exactly 0 trips the AHRS stuck-gyro guard (80 identical samples) - the first renders showed dashes; the dome's glass highlight
 has to be white strokes on the dark liquid, on the pale card it would not show.
 
@@ -1427,3 +1490,29 @@ has to be white strokes on the dark liquid, on the pale card it would not show.
   without a magnetometer sample, resets the bus (`Wire.end/begin`) and configures the chips again; the `cmp` line shows `rec=N`
   (recoveries; 0 in all runs here). If the freeze comes back, `rec` > 0 means it was the bus and it healed, `rec=0` with a frozen line means
   the vario was not being ticked.
+
+## Planning history moved from PLAN.md (2026-10-20)
+
+PLAN.md is now a short status page. What the older plan held that is not recorded elsewhere in this file:
+
+- **First review (commit `7f3aea1`, 2026-10-15).** High findings: no watchdog (a hung loop leaves stale numbers on a memory LCD that keeps the
+  last frame; wired in, then disabled, see "Watchdog"); laptop frame drawing ran in the BLE callback task and wrote the shared framebuffer
+  (now: decode into a private buffer, the loop copies on FLUSH). Medium: callback-to-loop queues with `volatile` indices only (now
+  `util/spsc_ring.h`), `Bluefruit.Scanner` driven from two tasks (the scan callback now only queues reports, the loop merges and connects),
+  slow reconnect on the low-duty scan (planned: full duty for 30 s after a disconnect), pure logic inside BLE adapters (moved to `core/devmatch`,
+  `app/command_decode`), benchmarks in the production image (now only `feather_sense_diag`), config files rewritten by remove-then-write
+  (now temp file and rename). All done and merged; the fuzz found five real bugs ("Fuzz, soak and clock-wrap testing").
+- **Multi-use box (2026-10-16).** One tree, two kinds of image: the vario alone (no game code, less to go wrong in the air) and the box.
+  The firmware-switching idea (UF2 drag and drop, a "Switch firmware" item calling `enterUf2Dfu()`, BLE OTA later) was not built: the box
+  image holds all the apps in one firmware; the apps are chosen on the home screen and the start-up app in Settings.
+- **Games at the maximum frame rate (user rule, 2026-10-16).** 20 ms per frame (50 fps) is the target, not higher, and no power-saving cadence
+  while a game runs. It fits the pipeline: a full frame is 12.5 KB, about 13 ms at 8 MHz SPI, overlapped with drawing by DMA, so no faster
+  SPI clock is needed; the next frame starts as soon as the previous transfer is done (`IPanel::ready()`).
+- **Sim orientation (decided 2026-10-16): portrait.** Thumbs on D-pad and A / B as the case is built; voxel cost scales with columns (240
+  against 400) and a portrait screen column is a contiguous native row (byte writes); same orientation as the vario pages; about 70 degrees
+  horizontal field of view; bank from the gravity direction in the screen plane.
+- **Clock sleep idea (2026-10-16).** The memory LCD holds its picture at zero power, so "off" can be a clock. The RTC stops in System OFF, so
+  the 3 s gesture became a clock sleep in System ON with System OFF behind a longer hold; see "Clock sleep".
+- **Thermal assistant review** is in `docs/thermal_review.md`; the user observed that the tracer's vario reacts instantly on the box, so a
+  local BMP280 + accelerometer vario was dropped (the onboard sensors remain a candidate for gyro circle phase only).
+- **Terrain steps (2026-10-16 to 18):** map pack format and writer, pure terrain code, AGL and map page, QSPI pack storage; the XIP option was not taken (the reader uses the QSPI driver).

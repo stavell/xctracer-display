@@ -66,7 +66,7 @@ static ThermoSht thermo;
 static BaroBmp baro;                          // the board barometer: only the sleeping clock reads it
 static WeatherLog weather;                    // 24 h pressure history (288 B), sampled awake and asleep
 // A copy of the history and the clock in RAM that start-up does not clear and System OFF keeps powered (platform/power/retained.h):
-// they survive a reset, the watchdog and the power-off. 312 B of .noinit, between .bss and the heap.
+// they survive a reset and the power-off. 312 B in the retained page at the top of RAM (platformio.ini).
 static retained::Block retainedBlock RETAINED_NOINIT;
 static retained::Retention retention(retainedBlock);
 static_assert(sizeof(retained::Block) + sizeof(pwrlog::Ring) + 64 <= 4096, "the retained RAM page (platformio.ini: .retained at 0x2003f000) is 4 kB");

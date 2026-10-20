@@ -22,7 +22,7 @@ the emulator and the PC player run the same host.
 | `name()` | the name `APP <name>` and the registry use |
 | `begin(now)` / `end()` | become / stop being the active app. Start sensors in `begin`, stop them in `end` (power) |
 | `tick(now)` | every host iteration: poll sensors, run state machines. No drawing |
-| `onInput(key, ev)` | the switch: `BTN_SHORT` and `BTN_LONG` on release (long = 0.7 s). `BTN_HOLD` only if `handlesHold()` |
+| `onInput(key, ev)` | the switch: `BTN_SHORT` and `BTN_LONG` on release (long = 0.7 to 1.5 s; a release between 1.5 and 3 s is cancelled). `BTN_HOLD` only if `handlesHold()` |
 | `onKey(key, down, ms)` | key edges of the six buttons (and of the switch as `KEY_MAIN`) for held keys, auto-repeat |
 | `onHeld(ms)` | how long the switch has been down |
 | `wantsFrame(now)` / `draw(bm, gfx, now)` | change-driven drawing: say when a frame is needed, draw it on a white canvas |
@@ -71,7 +71,7 @@ deliberate gesture leaves the start-up app; never open the launcher on a plain p
 `IconId` list in `platform/gfx/icons.h`; `ICON_GENERIC` serves until you draw one. At most 8 apps (`AppHost::MAX_APPS`,
 `AppRegistry::MAX`). The AppHost, not the registry, owns the list.
 
-**RAM rules.** The box links with about 76 kB of heap and FreeRTOS lives on it; below 48 kB `scripts/ram_check.py` fails the build.
+**RAM rules.** The box links with about 72 kB of heap and FreeRTOS lives on it; below 48 kB `scripts/ram_check.py` fails the build.
 So no app is a static object. Apps live in **one `AppArena`** (`platform/lazy_app.h`) sized for the largest of them
 (`maxSize(sizeof(A), maxSize(...))` in `main_box.cpp`); `LazyApp<T>` constructs `T` in the arena in `begin()` and destroys it in
 `end()`. Consequences: your state starts afresh at every open (keep what must last in the key store / `BoxSettings`); what must
@@ -124,8 +124,8 @@ The flight sim has an older `sim::AccelTilt` (upright box = zero, own smoothing)
 **WeatherLog** (`platform/power/weather.h`): 24 h of barometric pressure, one sample per 10 min, plus the 3 h tendency and a
 forecast class; sampled by the main loop, shown by the clock sleep and the compass app. **Wall clock** (`platform/clock.h`):
 time of day and date from the tracer's GPS or `TIME` from the PC; reads "unknown" after 30 days, never a made-up time.
-**Retained state** (`platform/power/retained.h`): the pressure log and the clock survive reset, USB flash and System OFF in a RAM
-block (the device places it in `.noinit`); not battery removal. **BoxSettings** (`platform/settings/box_settings.h`): time zone,
+**Retained state** (`platform/power/retained.h`): the pressure log and the clock survive reset, `REBOOT` and System OFF in a RAM
+page at the top of RAM (`.retained`, 0x2003f000, taken from the heap by `platformio.ini`; a `.noinit` low in RAM is rewritten by the bootloader on every reset); not a USB flash (DFU) and not battery removal. **BoxSettings** (`platform/settings/box_settings.h`): time zone,
 case mounting (0..23), magnetometer calibration, intro on/off, over the key store; Settings owns the editing, you read.
 **ILinkGate**: see above; implemented in `main_box.cpp`, nothing for an app to do.
 
@@ -181,10 +181,10 @@ Portrait 240x400. The canvas is white when `draw` starts; ink is `DRAW_CLEAR` (b
   `emu/level_tests.h`, which checks cadence (`host.stats()`), input, the sheet and that `end()` switches sensors off.
 - Screens: write the app's view as a scenario in `emu/emu_main.cpp` (see `emu/level_shots.h`); render and **look at the PNG**.
 - `firmware/emu/build.sh smoke` runs the whole box headless (launcher, vario, Tetris, tools); `build.sh play box` plays it on the PC
-  in an SDL window (keys in the README, "Box on the PC").
+  in an SDL window (keys in the README, "The box on the PC").
 - Device bench, over the USB serial of a flashed box (no Bluetooth needed): `APP <name>` / `APP?` enter an app by name through
-  the host's normal switch; `TIME <epoch> <tz minutes>` sets the clock (`host/settime.py`); a status line `gm ...` per second while a game
-  runs and `wth ...` every 5 s (pressure, temperature, battery, retention) while a terminal is attached. Read the port for a fixed number of
+  the host's normal switch; `TIME <epoch> <tz minutes>` sets the clock (`host/settime.py`); `REBOOT` saves the retained page and soft-resets; status lines while a terminal is attached: `gm ...` per second while a game
+  runs, `wth ...` every 5 s (pressure, temperature, battery, `log=` samples, `ret=` none / ok / crc), `pwr ...` at boot (the last run's event ring, `platform/power/pwr_log.h`), `cmp ... rec=N` (compass bus recoveries). Read the port for a fixed number of
   seconds and close it; never leave a reader running, the bootloader needs the port. Flash only with `scripts/flash.sh`.
 - `scripts/check.sh`: emulator tests, the box smoke run, every device image in `platformio.ini`, the stack check and the RAM
   check. Run it before every commit.
@@ -209,8 +209,8 @@ image by the `WITH_EXAMPLES` blocks of `src/main_box.cpp`.
    order of `host.add`); a `make<Name>(mem, ctx)` that does `new (mem) T(ports...)` and `static LazyApp<T> nameApp(arena, "name", make...)`
    after `introApp`; `host.add(nameApp)`; `registry.add("Name", "sub", "one line", APP_NAME, ICON_GENERIC, false)`. If `sizeof(T)` is
    bigger than the arena, add it to the `maxSize(...)` chain of `kArenaBytes`. Add the app's folder to `build_src_filter` in
-   `platformio.ini`. `pio run -e feather_sense_box_examples` builds exactly this for Level (`-DWITH_EXAMPLES`): .heap 75668 bytes vs
-   75700 for the plain box: the app costs 32 bytes of static RAM (its LazyApp), the rest is code in flash. Run `scripts/ram_check.py` after every such change.
+   `platformio.ini`. `pio run -e feather_sense_box_examples` builds exactly this for Level (`-DWITH_EXAMPLES`): .heap 71872 bytes vs
+   71904 for the plain box: the app costs 32 bytes of static RAM (its LazyApp), the rest is code in flash. Run `scripts/ram_check.py` after every such change.
 8. **Check and measure**: `scripts/check.sh`, then on the device read the `gm` line (fps, dropped, draw ms) for a game, and
    note measurements in `NOTES.md`. Settings-like data goes in a `StoreSlot`, not in the app.
 
