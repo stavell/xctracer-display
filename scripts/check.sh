@@ -104,8 +104,6 @@ if ! "$ROOT/.venv/bin/python" "$ROOT/scripts/ram_check.py"; then
   exit 1
 fi
 
-echo
-echo "CHECK OK: emulator tests 0 failures, box smoke run, device builds succeeded, stack check and RAM budget passed"
 
 echo
 echo "=== host: serial port detection ==="
@@ -113,3 +111,5 @@ if ! "$ROOT/.venv/bin/python" "$ROOT/host/test_find_port.py"; then
   echo "FAIL: host/test_find_port.py"
   exit 1
 fi
+echo
+echo "CHECK OK: emulator tests 0 failures, box smoke run, device builds succeeded, stack check, RAM budget and host port test passed"
