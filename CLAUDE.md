@@ -15,6 +15,7 @@ right is worse than no data.
 ## Layout
 
     firmware/src/platform/   reusable by every app (pure code compiles on the PC, only hw/ touches hardware)
+      gfx3d/     shared 3D library (namespace gfx3d): voxel terrain renderer, height cache + TerrainSource, sky/clouds, chase camera, Air, Glider, World, takeoff table; used by the sim and the intro, which never include each other
       gfx/       1-bit renderer: Bitmap1, gray dither, glyph atlas, font, shapes, icons, ui (title bar, rounded boxes)
       power/     clock sleep state machine, its screen (clock + weather station), pressure log (weather.h)
       sensors/   compass tilt + hard-iron, AHRS, heading smoother, mount table
@@ -42,8 +43,8 @@ right is worse than no data.
     firmware/src/apps/launcher/   the home screen (LauncherApp: status bar, icon grid, footer)
     firmware/src/apps/settings/   the Settings app (compass calibration, mounting, start-up app, intro, time zone, power off, About)
     firmware/src/apps/games/tetris/   rules, 1-bit view, TetrisApp
-    firmware/src/apps/games/sim/      the flight sim (World, Air, HeightCache, VoxelView, SkyFx, ChaseCam, SimApp; SimBox = the box's build of it)
-    firmware/src/apps/intro/          the start-up animation (IntroApp: reuses the sim's renderer pieces through their public APIs)
+    firmware/src/apps/games/sim/      the flight sim (SimApp, HUD, top-down view, tilt control; SimBox = the box's build of it) on platform/gfx3d
+    firmware/src/apps/intro/          the start-up animation (IntroApp: uses platform/gfx3d)
     firmware/src/main_vario.cpp   wiring only; one main_<image>.cpp per firmware image (main_vario: vario only,
                                   main_box: home screen + vario + Tetris + compass tool + Settings + sim + intro;
                                   `-DSIM_BENCH` builds the box straight into the sim with a micro-benchmark, see NOTES)

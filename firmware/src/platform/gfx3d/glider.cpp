@@ -1,8 +1,8 @@
 #include "platform/util/hot.h"
 HOT_FILE_O3
-#include "apps/games/sim/glider.h"
+#include "platform/gfx3d/glider.h"
 
-namespace sim {
+namespace gfx3d {
 
 namespace {
 struct Pt { float kmh, sink; };
@@ -92,4 +92,4 @@ void Glider::step(const Controls& c, float wx, float wy, float wz, float dt, flo
   z += vz * dt;
 }
 
-}  // namespace sim
+}  // namespace gfx3d

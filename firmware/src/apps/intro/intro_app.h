@@ -15,11 +15,11 @@
 // within a radius of the takeoff (cells beyond it are a flat skirt that costs no pack access), see kFillRadiusM.
 //
 // Memory: an arena app (platform/lazy_app.h) of about the sim's size; destroyed (and its fonts freed) before the start-up app is built.
-#include "apps/games/sim/chase.h"
-#include "apps/games/sim/sky3d.h"
-#include "apps/games/sim/terrain_source.h"
-#include "apps/games/sim/voxel.h"
-#include "apps/games/sim/world.h"
+#include "platform/gfx3d/chase.h"
+#include "platform/gfx3d/sky3d.h"
+#include "platform/gfx3d/terrain_source.h"
+#include "platform/gfx3d/voxel.h"
+#include "platform/gfx3d/world.h"
 #include "platform/app_host.h"
 #include "platform/gfx/font.h"
 #include "platform/terrain/terrain.h"
@@ -27,9 +27,9 @@
 namespace intro {
 
 // Heights of the sim's local frame inside a square of half-width `r` around the takeoff from `inner`, a flat `skirt` outside.
-class WindowSource : public sim::IHeightSource {
+class WindowSource : public gfx3d::IHeightSource {
  public:
-  void set(sim::IHeightSource* inner, float r, float skirt) { in_ = inner; r_ = r; skirt_ = skirt; }
+  void set(gfx3d::IHeightSource* inner, float r, float skirt) { in_ = inner; r_ = r; skirt_ = skirt; }
   bool at(float x, float y, float* h) override {
     if (x > r_ || x < -r_ || y > r_ || y < -r_) { *h = skirt_; return true; }
     return in_ && in_->at(x, y, h);
@@ -37,7 +37,7 @@ class WindowSource : public sim::IHeightSource {
   uint32_t cost() const override { return in_ ? in_->cost() : 0; }
 
  private:
-  sim::IHeightSource* in_ = nullptr;
+  gfx3d::IHeightSource* in_ = nullptr;
   float r_ = 0, skirt_ = 0;
 };
 
@@ -76,12 +76,12 @@ class IntroApp : public IApp {
   int stepsDone() const { return steps_; }
   bool finished() const { return done_; }
   bool skipped() const { return skipped_; }
-  int site() const { return site_; }                       // index in sim::kTakeoffs, -1 in FLAT mode
+  int site() const { return site_; }                       // index in gfx3d::kTakeoffs, -1 in FLAT mode
   uint32_t beginUs() const { return beginUs_; }            // time spent in begin() (fill + scene search), 0 without a clock
   uint32_t fillUs() const { return fillUs_; }
   // Scripted state, for tests and the contact sheet.
-  const sim::Glider& glider() const { return g_; }
-  const sim::World& world() const { return world_; }
+  const gfx3d::Glider& glider() const { return g_; }
+  const gfx3d::World& world() const { return world_; }
   float cloudBaseM() const { return world_.air().cloudBase(); }
 
  private:
@@ -102,15 +102,15 @@ class IntroApp : public IApp {
   ClockUs clk_ = nullptr;
 
   // scene
-  sim::TerrainSource src_;
+  gfx3d::TerrainSource src_;
   WindowSource win_;
-  sim::World world_;                    // the height cache and the air only
-  sim::VoxelView voxel_;
-  sim::SkyFx sky_;
-  sim::ChaseCam chase_;
-  sim::Glider g_;
-  sim::ColumnInfo col_;
-  sim::ColumnInfo cand_[sim::Air::kMaxInfo];     // the thermals found while picking the scene
+  gfx3d::World world_;                    // the height cache and the air only
+  gfx3d::VoxelView voxel_;
+  gfx3d::SkyFx sky_;
+  gfx3d::ChaseCam chase_;
+  gfx3d::Glider g_;
+  gfx3d::ColumnInfo col_;
+  gfx3d::ColumnInfo cand_[gfx3d::Air::kMaxInfo];     // the thermals found while picking the scene
   int site_ = -1;
   float tScene_ = 0;                    // sim day time at step 0
   float zStart_ = 0, zEnd_ = 0, theta0_ = 0;

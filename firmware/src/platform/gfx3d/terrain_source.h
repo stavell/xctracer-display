@@ -1,10 +1,10 @@
 #pragma once
 // The sim's local metres over the map pack: x east, y north of a takeoff (lat0, lon0).
 #include <math.h>
-#include "apps/games/sim/height_cache.h"
+#include "platform/gfx3d/height_cache.h"
 #include "platform/terrain/terrain.h"
 
-namespace sim {
+namespace gfx3d {
 
 class TerrainSource : public IHeightSource {
  public:
@@ -34,4 +34,4 @@ class TerrainSource : public IHeightSource {
   float e7PerM_ = 0, e7PerMLon_ = 0;
 };
 
-}  // namespace sim
+}  // namespace gfx3d

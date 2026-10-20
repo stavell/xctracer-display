@@ -5,7 +5,7 @@
 // reason to correct the table. windFrom is a typical flying wind for the site (the way the slope faces).
 #include <stdint.h>
 
-namespace sim {
+namespace gfx3d {
 
 struct Takeoff {
   const char* name;
@@ -29,4 +29,4 @@ constexpr Takeoff kTakeoffs[] = {
 };
 constexpr int kTakeoffCount = sizeof kTakeoffs / sizeof kTakeoffs[0];
 
-}  // namespace sim
+}  // namespace gfx3d

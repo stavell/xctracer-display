@@ -23,10 +23,10 @@
 //
 // General sink: 0.5 - 1.0 m/s (seeded) between thermals, reduced inside a thermal's core.
 #include <stdint.h>
-#include "apps/games/sim/height_cache.h"
-#include "apps/games/sim/sim_math.h"
+#include "platform/gfx3d/height_cache.h"
+#include "platform/gfx3d/sim_math.h"
 
-namespace sim {
+namespace gfx3d {
 
 struct AirSample {
   float wx = 0, wy = 0;          // wind, m/s (east, north)
@@ -151,4 +151,4 @@ class Air {
   mutable Active scratch_[kMaxActive];
 };
 
-}  // namespace sim
+}  // namespace gfx3d

@@ -10,12 +10,12 @@
 //
 // With tilt steering the horizon counter-rotates by the box roll (a window onto the real sky); the camera roll is then the
 // box roll and the sprite shows the bank relative to it.
-#include "apps/games/sim/glider.h"
-#include "apps/games/sim/height_cache.h"
-#include "apps/games/sim/voxel.h"
+#include "platform/gfx3d/glider.h"
+#include "platform/gfx3d/height_cache.h"
+#include "platform/gfx3d/voxel.h"
 #include "platform/gfx/bitmap1.h"
 
-namespace sim {
+namespace gfx3d {
 
 class ChaseCam {
  public:
@@ -43,4 +43,4 @@ class ChaseCam {
   float heading_ = 0, roll_ = 0;
 };
 
-}  // namespace sim
+}  // namespace gfx3d

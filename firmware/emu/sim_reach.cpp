@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 #include "sim_reach.h"
-#include "apps/games/sim/terrain_source.h"
+#include "platform/gfx3d/terrain_source.h"
 #include "platform/terrain/terrain.h"
 
 static terrain::FullTerrain gTerrain;

@@ -1,11 +1,11 @@
 #include "platform/util/hot.h"
 HOT_FILE_O3
-#include "apps/games/sim/sky3d.h"
+#include "platform/gfx3d/sky3d.h"
 #include <math.h>
-#include "apps/games/sim/sim_math.h"
+#include "platform/gfx3d/sim_math.h"
 #include "platform/gfx/shapes.h"
 
-namespace sim {
+namespace gfx3d {
 
 struct SkyFx::Pj {                                   // the chase camera's projection (as ChaseCam::project), set up once per frame
   float fx, fy, f, cx, hz, tr, x, y, z;
@@ -326,4 +326,4 @@ void SkyFx::draw(const Bitmap1& bm, const VoxelView& vv, const Air& air, const G
   }
 }
 
-}  // namespace sim
+}  // namespace gfx3d

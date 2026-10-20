@@ -27,14 +27,15 @@
 //   Buttons: as above (D-pad). The tilt source is an ITilt: the AHRS on the device, the mouse in the PC player (T).
 #include <new>
 #include <stdint.h>
-#include "apps/games/sim/chase.h"
+#include "platform/gfx3d/chase.h"
+#include "apps/games/sim/gfx3d_use.h"
 #include "apps/games/sim/sim_hud.h"
-#include "apps/games/sim/sky3d.h"
-#include "apps/games/sim/terrain_source.h"
+#include "platform/gfx3d/sky3d.h"
+#include "platform/gfx3d/terrain_source.h"
 #include "apps/games/sim/tilt.h"
 #include "apps/games/sim/topdown.h"
-#include "apps/games/sim/voxel.h"
-#include "apps/games/sim/world.h"
+#include "platform/gfx3d/voxel.h"
+#include "platform/gfx3d/world.h"
 #include "platform/app_host.h"
 
 namespace sim {

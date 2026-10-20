@@ -13,9 +13,9 @@
 //
 //   A cell the source cannot give (outside the pack) reads as 0 m: this is a game, nothing is flown on it.
 #include <stdint.h>
-#include "apps/games/sim/sim_math.h"
+#include "platform/gfx3d/sim_math.h"
 
-namespace sim {
+namespace gfx3d {
 
 // Terrain elevation in the sim's local metres. Implemented over terrain::Terrain on the box and by analytic
 // surfaces in the tests.
@@ -98,4 +98,4 @@ class HeightCache {
   RefreshStats rs_;
 };
 
-}  // namespace sim
+}  // namespace gfx3d

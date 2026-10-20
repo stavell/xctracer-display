@@ -1,6 +1,6 @@
-#include "apps/games/sim/world.h"
+#include "platform/gfx3d/world.h"
 
-namespace sim {
+namespace gfx3d {
 
 void World::place(float x, float y, float aglStart, float headingDeg) {
   float gh = 0;
@@ -134,4 +134,4 @@ void World::step(const Controls& c, float dt, int cacheBudget) {
   }
 }
 
-}  // namespace sim
+}  // namespace gfx3d

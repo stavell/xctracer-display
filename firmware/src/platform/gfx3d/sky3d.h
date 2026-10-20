@@ -16,12 +16,12 @@
 //
 // Budget: the cost is estimated from the geometry before drawing (cycles on the M4F); over the budget the detail drops (coarser
 // columns, fewer segments and bubbles), then the farthest elements are left out. Deterministic (hash of the thermal id).
-#include "apps/games/sim/air.h"
-#include "apps/games/sim/glider.h"
-#include "apps/games/sim/voxel.h"
+#include "platform/gfx3d/air.h"
+#include "platform/gfx3d/glider.h"
+#include "platform/gfx3d/voxel.h"
 #include "platform/gfx/bitmap1.h"
 
-namespace sim {
+namespace gfx3d {
 
 class SkyFx {
  public:
@@ -66,4 +66,4 @@ class SkyFx {
   int16_t top_[VoxelView::kW / 2 + 2];
 };
 
-}  // namespace sim
+}  // namespace gfx3d

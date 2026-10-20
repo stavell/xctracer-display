@@ -10,12 +10,12 @@
 // Landing: the glider touches the terrain model (z <= ground + 0.3 m). LANDED when it comes down at <= 4.5 m/s
 // on ground not steeper than 35 degrees, CRASHED otherwise; the flight is over then (step() does nothing more).
 #include <stdint.h>
-#include "apps/games/sim/air.h"
-#include "apps/games/sim/glider.h"
-#include "apps/games/sim/height_cache.h"
-#include "apps/games/sim/takeoffs.h"
+#include "platform/gfx3d/air.h"
+#include "platform/gfx3d/glider.h"
+#include "platform/gfx3d/height_cache.h"
+#include "platform/gfx3d/takeoffs.h"
 
-namespace sim {
+namespace gfx3d {
 
 enum class Status : uint8_t { FLYING, LANDED, CRASHED };
 
@@ -108,4 +108,4 @@ class World {
   StepProf prof_;
 };
 
-}  // namespace sim
+}  // namespace gfx3d

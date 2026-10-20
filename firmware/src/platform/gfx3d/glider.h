@@ -10,9 +10,9 @@
 //   Speed: the target airspeed is trim + bar * (max - trim) - brake * (trim - slow); the airspeed follows it with
 //   a lag of 1.2 s. Below the stall speed (26 km/h * sqrt(n)) the wing stalls: heavy sink, the warning flag, and
 //   it recovers when the brake is released and the speed is back above the stall speed + 3 km/h.
-#include "apps/games/sim/sim_math.h"
+#include "platform/gfx3d/sim_math.h"
 
-namespace sim {
+namespace gfx3d {
 
 struct Polar {
   static constexpr float kStallKmh = 26.0f;
@@ -63,4 +63,4 @@ struct Glider {
   void step(const Controls& c, float wx, float wy, float wz, float dt, float rollKick = 0.0f);
 };
 
-}  // namespace sim
+}  // namespace gfx3d

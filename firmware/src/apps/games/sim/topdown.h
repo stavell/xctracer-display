@@ -14,7 +14,8 @@
 // Pixels: hillshade from the cache's precomputed shade (bilinear), contour lines every 200 m (index line every 1000 m,
 // drawn 2 px wide) from the interpolated height. North is up in the picture when the heading is 0.
 #include <stdint.h>
-#include "apps/games/sim/height_cache.h"
+#include "apps/games/sim/gfx3d_use.h"
+#include "platform/gfx3d/height_cache.h"
 #include "platform/gfx/bitmap1.h"
 
 namespace sim {
