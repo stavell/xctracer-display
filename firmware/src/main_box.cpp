@@ -22,6 +22,8 @@
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
 #include "platform/hw/game_log.h"
+#include "platform/pet/pet_feed.h"
+#include "platform/pet/pet_status.h"
 #ifdef SIM_BENCH
 #include "platform/hw/mbench.h"
 #endif
@@ -71,7 +73,11 @@ static retained::Block retainedBlock RETAINED_NOINIT;
 static retained::Retention retention(retainedBlock);
 static_assert(sizeof(retained::Block) + sizeof(pwrlog::Ring) + 64 <= 4096, "the retained RAM page (platformio.ini: .retained at 0x2003f000) is 4 kB");
 static TracerBle tracer(config);
-static LaptopBle laptop(panel);
+static LaptopLink laptopLink;
+static LaptopBle laptop(panel, laptopLink);
+// The pet snapshot from the laptop daemon (opcode 0x30): the BLE callback copies it into the mailbox, the Agents app reads it. Static: it outlives the app.
+static pet::Feed petFeed;
+static pet::Reporter petReporter;
 static VarioRadios radios(laptop, tracer);
 static PowerNrf power(panel, radios, PIN_BUTTON1);
 
@@ -292,7 +298,9 @@ void setup() {
   Bluefruit.setName(DISP_NAME);
   Bluefruit.setTxPower(0);
   tracer.begin();
-  laptop.begin();
+  laptop.begin();                             // registers the vario's opcodes with the link
+  laptopLink.add(pet::OP_SNAPSHOT, pet::OP_SNAPSHOT, petFeed);
+  laptopLink.begin();                         // after every sink is registered
 
   pack.begin();
   pack.setTimeSink(&pcTime);
@@ -385,6 +393,20 @@ void loop() {
   uint32_t t0 = fastMicros();
   host.tick(now);
   if (power.takeResumed()) { pwrlog::note(now, pwrlog::WAKE, 1); button.flush(); startStartupApp(true); }   // woke from the clock sleep: no reset, the wall clock survived; the intro plays too
+  {  // the box reports back to the laptop (notify characteristic D15A0003): on change and every 30 s while connected
+    pet::Status st;
+    st.shownValid = petFeed.anyShown();
+    st.shownSeq = petFeed.shownSeq();
+    st.appId = (uint8_t)(host.activeIndex() < 0 ? 255 : host.activeIndex());
+    st.petActive = host.active() && strcmp(host.active()->name(), "agents") == 0;
+    st.battPct = battery.percent();
+    st.battMv = battery.millivolts();
+    if (petReporter.due(now, laptopLink.connected(), st)) {
+      uint8_t buf[pet::STATUS_BYTES];
+      pet::encode(st, buf);
+      laptopLink.reportStatus(buf, sizeof buf);
+    }
+  }
   uint32_t dt = fastMicros() - t0;   // not micros(): it once gave -67 s here (a 4.2e9 us 'worst tick')
   if (dt > worstTickUs) worstTickUs = dt;
   gameLog.tick(now, dt);

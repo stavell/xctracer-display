@@ -1667,6 +1667,7 @@ static void test_app_anim_cadence() {
 #include "flightlog_tests.h"
 #include "compass3d_tests.h"
 #include "level_tests.h"
+#include "pet_tests.h"
 #include "motion_tests.h"
 #include "retained_tests.h"
 
@@ -1845,6 +1846,10 @@ static const TestEntry kTests[] = {
   {"sim_in_the_box", sim_tests::in_the_box},
   {"c3t_run", c3t::run},
   {"example_level", level_t::run},
+  {"pet_decoder", pet_t::decoder},
+  {"pet_mailbox", pet_t::mailbox},
+  {"pet_dispatch", pet_t::dispatch},
+  {"pet_status", pet_t::status},
   {"motion_service", mot::run},
   {"retained_state", rt::run},
   {"wind_tests_run", wind_tests::run},
