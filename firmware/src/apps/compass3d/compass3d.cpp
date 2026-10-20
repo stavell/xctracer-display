@@ -132,7 +132,7 @@ void Compass3d::step(const Input& in, uint32_t dtMs, uint32_t simMs) {
 }
 
 // ---- camera --------------------------------------------------------------------------------------------------------------
-Compass3d::Frame Compass3d::frame() const {
+Compass3d::Frame Compass3d::frame(bool clampTilt) const {
   const float w = qc_[0], x = qc_[1], y = qc_[2], z = qc_[3];
   // rows: world east, north, up in device coordinates (Ahrs::rotationMatrix)
   const float r[3][3] = {{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)},
@@ -146,13 +146,37 @@ Compass3d::Frame Compass3d::frame() const {
     o[i][1] = r[i][1] * cb + r[i][2] * sb;                              // seen from below the bottom edge: the top of the card recedes
     o[i][2] = -r[i][1] * sb + r[i][2] * cb;
   }
+  f.tx = r[2][0]; f.ty = r[2][1]; f.tz = r[2][2];
+  // The drawn tilt is soft-limited to kTiltMax: past 28 degrees it eases toward the limit (d / (d + 10)), so the card turns smoothly
+  // from a tilting card into a card that stays put while the dome still shows it from above. The bubble keeps the real tilt.
+  const float sxy = sqrtf(f.ux * f.ux + f.uy * f.uy);
+  const float theta = atan2f(sxy, f.uz) * 57.29578f;
+  f.cue = clampf((theta - 36.0f) / 14.0f, 0.0f, 1.0f);
+  if (clampTilt && theta > 28.0f) {
+    const float d = theta - 28.0f, t2 = 28.0f + (kTiltMax - 28.0f) * d / (d + (kTiltMax - 28.0f));
+    const float psi = (t2 - theta) * 0.0174533f, cp = cosf(psi), sp = sinf(psi);
+    const float hx = sxy > 1e-4f ? f.ux / sxy : 0.0f, hy = sxy > 1e-4f ? f.uy / sxy : 1.0f;   // the way the card leans on the screen
+    float* v[3] = {&f.ex, &f.nx, &f.ux};
+    for (int i = 0; i < 3; i++) {
+      const float p = v[i][0] * hx + v[i][1] * hy, z = v[i][2];
+      const float pn = p * cp + z * sp;
+      v[i][0] += (pn - p) * hx;
+      v[i][1] += (pn - p) * hy;
+      v[i][2] = z * cp - p * sp;
+    }
+  }
   const float nl = f.ux * kLx + f.uy * kLy + f.uz * kLz;
   f.lum = clampf(0.5f + 0.5f * nl, 0.0f, 1.0f) * (1.0f - 0.5f * greyed_);
   return f;
 }
 
-void Compass3d::axes(float e[3], float n[3], float u[3]) const {
+float Compass3d::cardTiltDeg() const {
   const Frame f = frame();
+  return atan2f(sqrtf(f.ux * f.ux + f.uy * f.uy), f.uz) * 57.29578f;
+}
+
+void Compass3d::axes(float e[3], float n[3], float u[3]) const {
+  const Frame f = frame(false);                                       // the real attitude, as the AHRS has it
   e[0] = f.ex; e[1] = f.ey; e[2] = f.ez;
   n[0] = f.nx; n[1] = f.ny; n[2] = f.nz;
   u[0] = f.ux; u[1] = f.uy; u[2] = f.uz;
@@ -333,13 +357,13 @@ void Compass3d::buildPlate() {
   pb.vline(12, 270, 323, DRAW_CLEAR);
   pb.vline(13, 272, 323, DRAW_CLEAR);
   // vial and the weather cells
-  fillDisc(pb, 38, 366, 28, DRAW_CLEAR);
-  fillDisc(pb, 38, 366, 26, DRAW_SET);
-  fillDisc(pb, 38, 366, 26, Gray(13));
-  circle(pb, 38, 366, 14, DRAW_CLEAR);
-  circle(pb, 38, 366, 4, DRAW_CLEAR);
-  line(pb, 38 - 26, 366, 38 - 19, 366, DRAW_CLEAR); line(pb, 38 + 19, 366, 38 + 26, 366, DRAW_CLEAR);
-  line(pb, 38, 366 - 26, 38, 366 - 19, DRAW_CLEAR); line(pb, 38, 366 + 19, 38, 366 + 26, DRAW_CLEAR);
+  fillDisc(pb, kVialX, kVialY, 28, DRAW_CLEAR);
+  fillDisc(pb, kVialX, kVialY, 26, DRAW_SET);
+  fillDisc(pb, kVialX, kVialY, 26, Gray(13));
+  circle(pb, kVialX, kVialY, 14, DRAW_CLEAR);
+  circle(pb, kVialX, kVialY, 4, DRAW_CLEAR);
+  line(pb, kVialX - 26, kVialY, kVialX - 19, kVialY, DRAW_CLEAR); line(pb, kVialX + 19, kVialY, kVialX + 26, kVialY, DRAW_CLEAR);
+  line(pb, kVialX, kVialY - 26, kVialX, kVialY - 19, DRAW_CLEAR); line(pb, kVialX, kVialY + 19, kVialX, kVialY + 26, DRAW_CLEAR);
   ui::roundFrame(pb, 76, 338, 158, 56, 8, 2, DRAW_CLEAR);
   pb.vline(155, 344, 388, DRAW_CLEAR);
 }
@@ -587,21 +611,20 @@ static const char* point8(float deg) {
 }
 
 void Compass3d::bubble(const Bitmap1& bm, const Frame& f) {
-  // The bubble sits at the high side of the vial: toward where "up" leans in the device frame. Full travel at 15 degrees.
-  const float ux = f.ux, uy = f.uy;                                          // includes the view bias: undo it for the true tilt
-  static const float cb = 0.93937f, sb = 0.34290f;
-  const float ty = uy * cb - f.uz * sb;                                      // device y of true up
-  const float tx = ux;
-  const float tz = uy * sb + f.uz * cb;
-  const float mag = sqrtf(tx * tx + ty * ty);
+  // The bubble sits at the high side of the vial: toward where "up" leans in the device frame. Full travel at 15 degrees; beyond the
+  // dome's tilt limit the cue fades in: a heavy rim on the vial and a bigger, thick-edged bubble pinned at the edge.
+  const float mag = sqrtf(f.tx * f.tx + f.ty * f.ty);
   const float lim = 0.2588f;                                                 // sin 15 degrees
-  float k = mag > lim ? lim / mag : 1.0f;
-  const int bx = 38 + roundi(tx * k * (15.0f / lim)), by = 366 - roundi(ty * k * (15.0f / lim));
-  fillDisc(bm, bx, by, 9, DRAW_CLEAR);
+  const float k = mag > lim ? lim / mag : 1.0f;
+  const int bx = kVialX + roundi(f.tx * k * (15.0f / lim)), by = kVialY - roundi(f.ty * k * (15.0f / lim));
+  const int heavy = f.cue > 0.66f ? 2 : f.cue > 0.2f ? 1 : 0;
+  if (heavy) {
+    for (int r = kVialR + 1; r >= kVialR - 1 - heavy; r--) circle(bm, kVialX, kVialY, r, DRAW_CLEAR);
+  }
+  fillDisc(bm, bx, by, 9 + heavy, DRAW_CLEAR);
   fillDisc(bm, bx, by, 7, DRAW_SET);
-  fillDisc(bm, bx, by, 7, Gray(11));
+  fillDisc(bm, bx, by, 7, Gray(heavy ? 5 : 11));
   bm.fillRect(bx - 3, by - 4, 3, 2, DRAW_SET);                               // a small glint
-  (void)tz;
 }
 
 void Compass3d::badges(const Bitmap1& bm, uint32_t nowMs) {

@@ -48,15 +48,17 @@ static void shots(const char* dir) {
   u.hold(3000);                                   // the AHRS seeds and settles
   u.dump(dir, "00_flat_north");
   u.move(135, 0, 0, 1500); u.hold(1200);
-  u.dump(dir, "01_flat_se");
+  u.dump(dir, "01_tilt_0");
   u.move(135, 35, 0, 1000); u.hold(1500);
   u.dump(dir, "02_pitch_up");
   u.move(250, 20, 28, 1500); u.hold(1500);
   u.dump(dir, "03_roll_right");
   u.move(250, -25, -22, 1200); u.hold(1500);
   u.dump(dir, "04_pitch_down_roll_left");
-  u.move(250, 50, 0, 1200); u.hold(1500);
-  u.dump(dir, "05_upright");
+  u.move(250, 30, 0, 1200); u.hold(1500);
+  u.dump(dir, "05_tilt_30");
+  u.move(250, 60, 0, 1200); u.hold(1500);
+  u.dump(dir, "05b_tilt_60_clamped");
   // a quick turn: the card lags and overshoots, the number is exact
   u.move(250, 25, 0, 800); u.hold(1500);
   u.move(250 + 150, 25, 0, 180);

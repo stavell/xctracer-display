@@ -141,6 +141,37 @@ static void level() {
   }
 }
 
+static void tilt_clamp() {
+  puts("compass3d: the drawn tilt is limited to 38 degrees, the bubble keeps the real tilt");
+  static Compass3d c;
+  float prev = -1;
+  for (int pitch = 0; pitch <= 180; pitch += 5) {
+    Input in;
+    in.valid = true;
+    quatOf(100, pitch, 0, in.q);
+    in.headingDeg = 100;
+    c.reset();
+    c.step(in, 20, 0);
+    const float t = c.cardTiltDeg();
+    CHECK(t <= Compass3d::kTiltMax + 0.01f);
+    CHECK(t >= prev - 0.01f || pitch > 160);                            // grows with the tilt, never past the limit (past 160 the box is upside down)
+    prev = t;
+    if (pitch <= 15) CHECK(c.tiltCue() == 0.0f);
+    if (pitch >= 60 && pitch <= 120) CHECK(c.tiltCue() > 0.5f);
+    float e[3], n[3], u[3];
+    c.axes(e, n, u);                                                    // the real attitude is untouched
+    double ax[3][3];
+    MockCompass::deviceAxes(100, pitch, 0, ax);
+    NEAR(u[0], ax[0][2], 1e-4);
+  }
+  Input in;
+  in.valid = true;
+  quatOf(0, 0, 0, in.q);
+  c.reset();
+  c.step(in, 20, 0);
+  NEAR(c.cardTiltDeg(), 20.0, 0.5);                                     // a level box shows the 20 degree view bias, unclamped
+}
+
 static void degenerate() {
   puts("compass3d: no NaN on degenerate attitudes");
   static Compass3d c;
@@ -356,6 +387,7 @@ static void run() {
   readout();
   wrap();
   level();
+  tilt_clamp();
   degenerate();
   bounds();
   spring();

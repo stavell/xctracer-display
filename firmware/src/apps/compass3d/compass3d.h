@@ -33,10 +33,12 @@ class Compass3d {
   static const int kSeg = 72;                       // card rim segments (5 degrees each)
   // Screen layout (pixels) and the camera.
   static const int DCX = 120, DCY = 140;            // dome centre
+  static const int kVialX = 38, kVialY = 366, kVialR = 26;   // the bubble level
   static const int RG = 102, RB = 116;              // glass and bezel radius
   static constexpr float kCardPx = 92.0f;           // card radius on the screen when seen from straight above
   static constexpr float kDist = 3.4f;              // camera distance in card radii
   static constexpr float kThick = 0.17f;            // rim wall height in card radii
+  static constexpr float kTiltMax = 38.0f;          // degrees: the card is never drawn more tilted than this, so it never turns edge-on
   static constexpr float kBias = 0.35f;             // the dome is seen from this far below the screen's bottom edge (rad)
   // The spring of the card: natural frequency and damping ratio (overshoot about 16 % for 0.5).
   static constexpr float kOmega = 11.0f, kZeta = 0.5f;
@@ -56,6 +58,8 @@ class Compass3d {
   // Screen position of a point of the card's frame (u east, v north, z up, in card radii). False behind the camera.
   bool project(float u, float v, float z, int* sx, int* sy) const;
   bool topFacesViewer() const;
+  float cardTiltDeg() const;                         // the drawn angle between the card's normal and the line of sight (never beyond kTiltMax)
+  float tiltCue() const { return frame().cue; }
   int digitRamBytes() const { return (int)sizeof digitMem_; }
   int readoutTenths() const { return lastTenths_; }                       // the heading shown by the last draw, tenths 0..3599, -1 = dashes
   // Work of the last draw (the PC cannot time the device): vertical runs written, their bytes, projected points, filled polygons.
@@ -66,8 +70,10 @@ class Compass3d {
   struct Frame {
     float ex, ey, ez, nx, ny, nz, ux, uy, uz;       // east / north / up in the camera frame
     float lum;                                      // 0..1 brightness of the card (light, tilt, trust)
+    float tx, ty, tz;                               // the true gravity-up in the device frame (no view bias, no clamp)
+    float cue;                                      // 0..1 how far the real tilt is beyond what the dome shows
   };
-  Frame frame() const;
+  Frame frame(bool clampTilt = true) const;
   void build(const Bitmap1& bm);
   void buildPlate();
   void buildDigits();
