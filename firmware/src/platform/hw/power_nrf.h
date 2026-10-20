@@ -6,6 +6,7 @@
 #include "platform/power/weather.h"
 
 class BoxSettings;
+namespace retained { class Retention; }
 class WallClock;
 class PackService;
 
@@ -29,6 +30,7 @@ struct ClockSleepDeps {
   WeatherLog* weather;        // the 24 h pressure log and last temperature / humidity, drawn on the clock screen
   IThermo* thermo;            // single-shot reads, once per redraw
   IBaro* baro;
+  retained::Retention* retention;   // saved while the clock sleeps and before System OFF (null: nothing is retained)
 };
 
 // Power off. System OFF: blank the panel, stop radios and VCOM, wake on the user switch (a wake is a reset).

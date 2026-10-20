@@ -19,4 +19,5 @@ void BatteryAdc::update(uint32_t now) {
   for (int i = 0; i < 8; i++) raw += analogRead(PIN_VBAT);
   float volts = (raw / 8.0f) * 0.73242188f * 2.0f / 1000.0f;   // 3.0 V / 4096, 2:1 divider
   pct_ = toPercent(volts);
+  mv_ = (int)(volts * 1000.0f + 0.5f);
 }

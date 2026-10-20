@@ -24,6 +24,10 @@ void LauncherView::draw(const Bitmap1& bm, const HomeModel& m) {
   int tileH = rows > 0 ? (GRID_BOTTOM - GRID_TOP - (rows - 1) * GAP) / rows : 0;
   if (tileH > 136) tileH = 136;
   const bool roomy = tileH >= 120;
+  // One title size for every tile: the largest that fits the longest label.
+  const Font1* titleFont = &f_.mid;
+  for (int i = 0; i < n; i++)
+    if (textWidth(m.tiles[i].title, f_.mid) > TILE_W - 16) { titleFont = &f_.bold; break; }
   for (int i = 0; i < n; i++) {
     const int x = MARGIN + (i % COLS) * (TILE_W + GAP), y = GRID_TOP + (i / COLS) * (tileH + GAP);
     const bool on = i == m.selected;
@@ -32,7 +36,7 @@ void LauncherView::draw(const Bitmap1& bm, const HomeModel& m) {
     else roundFrame(bm, x, y, TILE_W, tileH, 8, 2, DRAW_CLEAR);
     const int iy = y + (roomy ? 16 : 8);
     drawIcon(bm, m.tiles[i].icon, x + (TILE_W - ICON_SIZE) / 2, iy, ink);
-    centered(bm, fitFont(m.tiles[i].title, TILE_W - 16, f_.mid, f_.bold), x + TILE_W / 2, iy + ICON_SIZE + (roomy ? 30 : 24), m.tiles[i].title, ink);
+    centered(bm, *titleFont, x + TILE_W / 2, iy + ICON_SIZE + (roomy ? 30 : 24), m.tiles[i].title, ink);
     if (roomy) centered(bm, f_.small, x + TILE_W / 2, iy + ICON_SIZE + 52, m.tiles[i].sub, ink);
   }
 

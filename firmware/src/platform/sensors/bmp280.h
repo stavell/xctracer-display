@@ -15,6 +15,13 @@ struct Bmp280Cal {
     p6 = (int16_t)u(16); p7 = (int16_t)u(18); p8 = (int16_t)u(20); p9 = (int16_t)u(22);
   }
 
+  // Raw 20-bit temperature -> degrees C (the datasheet's integer variant).
+  float tempC(int32_t adcT) const {
+    const int32_t v1 = ((((adcT >> 3) - ((int32_t)t1 * 2))) * (int32_t)t2) >> 11;
+    const int32_t v2 = (((((adcT >> 4) - (int32_t)t1) * ((adcT >> 4) - (int32_t)t1)) >> 12) * (int32_t)t3) >> 14;
+    return (float)(((v1 + v2) * 5 + 128) >> 8) / 100.0f;
+  }
+
   // Raw 20-bit temperature and pressure -> Pa (the datasheet's integer variant with 64-bit maths). 0 when invalid.
   uint32_t pressurePa(int32_t adcT, int32_t adcP) const {
     const int32_t v1 = ((((adcT >> 3) - ((int32_t)t1 * 2))) * (int32_t)t2) >> 11;

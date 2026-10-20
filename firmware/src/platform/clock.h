@@ -36,8 +36,18 @@ class WallClock {
     at_ = nowMs;
     known_ = true;
     dayKnown_ = true;
+    sets_++;
     return true;
   }
+  // The full time as UTC seconds since 1970: only when the date is known (the PC set it, or a restored one) and the clock is valid.
+  bool epoch(uint32_t nowMs, uint32_t* utcEpochSec) const {
+    if (!valid(nowMs) || !dayKnown_) return false;
+    const int64_t t = (int64_t)day_ * 86400 + sec_ + (int64_t)((nowMs - at_) / 1000u);
+    if (t < 1000000000LL || t > 4102444800LL) return false;
+    *utcEpochSec = (uint32_t)t;
+    return true;
+  }
+  uint32_t sets() const { return sets_; }          // how often the PC set the time (retention saves at once; GPS seconds ride the heartbeat)
   bool valid(uint32_t nowMs) const { return known_ && nowMs - at_ <= kValidMs; }
   // Milliseconds until the local minute changes (1..60000), or -1 when the time is unknown. The sleeping clock
   // wakes up exactly then.
@@ -84,4 +94,5 @@ class WallClock {
   long day_ = 0;
   uint32_t at_ = 0;
   bool known_ = false, dayKnown_ = false;
+  uint32_t sets_ = 0;
 };

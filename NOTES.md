@@ -1367,3 +1367,25 @@ orientation (`MockCompass::gyroFromMotion`, needs `nowMs` from `Box::tick`), oth
 `build.sh` writes `out/compass3d_*.png` and the sheet `out/compass3d_sheet.png` (copy: `docs/screens/compass3d_sheet.png`); `out/emu c3shots out` renders only these.
 Lessons: a mock gyro that returns exactly 0 trips the AHRS stuck-gyro guard (80 identical samples) - the first renders showed dashes; the dome's glass highlight
 has to be white strokes on the dark liquid, on the pale card it would not show.
+
+
+## Motion service, compass app, retained RAM, bench commands (2026-10-20, PC + build checks, no device timing)
+
+- **MotionService** (`platform/sensors/motion.{h,cpp}`): the maths that `App::updateHeading` had, moved unchanged (mount rotation,
+  stored hard-iron calibration, `Compass` update, `Ahrs` update when a gyro sample is there, gyro quiet after 0.5 s = compass alone,
+  `fused` = gyro and valid fusion). One service object per user (vario `App`, `CompassApp`, Settings calibration), each inside its owner's
+  arena slot, so no RAM moved (it is the old `Compass` + `Ahrs` members). `tilt()` gives roll / pitch with zero = lying flat; the sim's
+  `AccelTilt` is left alone (it uses the upright box as zero and a smoothing of its own).
+  Evidence for the vario: `replay` digest 1db49efae1a77476 before and after, all 109 `out/*.pgm` renders byte-identical (except the
+  ones that changed on purpose: the launcher, the new compass flat page), `box_vario_matches_alone` passes.
+- **Compass app** (`apps/compass`): dome (50 fps game mode) and, on a short press, the flat dial (`platform/gfx/widgets/compass_dial`,
+  the same drawing the vario's compass page uses through its own pen) with the weather strip (temp, RH, hPa + tendency). No list, no
+  calibration: Settings has it; leaving is the system sheet (cursor starts on Home). Arena user is 19 kB (was a whole vario `App`).
+- **Retention**: `.noinit` is not in the framework linker script; gcc 7 emits it as PROGBITS, the linker places it between `.data` and
+  `.bss`, outside the copy and zero ranges of Reset_Handler (checked with nm: `__data_end__` = start of the block). Costs 312 B of flash
+  (zeros) and 312 B of heap. Survives: reset, watchdog, USB flash (clock restored from the 5 s heartbeat, so up to the down time stale
+  after a flash), System OFF (RAM sections kept by `sd_power_ram_power_set`; clock unknown afterwards, gaps bridged once GPS date /
+  PC time is known: only a date-carrying time counts, GPS time of day alone does not bridge). Not: battery out. Not verified on the
+  hardware (no board available): whether the bootloader touches the RAM, and whether System OFF keeps it; the status line shows
+  `ret=ok|crc|none` after a boot to find out.
+- **Bench**: `APP name`, `APP?`, the `wth` line every 5 s while a terminal is attached.

@@ -34,7 +34,7 @@ bool BaroBmp::begin() {
 }
 
 // Forced mode: temperature x1, pressure x4, one conversion (about 10 ms), then back to sleep (about 0.1 uA).
-bool BaroBmp::readNow(float& hPa) {
+bool BaroBmp::readNowT(float& hPa, float& tempC) {
   if (!have_) return false;
   if (!writeReg(addr_, 0xF4, (1 << 5) | (3 << 2) | 1)) return false;
   uint8_t st = 0;
@@ -50,5 +50,6 @@ bool BaroBmp::readNow(float& hPa) {
   const uint32_t pa = cal_.pressurePa(t, p);
   if (pa == 0) return false;
   hPa = pa / 100.0f;
+  tempC = cal_.tempC(t);
   return true;
 }

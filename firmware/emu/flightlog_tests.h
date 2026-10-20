@@ -170,6 +170,29 @@ static void testShellAndView() {
     CHECK(out.v.size() == 1 && out.v[0] == "tm now unknown");
     sh.setTimeSink(nullptr);
   }
+  {  // APP name / APP?: the bench commands to enter an app (the box image wires the host behind them)
+    struct Apps : IAppSink {
+      std::string now = "vario";
+      bool openApp(const char* n) override { if (strcmp(n, "tetris") && strcmp(n, "compass")) return false; now = n; return true; }
+      const char* activeApp() override { return now.c_str(); }
+    } apps;
+    send("APP?");
+    CHECK(out.v.size() == 1 && out.v[0] == "app now none");                        // no sink wired (the vario-only image)
+    send("APP tetris");
+    CHECK(out.v.size() == 1 && out.v[0] == "app err unknown tetris");
+    sh.setAppSink(&apps);
+    send("APP tetris");
+    CHECK(out.v.size() == 1 && out.v[0] == "app ok tetris" && apps.now == "tetris");
+    send("APP?");
+    CHECK(out.v.size() == 1 && out.v[0] == "app now tetris");
+    send("APP nothing");
+    CHECK(out.v.size() == 1 && out.v[0] == "app err unknown nothing" && apps.now == "tetris");
+    send("APP ");
+    CHECK(out.v.size() == 1 && out.v[0].rfind("app err", 0) == 0);
+    send("APPLE");
+    CHECK(out.v.empty());
+    sh.setAppSink(nullptr);
+  }
   send("LOGERASE");
   CHECK(out.v.size() == 1 && out.v[0] == "lg ok erase started" && R.log.erasing());
   for (int i = 0; i < 1000 && R.log.erasing(); i++) R.log.service(30000 + i);

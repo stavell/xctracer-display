@@ -158,7 +158,9 @@ inline void chart(const Bitmap1& bm, int x, int y, int w, int h, const WeatherLo
     const int mx = XS(WeatherLog::kTrendAge);
     for (int gy = y; gy < y + h; gy += 4) bm.fillRect(mx, gy, 1, 2, DRAW_CLEAR);
   }
+  auto real = [&](int i) { return wl->get(i) > 0; };               // a gap (0) draws nothing and breaks the line
   for (int i = n - 1; i > 0; i--) {                              // the area under the line, light; samples are linear in between
+    if (!real(i) || !real(i - 1)) continue;
     const int xa = XS(i), xb = XS(i - 1);
     for (int c = xa; c <= xb; c++) {
       const int cy = xb == xa ? YS(i) : YS(i) + (YS(i - 1) - YS(i)) * (c - xa) / (xb - xa);
@@ -177,12 +179,15 @@ inline void chart(const Bitmap1& bm, int x, int y, int w, int h, const WeatherLo
     for (int gx = x + 2; gx < x + w; gx += 8) bm.pixel(gx, y + h / 2, DRAW_CLEAR);
   }
   for (int i = n - 1; i > 0; i--) {                              // the line, 2 px
+    if (!real(i) || !real(i - 1)) continue;
     lineGrown(bm, XS(i), YS(i), XS(i - 1), YS(i - 1), 0, DRAW_CLEAR);
     lineGrown(bm, XS(i), YS(i) + 1, XS(i - 1), YS(i - 1) + 1, 0, DRAW_CLEAR);
   }
-  fillDisc(bm, XS(0), YS(0), 6, DRAW_SET);                        // now: a ring
-  fillDisc(bm, XS(0), YS(0), 5, DRAW_CLEAR);
-  fillDisc(bm, XS(0), YS(0), 3, DRAW_SET);
+  int a0 = 0;                                                     // the newest real sample
+  while (a0 < n - 1 && !real(a0)) a0++;
+  fillDisc(bm, XS(a0), YS(a0), 6, DRAW_SET);                      // now: a ring
+  fillDisc(bm, XS(a0), YS(a0), 5, DRAW_CLEAR);
+  fillDisc(bm, XS(a0), YS(a0), 3, DRAW_SET);
   char b[24];                                                     // the span of the chart, small, under it
   snprintf(b, sizeof b, "%d-%d hPa", lo / 10, hi / 10);
   drawText(bm, x + w - 3 - textWidth(b, f.ui.small), y + h + 14, b, f.ui.small, DRAW_CLEAR);

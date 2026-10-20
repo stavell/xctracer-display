@@ -6,7 +6,8 @@
 class BaroBmp : public IBaro {
  public:
   bool begin();                                     // after Wire is started; false if the sensor is missing
-  bool readNow(float& hPa) override;
+  bool readNow(float& hPa) override { float t; return readNowT(hPa, t); }
+  bool readNowT(float& hPa, float& tempC) override;
   bool present() const { return have_; }
 
  private:

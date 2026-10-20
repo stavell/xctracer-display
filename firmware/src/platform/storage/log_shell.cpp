@@ -32,6 +32,19 @@ void LogShell::run(ITextOut& out) {
     out.put(buf_);
     return;
   }
+  if (strcmp(line_, "APP?") == 0) {
+    snprintf(buf_, sizeof buf_, "app now %s", apps_ ? apps_->activeApp() : "none");
+    out.put(buf_);
+    return;
+  }
+  if (strncmp(line_, "APP ", 4) == 0) {
+    const char* name = line_ + 4;
+    while (*name == ' ') name++;
+    if (!apps_ || !*name || !apps_->openApp(name)) { snprintf(buf_, sizeof buf_, "app err unknown %.20s", name); out.put(buf_); return; }
+    snprintf(buf_, sizeof buf_, "app ok %.20s", name);
+    out.put(buf_);
+    return;
+  }
   if (strncmp(line_, "LOG", 3) != 0) return;
   if (strcmp(line_, "LOGINFO") == 0) {
     snprintf(buf_, sizeof buf_, "lg info state=%s used=%lu cap=%lu dropped=%lu", log_.stateName(), (unsigned long)log_.usedBytes(),

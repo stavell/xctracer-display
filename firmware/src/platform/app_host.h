@@ -20,6 +20,7 @@
 #include <Adafruit_GFX.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include "platform/input/combo_hold.h"
 #include "platform/ports.h"
 #include "platform/ui/system_sheet.h"
@@ -271,6 +272,13 @@ class AppHost : public IAppNav {
   }
   int appCount() const override { return n_; }
   const char* appName(int index) const override { return index >= 0 && index < n_ ? apps_[index]->name() : ""; }
+  // The index of the app with this name (what name() returns; "sim" is accepted for the flight sim), -1 when there is none.
+  int indexOf(const char* name) const {
+    if (!name) return -1;
+    if (!strcmp(name, "sim")) name = "flightsim";
+    for (int i = 0; i < n_; i++) if (!strcmp(apps_[i]->name(), name)) return i;
+    return -1;
+  }
   bool sixButtons() const override { return six_; }
   bool hasSystemSheet() const override { return power_ != nullptr; }
 

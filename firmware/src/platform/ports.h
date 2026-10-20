@@ -107,6 +107,8 @@ class IBaro {
  public:
   virtual ~IBaro() {}
   virtual bool readNow(float& hPa) = 0;                // false when the sensor is missing or the reading is invalid
+  // The same measurement with the chip's own temperature (the status line's "wth"); NaN when the port has none.
+  virtual bool readNowT(float& hPa, float& tempC) { tempC = NAN; return readNow(hPa); }
 };
 
 // The radio links that only the vario and the tools need (the laptop link). The host switches them off while a game

@@ -5,7 +5,9 @@
 #include "platform/hw/pack_service.h"
 #include "platform/clock.h"
 #include "platform/power/clock_view.h"
+#include "platform/power/retained.h"
 #include "platform/power/weather.h"
+#include "platform/hw/retention_nrf.h"
 #include "platform/settings/box_settings.h"
 
 static void waitRelease(uint8_t pin) {
@@ -17,6 +19,7 @@ void PowerNrf::sleepNow(uint8_t pin) {
   digitalWrite(PIN_DISP_EXTCOMIN, LOW);
   digitalWrite(PIN_DISP_CS, LOW);
   waitRelease(pin);
+  retention_hw::prepareSystemOff();  // the retained history stays powered
   systemOff(pin, LOW);              // wakes on the user switch
 }
 
@@ -42,6 +45,7 @@ void PowerNrf::powerOff() {
 }
 
 void PowerNrf::fullOff() {
+  if (clockSleep_ && deps_.retention) deps_.retention->save(millis(), *deps_.weather, *deps_.clock);   // the last pressures and the time
   panel_.clear();                   // never leave a picture on a panel whose VCOM is stopped
   panel_.invalidate();
   panel_.present();
@@ -115,7 +119,12 @@ void PowerNrf::clockSleep() {
     in.msToMinute = deps_.clock->msToNextMinute(now);
     const SleepStep st = sm.step(in);
     if (st.act == SLEEP_DRAW) {
-      if (st.bar <= 0) weatherRefresh(*deps_.weather, now, *deps_.thermo, *deps_.baro);   // not while the hold counts down
+      if (st.bar <= 0) {                                      // not while the hold counts down
+        uint32_t epoch = 0;
+        if (!deps_.clock->epoch(now, &epoch)) epoch = 0;
+        weatherRefresh(*deps_.weather, now, *deps_.thermo, *deps_.baro, epoch);
+        if (deps_.retention) deps_.retention->tick(now, *deps_.weather, *deps_.clock);
+      }
       panel_.setRotation(deps_.rotation);
       panel_.clear();
       Bitmap1 bm = panel_.bitmap();

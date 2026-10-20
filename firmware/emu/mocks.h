@@ -278,7 +278,8 @@ class MockThermo : public IThermo {
 class MockBaro : public IBaro {
  public:
   bool readNow(float& h) override { reads++; if (!present) return false; h = hPa; return true; }
-  float hPa = 1013.2f;
+  bool readNowT(float& h, float& t) override { if (!readNow(h)) return false; t = tempC; return true; }
+  float hPa = 1013.2f, tempC = 22.5f;
   bool present = true;
   int reads = 0;
 };

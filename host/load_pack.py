@@ -82,13 +82,34 @@ class ExecPort:
             self.p.kill()
 
 
+def pick_port(ports, glob_ports=()):
+    """The box's serial device from pyserial's list entries (objects with .device .vid .pid .serial_number .location) and the
+    /dev/cu.usbmodem* paths found by glob. Several entries for one board (macOS can list both cu.* and tty.*) count once, cu.* first;
+    the Adafruit VID is preferred, and when pyserial knows no VID (a bare usbmodem node) the single usbmodem path is the box."""
+    boards = {}
+    for p in ports:
+        if p.vid != ADAFRUIT_VID:
+            continue
+        key = (p.pid, p.serial_number, p.location)
+        old = boards.get(key)
+        if old is None or (p.device.startswith("/dev/cu.") and not old.startswith("/dev/cu.")):
+            boards[key] = p.device
+    devs = sorted(set(boards.values()))
+    if len(devs) == 1:
+        return devs[0]
+    if not devs:
+        cu = sorted(d for d in glob_ports if d.startswith("/dev/cu."))
+        tty = sorted(set(d.replace("/dev/tty.", "/dev/cu.") for d in glob_ports if d.startswith("/dev/tty.")) - set(cu))
+        modems = cu + tty
+        if len(modems) == 1:
+            return modems[0]
+    raise SystemExit("cannot pick the box's serial port (Adafruit USB devices: %s); give --port" % (", ".join(devs) or "none found"))
+
+
 def find_port():
+    import glob
     from serial.tools import list_ports
-    ports = [p for p in list_ports.comports() if p.vid == ADAFRUIT_VID]
-    if len(ports) == 1:
-        return ports[0].device
-    names = ", ".join(p.device for p in ports) or "none found"
-    raise SystemExit("cannot pick the box's serial port (Adafruit USB devices: %s); give --port" % names)
+    return pick_port(list_ports.comports(), glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/tty.usbmodem*") + glob.glob("/dev/ttyACM*"))
 
 
 class Link:

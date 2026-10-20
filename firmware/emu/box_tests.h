@@ -716,6 +716,27 @@ static void lazy_app_slots() {
   CHECK(!d.alive() && LifeApp::alive == 0);
 }
 
+// The USB bench command APP <name> opens an app through the host's normal switch (the box's wiring: host.indexOf + openApp).
+static void box_app_by_name() {
+  puts("box: apps found by registry name, switched through the normal host switch");
+  Box b;
+  BoxRun u(b);
+  b.boot(0);
+  CHECK(b.host.indexOf("vario") == Box::APP_VARIO && b.host.indexOf("compass") == Box::APP_COMPASS);
+  CHECK(b.host.indexOf("tetris") == Box::APP_TETRIS && b.host.indexOf("settings") == Box::APP_SETTINGS);
+  CHECK(b.host.indexOf("launcher") == Box::APP_LAUNCHER && b.host.indexOf("sim") == Box::APP_SIM && b.host.indexOf("flightsim") == Box::APP_SIM);
+  CHECK(b.host.indexOf("nope") == -1 && b.host.indexOf("") == -1 && b.host.indexOf(nullptr) == -1);
+  u.run(300);
+  CHECK(b.host.active() == &b.vario);
+  b.host.openApp(b.host.indexOf("compass"));                          // what the command does
+  u.run(300);
+  CHECK(b.host.active() == &b.compassApp && !b.vario.alive() && b.compassApp.alive());   // the vario was left the normal way: sensors and link handed over
+  CHECK(std::string(b.host.active()->name()) == "compass");
+  b.host.openApp(b.host.indexOf("vario"));
+  u.run(300);
+  CHECK(b.host.active() == &b.vario && b.r.compass.enabled);
+}
+
 // In the box the arena holds the sim, Tetris and the compass app in turn; the high score survives the app.
 static void box_lazy_apps() {
   puts("box: sim, Tetris and the compass app share one arena, the best score is kept");
@@ -1265,6 +1286,7 @@ static void test_box() {
   box_tetris_home();
   lazy_app_slots();
   box_lazy_apps();
+  box_app_by_name();
   box_intro();
 }
 

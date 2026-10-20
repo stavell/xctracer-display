@@ -1667,6 +1667,7 @@ static void test_app_anim_cadence() {
 #include "flightlog_tests.h"
 #include "compass3d_tests.h"
 #include "motion_tests.h"
+#include "retained_tests.h"
 
 static uint32_t fakeUs = 0;
 static uint32_t fakeClock() { return fakeUs += 7; }   // every call advances 7 us
@@ -1843,6 +1844,7 @@ static const TestEntry kTests[] = {
   {"sim_in_the_box", sim_tests::in_the_box},
   {"c3t_run", c3t::run},
   {"motion_service", mot::run},
+  {"retained_state", rt::run},
   {"wind_tests_run", wind_tests::run},
   {"flightlog_tests_run", flightlog_tests::run},
   {"test_standalone_cadence", test_standalone_cadence},

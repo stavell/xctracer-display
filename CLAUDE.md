@@ -15,9 +15,13 @@ right is worse than no data.
 ## Layout
 
     firmware/src/platform/   reusable by every app (pure code compiles on the PC, only hw/ touches hardware)
-      gfx/       1-bit renderer: Bitmap1, gray dither, glyph atlas, font, shapes, icons, ui (title bar, rounded boxes)
-      power/     clock sleep state machine, its screen (clock + weather station), pressure log (weather.h)
-      sensors/   compass tilt + hard-iron, AHRS, heading smoother, mount table
+      gfx/       1-bit renderer: Bitmap1, gray dither, glyph atlas, font, shapes, icons, ui (title bar, rounded boxes);
+                 widgets/ shared drawings (compass_dial: the heading-up dial, drawn through a DialPen)
+      power/     clock sleep state machine, its screen (clock + weather station), pressure log (weather.h), retained.h (the log and the
+                 clock kept in .noinit RAM across resets and System OFF), wth_line.h (the "wth" status line)
+      sensors/   compass tilt + hard-iron, AHRS, heading smoother, mount table, motion.h (MotionService: mounting + calibration + compass +
+                 gyro fusion behind start() / poll(now) / stop(): heading, quaternion, tilt, accel, gyro, trust; the vario, the compass app and the
+                 calibration use it, a game can)
       panel/     pure panel helpers: line diff, Sharp frame packing
       input/     button state machine, A+B combo hold, key debounce
       ui/        the system sheet (Back / Home / Sleep / Power off overlay the host draws over any app)
@@ -45,7 +49,7 @@ right is worse than no data.
     firmware/src/apps/games/sim/      the flight sim (World, Air, HeightCache, VoxelView, SkyFx, ChaseCam, SimApp; SimBox = the box's build of it)
     firmware/src/apps/intro/          the start-up animation (IntroApp: reuses the sim's renderer pieces through their public APIs)
     firmware/src/main_vario.cpp   wiring only; one main_<image>.cpp per firmware image (main_vario: vario only,
-                                  main_box: home screen + vario + Tetris + compass tool + Settings + sim + intro;
+                                  main_box: home screen + vario + Tetris + compass + Settings + sim + intro;
                                   `-DSIM_BENCH` builds the box straight into the sim with a micro-benchmark, see NOTES)
     firmware/emu/        PC emulator: the same platform + apps with mock ports, tests, screen renders, the PC player
                          (play.cpp: `build.sh play tetris|box`), box.h = the whole box over mocks
@@ -77,7 +81,7 @@ right is worse than no data.
   `AppHost::setSystemSheet` is called by `main_box.cpp` only. `scripts/check.sh` proves the vario draws the same frames in
   the box as alone (`box_vario_matches_alone`).
 - **RAM budget.** .heap (what static RAM leaves over) feeds FreeRTOS: the box image once had 2 kB and did not boot at all.
-  In the box image NO app is static: the vario (`VarioBox`: App + adapter + terrain kit), Tetris, the compass tool and the flight sim (`SimBox`) share one
+  In the box image NO app is static: the vario (`VarioBox`: App + adapter + terrain kit), Tetris, the compass app (`apps/compass`: MotionService + thermometer + pressure log, no vario App) and the flight sim (`SimBox`) share one
   `AppArena` through `LazyApp` (`platform/lazy_app.h`); leaving the vario loses its flight state. What must outlive it (radios + their queues, settings, wall clock) stays static; BLE callbacks never touch App. Big new objects go there or into a port. `scripts/ram_check.py`
   (in check.sh) fails below 48 KB of heap.
 - **Start-up animation.** The box image plays `apps/intro` at a power-on, System OFF wake and wake from the clock sleep, unless Settings >
@@ -96,6 +100,14 @@ right is worse than no data.
 - **Flight time comes from the data's time stamps**, not the wall clock, so replays at any speed behave.
 - **Measure, do not assume.** Fonts, timings and layouts were wrong every time they were guessed. Render
   screens with the emulator and look at them; time things on the device via the serial status line.
+
+- **USB bench commands.** `APP <name>` / `APP?` on the USB serial port (box image; `platform/storage/log_shell.h`, wired in
+  `main_box.cpp`) open an app by registry name (launcher, vario, compass, tetris, settings, sim) through the host's normal switch
+  and print the active one. They are a bench tool that needs a PC on the cable, not a gesture: the flight-safety rule above is
+  about the pilot's hands and is unchanged (no command, no menu entry and no BLE path does this). `TIME epoch tz` sets the clock.
+- **Retained RAM.** `retained::Block` (312 B, `.noinit`, in `main_box.cpp` only) holds the pressure log and the clock epoch with a
+  CRC-32; `platform/hw/retention_nrf.cpp` keeps its RAM sections powered in System OFF. Anything else added there needs a
+  version bump (a wrong layout is refused by magic / version / CRC, never read). Start-up code must not clear `.noinit`.
 
 ## Build, test, flash
 

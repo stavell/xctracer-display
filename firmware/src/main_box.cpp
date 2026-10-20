@@ -33,7 +33,10 @@
 #include "platform/hw/power_nrf.h"
 #include "platform/hw/thermo_sht.h"
 #include "platform/hw/baro_bmp.h"
+#include "platform/power/retained.h"
 #include "platform/power/weather.h"
+#include "platform/hw/retention_nrf.h"
+#include "platform/hw/wth_status.h"
 #include "apps/vario/hw/tracer_ble.h"
 #include "apps/vario/hw/vario_radios.h"
 #include "platform/hw/watchdog.h"
@@ -57,6 +60,10 @@ static CompassLis compassHw;
 static ThermoSht thermo;
 static BaroBmp baro;                          // the board barometer: only the sleeping clock reads it
 static WeatherLog weather;                    // 24 h pressure history (288 B), sampled awake and asleep
+// A copy of the history and the clock in RAM that start-up does not clear and System OFF keeps powered (platform/power/retained.h):
+// they survive a reset, the watchdog and the power-off. 312 B of .noinit, between .bss and the heap.
+static retained::Block retainedBlock RETAINED_NOINIT;
+static retained::Retention retention(retainedBlock);
 static TracerBle tracer(config);
 static LaptopBle laptop(panel);
 static VarioRadios radios(laptop, tracer);
@@ -205,6 +212,18 @@ static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, 
 static VarioProbe probe;
 static SystemSheet systemSheet;                // the overlay of the 3 s hold / A + B (the vario-only image has none)
 static AppHost host(panel, button);
+// USB bench command "APP <name>" / "APP?" (platform/storage/log_shell.h): enters an app through the host's normal switch, the same
+// request the launcher makes. It is a bench tool, not a gesture: the flight-safety rule (the box boots into the start-up app, the
+// launcher opens only from inside an app) is about the pilot's hands; this needs a PC on the USB cable. Documented in CLAUDE.md.
+static struct ShellApps : storage::IAppSink {
+  bool openApp(const char* name) override {
+    const int i = host.indexOf(name);
+    if (i < 0) return false;
+    host.openApp(i);
+    return true;
+  }
+  const char* activeApp() override { return host.active() ? host.active()->name() : "none"; }
+} shellApps;
 static char* scratchBuf() { size_t c; return diagnosticsScratch(&c); }
 static GameLog gameLog(host, panel, fastMicros, &probe, scratchBuf(), 560);    // the "gm ..." line while a game runs; forwards clear / present to the vario probe
 
@@ -236,6 +255,8 @@ void setup() {
   config.begin();                             // mounts the filesystem
   keys.begin();
   config.migrateTo(boxSettings);              // first start after the update: calibration, mounting, time zone move over
+  retention.boot(weather, wallClock, retention_hw::clockSurvived(), millis());   // the history and (after a reset) the clock come back
+  retention_hw::keepRam(&retainedBlock, sizeof retainedBlock);                   // and stay powered in System OFF
   panel.begin();
   compassHw.begin();                          // starts Wire
   thermo.begin();                             // SHT30 on the same bus
@@ -251,6 +272,7 @@ void setup() {
 
   pack.begin();
   pack.setTimeSink(&pcTime);
+  pack.setAppSink(&shellApps);
   boxTerrain.cacheStatus();
   launcher.setPack(&boxTerrain);
   settingsApp.setPack(&boxTerrain);
@@ -276,7 +298,7 @@ void setup() {
   registry.add("Sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
   registry.add("Settings", "setup", "compass, mounting, time", APP_SETTINGS, ICON_SETTINGS, false);
-  power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION, &weather, &thermo, &baro});
+  power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION, &weather, &thermo, &baro, &retention});
   startStartupApp(true);
 }
 
@@ -322,7 +344,13 @@ void loop() {
   }
 #endif
   pack.service(now);
-  weather.sample(now, baro);                       // one pressure sample per 10 min (a 10 ms read), so the history exists when the sleep starts
+  retention.tick(now, weather, wallClock);         // bridges the restored history when the time is known; saves the block
+  {
+    uint32_t epoch = 0;
+    if (!wallClock.epoch(now, &epoch)) epoch = 0;
+    weather.sample(now, baro, epoch);              // one pressure sample per 10 min (a 10 ms read), so the history exists when the sleep starts
+  }
+  wth::tick(now, baro, thermo, battery, weather, retained::name(retention.result()));   // the "wth" status line (a terminal attached)
   uint32_t t0 = fastMicros();
   host.tick(now);
   if (power.takeResumed()) { button.flush(); startStartupApp(true); }   // woke from the clock sleep: no reset, the wall clock survived; the intro plays too
