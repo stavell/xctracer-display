@@ -122,21 +122,26 @@ inline void countdown(const Bitmap1& bm, int bar, int steps) {
 // Width of the stroke numerals of s (digits and '-'), centre-line cell W, stroke radius r.
 inline int numberWidth(const char* s, int W, int r, int gap) {
   int w = 0;
-  for (const char* c = s; *c; c++) w += (*c == '-' ? W * 7 / 10 : W) + 2 * r + (c != s ? gap : 0);
+  for (const char* c = s; *c; c++) w += (*c == '.' ? 2 * r + 2 : *c == '-' ? W * 7 / 10 + 2 * r : W + 2 * r) + (c != s ? gap : 0);
   return w;
 }
 // Stroke numerals with the top-left of the ink at (x, y). Digit cell: centre-line box W x H, stroke radius r.
-// s holds digits and '-'; '.' is a dash (unknown).
+// s holds digits, '-' (a dash) and '.' (a decimal point on the baseline).
 inline void number(const Bitmap1& bm, int x, int y, int W, int H, int r, int gap, const char* s) {
   strokes::Pen pen(bm, r);
   for (const char* c = s; *c; c++) {
+    if (*c == '.') {
+      fillDisc(bm, x + r + 1, y + 2 * r + H - r - 1, r + 1, DRAW_CLEAR);
+      x += 2 * r + 2 + gap;
+      continue;
+    }
     const int cw = *c == '-' ? W * 7 / 10 : W;
-    strokes::strokeDigit(pen, (float)(x + r), (float)(y + r), (float)cw, (float)H, *c == '.' ? -1 : *c == '-' ? -2 : *c - '0');
+    strokes::strokeDigit(pen, (float)(x + r), (float)(y + r), (float)cw, (float)H, *c == '-' ? -2 : *c - '0');
     x += cw + 2 * r + gap;
   }
 }
 
-inline void chart(const Bitmap1& bm, int x, int y, int w, int h, const WeatherLog* wl, Fonts& f) {
+inline void chart(const Bitmap1& bm, int x, int y, int w, int h, const WeatherLog* wl, Fonts& f, int minute) {
   int lo = 0, hi = 0;
   const bool have = wl && wl->count() >= 2 && wl->chartRange(lo, hi);
   const int cw = w - 8;                                           // the newest sample sits 8 px in, for the dot
@@ -159,6 +164,17 @@ inline void chart(const Bitmap1& bm, int x, int y, int w, int h, const WeatherLo
       const int cy = xb == xa ? YS(i) : YS(i) + (YS(i - 1) - YS(i)) * (c - xa) / (xb - xa);
       vline(bm, c, cy + 2, y + h - 1, Gray(13));
     }
+  }
+  {  // a faint grid, quieter than the fill: single dots every 6 px on a vertical every 6 h (at the wall-clock 00 / 06 / 12 / 18 h when the
+     // time is known, else 6 h back from now) and a dotted line across the middle of the range
+    int ages[5], na = 0;
+    if (minute >= 0 && minute < 1440) { for (int b = 0; b < 1440; b += 360) { const int a = ((minute - b + 1440) % 1440) / 10; if (a >= 1 && a < n) ages[na++] = a; } }
+    else { for (int a = 36; a < n; a += 36) ages[na++] = a; }
+    for (int k = 0; k < na; k++) {
+      const int gx = XS(ages[k]);
+      for (int gy = y + 1; gy < y + h; gy += 6) bm.pixel(gx, gy, DRAW_CLEAR);
+    }
+    for (int gx = x + 2; gx < x + w; gx += 8) bm.pixel(gx, y + h / 2, DRAW_CLEAR);
   }
   for (int i = n - 1; i > 0; i--) {                              // the line, 2 px
     lineGrown(bm, XS(i), YS(i), XS(i - 1), YS(i - 1), 0, DRAW_CLEAR);
@@ -204,13 +220,15 @@ inline void draw(const Bitmap1& bm, int minute, int battPct, const WeatherLog* w
   {
     const int W = 18, H = 42, R = 3, GAP = 6;
     char b[8];
-    if (tOk) snprintf(b, sizeof b, "%d", (int)lroundf(wl->tempC)); else strcpy(b, "..");
-    const int unit = 18 + textWidth("C", f.ui.mid);               // ring, gap and the "C"
+    if (tOk) {                                                    // one decimal: 21.4, -3.0
+      const int t10 = (int)lroundf(wl->tempC * 10.0f), a10 = t10 < 0 ? -t10 : t10;
+      snprintf(b, sizeof b, "%s%d.%d", t10 < 0 ? "-" : "", a10 / 10, a10 % 10);
+    } else strcpy(b, "--");
+    const int unit = 16;                                          // the degree ring
     const int x0 = kRight - unit - numberWidth(b, W, R, GAP);
     number(bm, x0, 174, W, H, R, GAP, b);
     const int ex = x0 + numberWidth(b, W, R, GAP);
-    fillRing(bm, ex + 9, 180, 4, 2, DRAW_CLEAR);
-    drawText(bm, ex + 15, 194, "C", f.ui.mid, DRAW_CLEAR);
+    fillRing(bm, ex + 9, 180, 5, 2, DRAW_CLEAR);
   }
   {
     char b[8];
@@ -234,7 +252,7 @@ inline void draw(const Bitmap1& bm, int minute, int battPct, const WeatherLog* w
     if (wl && wl->tendency(cls)) trend(bm, x + 18, base - 9, cls);
   }
 
-  chart(bm, kMargin, 318, ui::W - 2 * kMargin, 50, wl, f);
+  chart(bm, kMargin, 318, ui::W - 2 * kMargin, 50, wl, f, minute);
   drawText(bm, kMargin, 318 + 50 + 14, "24h", f.ui.small, DRAW_CLEAR);
   if (bar >= 0) countdown(bm, bar, steps);
 }

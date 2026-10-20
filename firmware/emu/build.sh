@@ -147,4 +147,5 @@ for p in glob.glob("out/*.pgm"):
     im.resize((im.width * 2, im.height * 2), Image.NEAREST).save(p[:-4] + ".png")
 PY
 ../../.venv/bin/python compass3d_sheet.py out out/compass3d_sheet.png
+../../.venv/bin/python weather_grid.py out out/weather_grid.png
 echo "screens: $(ls out/*.png | tr '\n' ' ')"
