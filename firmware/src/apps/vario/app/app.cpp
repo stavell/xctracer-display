@@ -16,6 +16,8 @@ static float angDiffDeg(float a, float b) {      // absolute shortest angle betw
   return d > 180.0f ? 360.0f - d : d;
 }
 
+#include "platform/power/pwr_log.h"
+
 App::App(IPanel& panel, IBattery& battery, ITracer& tracer, ILaptop& laptop,
          BoxSettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg)
     : panel_(panel), battery_(battery), tracer_(tracer), laptop_(laptop),
@@ -38,6 +40,7 @@ void App::begin(uint32_t nowMs) {
 // Another app takes over: stop the tracer link and scan, switch the compass sensors off. The flight model
 // stays as it is; its data goes stale on its own (hasData() needs a sample in the last freshMs).
 void App::end() {
+  pwrlog::note(tickMs_, pwrlog::APP, -1);
   if (log_) log_->sessionEnd(tickMs_);
   if (listOpen_) { tracer_.listClose(); listOpen_ = false; }
   if (calibrating_) finishCalibration(false);
@@ -120,6 +123,7 @@ void App::handle(const Command& c, uint32_t now) {
     case Command::PAGE:
       if (c.value >= 0 && c.value < ViewModel::PAGE_COUNT && (c.value != ViewModel::PAGE_MAP || hasTerrain())) {
         page_ = (ViewModel::Page)c.value;
+        pwrlog::note(now, pwrlog::PAGE, c.value, 1);
         redraw_ = true;
       }
       break;
@@ -502,6 +506,7 @@ void App::tick(uint32_t now) {
   } else {
     if (ev == BTN_SHORT) {
       page_ = nextPage(page_);
+      pwrlog::note(now, pwrlog::PAGE, page_, 0);
       redraw_ = true;
     }
     if (ev == BTN_LONG) {

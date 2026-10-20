@@ -17,6 +17,10 @@ static Vec3 toBoardMag(float x, float y, float z) { Vec3 v; v.x = x; v.y = y; v.
 
 bool CompassLis::begin() {
   Wire.begin();
+  return configure();
+}
+
+bool CompassLis::configure() {
   haveImu_ = imu.begin_I2C();
   haveMag_ = mag.begin_I2C();
   if (haveImu_) imu.setGyroRange(LSM6DS_GYRO_RANGE_500_DPS);       // hand rotations; 17.5 mdps per count
@@ -27,12 +31,13 @@ bool CompassLis::begin() {
     mag.setPerformanceMode(LIS3MDL_MEDIUMMODE);
     mag.setRange(LIS3MDL_RANGE_4_GAUSS);
   }
-  enable(false);
+  enable(on_);
   return haveImu_ && haveMag_;
 }
 
 void CompassLis::enable(bool on) {
   on_ = on;
+  lastGoodMs_ = millis();
   if (haveImu_) {
     imu.setAccelDataRate(on ? LSM6DS_RATE_104_HZ : LSM6DS_RATE_SHUTDOWN);
     imu.setGyroDataRate(on ? LSM6DS_RATE_104_HZ : LSM6DS_RATE_SHUTDOWN);
@@ -55,7 +60,14 @@ static bool magReady() {
 // older than 10 ms. Nothing is read (and no time is spent) when there is no new sample.
 bool CompassLis::read(Vec3& a, Vec3& m, Vec3& g, bool& haveGyro) {
   if (!on_ || !haveImu_ || !haveMag_) return false;
-  if (!magReady()) return false;
+  if (!magReady()) {
+    // 80 Hz samples: a second without one means the bus or a chip is stuck (a flight instrument must not freeze silently).
+    // Reset the bus and configure the chips again; at most once a second.
+    const uint32_t now = millis();
+    if (now - lastGoodMs_ > 1000) { lastGoodMs_ = now; recoveries_++; Wire.end(); Wire.begin(); configure(); }
+    return false;
+  }
+  lastGoodMs_ = millis();
   mag.read();
   m_ = toBoardMag(mag.x_gauss * 100.0f, mag.y_gauss * 100.0f, mag.z_gauss * 100.0f);   // gauss -> microtesla
   sensors_event_t ea, eg, et;

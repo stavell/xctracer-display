@@ -4,9 +4,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// A variable in this section is not cleared by the start-up code (the linker script has no .noinit: the section is an orphan placed
-// after .bss, before the heap, outside the range Reset_Handler zeroes) and keeps its bytes across a reset. Not initialised: no constructor.
-#define RETAINED_NOINIT __attribute__((section(".noinit")))
+// A variable in this section is not cleared by the start-up code and keeps its bytes across a reset. It lives in the top 4 kB of
+// RAM, which platformio.ini takes away from the heap and the stack (-Wl,--defsym=__StackTop=0x2003f000, --section-start=.retained=...):
+// the Adafruit bootloader, which runs on every reset, rewrites the low RAM (a .noinit right after .data was lost on every reset,
+// measured), but leaves the top alone. Not initialised: no constructor, no initial value. The section is NOBITS (nothing in the image).
+#define RETAINED_NOINIT __attribute__((section(".retained,\"aw\",%nobits //")))
 
 namespace retention_hw {
 

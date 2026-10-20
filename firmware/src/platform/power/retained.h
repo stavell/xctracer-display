@@ -5,9 +5,10 @@
 // bookkeeping; the device only decides where the block lives and which RAM stays on.
 //
 // What survives what:
-//   soft reset, watchdog, flash by USB   RAM intact: history restored; the clock restored from its last save (at most a few seconds
-//                                        old, plus the time the box was down; after a USB flash that is tens of seconds until a GPS
-//                                        fix or the PC's TIME corrects it)
+//   soft reset, watchdog, reset pin       RAM intact: history restored; the clock restored from its last save (at most a few seconds
+//                                        old, plus the time the box was down). USB bench command REBOOT does a soft reset
+//   flash by USB (the bootloader's DFU)   RAM lost (the bootloader reuses it): ret=none, history empty, clock unknown until the
+//                                        PC's TIME (host/settime.py) or a GPS fix. Measured, see NOTES "Retention across resets"
 //   System OFF (power off, wake by switch)  RAM retained: history restored; the clock stays unknown (the time asleep is unknown) until
 //                                        GPS or the PC sets it, then the slots that passed become gaps in the history
 //   battery out, brown-out               RAM lost: the checksum fails (or the magic is absent), everything starts empty

@@ -37,6 +37,12 @@ void LogShell::run(ITextOut& out) {
     out.put(buf_);
     return;
   }
+  if (strcmp(line_, "REBOOT") == 0) {
+    if (!apps_) { out.put("rb err unsupported"); return; }
+    out.put("rb ok");
+    if (!apps_->reboot()) out.put("rb err unsupported");
+    return;
+  }
   if (strncmp(line_, "APP ", 4) == 0) {
     const char* name = line_ + 4;
     while (*name == ' ') name++;

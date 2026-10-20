@@ -8,6 +8,7 @@
 //   APP name           -> app ok name   (bench only: switch to an app by its registry name, through the host's normal app switch;
 //                         app err unknown name when there is none)
 //   APP?               -> app now name   (the active app)
+//   REBOOT             -> rb ok   (bench only: save the retained block, then a soft reset; "rb err" without a box image)
 //   LOGERASE           -> lg ok erase started   (the final  lg ok erased  comes from the caller when the format is over)
 //
 // Bytes that are not a command line (the loader's binary frames, a terminal) are ignored. Pure C++.
@@ -34,6 +35,7 @@ struct IAppSink {
   virtual ~IAppSink() {}
   virtual bool openApp(const char* name) = 0;      // false: no such app
   virtual const char* activeApp() = 0;
+  virtual bool reboot() { return false; }          // REBOOT: save what must survive, then a soft reset (does not return)
 };
 
 class LogShell {

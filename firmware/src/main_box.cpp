@@ -39,6 +39,8 @@
 #include "platform/power/retained.h"
 #include "platform/power/weather.h"
 #include "platform/hw/retention_nrf.h"
+#include "platform/hw/pwr_log_nrf.h"
+#include "platform/power/pwr_log.h"
 #include "platform/hw/wth_status.h"
 #include "apps/vario/hw/tracer_ble.h"
 #include "apps/vario/hw/vario_radios.h"
@@ -67,6 +69,7 @@ static WeatherLog weather;                    // 24 h pressure history (288 B), 
 // they survive a reset, the watchdog and the power-off. 312 B of .noinit, between .bss and the heap.
 static retained::Block retainedBlock RETAINED_NOINIT;
 static retained::Retention retention(retainedBlock);
+static_assert(sizeof(retained::Block) + sizeof(pwrlog::Ring) + 64 <= 4096, "the retained RAM page (platformio.ini: .retained at 0x2003f000) is 4 kB");
 static TracerBle tracer(config);
 static LaptopBle laptop(panel);
 static VarioRadios radios(laptop, tracer);
@@ -234,7 +237,16 @@ static struct ShellApps : storage::IAppSink {
     return true;
   }
   const char* activeApp() override { return host.active() ? host.active()->name() : "none"; }
+  bool reboot() override;
 } shellApps;
+bool ShellApps::reboot() {
+  pwrlog::note(millis(), pwrlog::CMD, 2);
+  retention.save(millis(), weather, wallClock);   // the history and the clock survive a plain reset
+  Serial.flush();
+  delay(100);
+  NVIC_SystemReset();
+  return true;
+}
 static char* scratchBuf() { size_t c; return diagnosticsScratch(&c); }
 static GameLog gameLog(host, panel, fastMicros, &probe, scratchBuf(), 560);    // the "gm ..." line while a game runs; forwards clear / present to the vario probe
 
@@ -268,6 +280,7 @@ void setup() {
   config.migrateTo(boxSettings);              // first start after the update: calibration, mounting, time zone move over
   retention.boot(weather, wallClock, retention_hw::clockSurvived(), millis());   // the history and (after a reset) the clock come back
   retention_hw::keepRam(&retainedBlock, sizeof retainedBlock);                   // and stay powered in System OFF
+  pwrlog_hw::begin(readResetReason(), millis());                                 // the event ring of the last run is printed first
   panel.begin();
   compassHw.begin();                          // starts Wire
   thermo.begin();                             // SHT30 on the same bus
@@ -361,6 +374,7 @@ void loop() {
   }
 #endif
   pack.service(now);
+  { static bool pwrDone = false; if (!pwrDone && Serial && Serial.availableForWrite() >= 200) pwrDone = pwrlog_hw::dumpStep(); }   // `pwr` lines, once per terminal
   retention.tick(now, weather, wallClock);         // bridges the restored history when the time is known; saves the block
   {
     uint32_t epoch = 0;
@@ -370,7 +384,7 @@ void loop() {
   wth::tick(now, baro, thermo, battery, weather, retained::name(retention.result()));   // the "wth" status line (a terminal attached)
   uint32_t t0 = fastMicros();
   host.tick(now);
-  if (power.takeResumed()) { button.flush(); startStartupApp(true); }   // woke from the clock sleep: no reset, the wall clock survived; the intro plays too
+  if (power.takeResumed()) { pwrlog::note(now, pwrlog::WAKE, 1); button.flush(); startStartupApp(true); }   // woke from the clock sleep: no reset, the wall clock survived; the intro plays too
   uint32_t dt = fastMicros() - t0;   // not micros(): it once gave -67 s here (a 4.2e9 us 'worst tick')
   if (dt > worstTickUs) worstTickUs = dt;
   gameLog.tick(now, dt);

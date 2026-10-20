@@ -6,6 +6,7 @@
 #include "platform/clock.h"
 #include "platform/power/clock_view.h"
 #include "platform/power/retained.h"
+#include "platform/power/pwr_log.h"
 #include "platform/power/weather.h"
 #include "platform/hw/retention_nrf.h"
 #include "platform/settings/box_settings.h"
@@ -24,6 +25,7 @@ void PowerNrf::sleepNow(uint8_t pin) {
 }
 
 void PowerNrf::shutdown() {
+  pwrlog::note(millis(), pwrlog::POWER_OFF, clockSleep_ ? 1 : 0);
   radios_.disconnect();
   delay(150);
   radios_.stop();
@@ -35,6 +37,7 @@ void PowerNrf::shutdown() {
 }
 
 void PowerNrf::powerOff() {
+  pwrlog::note(millis(), pwrlog::POWER_OFF, 0);
   radios_.disconnect();
   delay(150);
   radios_.stop();
@@ -46,6 +49,7 @@ void PowerNrf::powerOff() {
 
 void PowerNrf::fullOff() {
   if (clockSleep_ && deps_.retention) deps_.retention->save(millis(), *deps_.weather, *deps_.clock);   // the last pressures and the time
+  pwrlog::note(millis(), pwrlog::POWER_OFF, 2);   // every System OFF of the box passes here
   panel_.clear();                   // never leave a picture on a panel whose VCOM is stopped
   panel_.invalidate();
   panel_.present();

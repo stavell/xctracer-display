@@ -108,9 +108,13 @@ right is worse than no data.
   `main_box.cpp`) open an app by registry name (launcher, vario, compass, tetris, settings, sim) through the host's normal switch
   and print the active one. They are a bench tool that needs a PC on the cable, not a gesture: the flight-safety rule above is
   about the pilot's hands and is unchanged (no command, no menu entry and no BLE path does this). `TIME epoch tz` sets the clock.
-- **Retained RAM.** `retained::Block` (312 B, `.noinit`, in `main_box.cpp` only) holds the pressure log and the clock epoch with a
-  CRC-32; `platform/hw/retention_nrf.cpp` keeps its RAM sections powered in System OFF. Anything else added there needs a
-  version bump (a wrong layout is refused by magic / version / CRC, never read). Start-up code must not clear `.noinit`.
+- **Retained RAM.** `retained::Block` (312 B) and the `pwrlog` event ring (584 B) live in the top 4 kB of RAM (`.retained`, NOBITS, at
+  0x2003f000; `platformio.ini` box env: `--defsym=__StackTop`, `--section-start`; `RETAINED_NOINIT`), in `main_box.cpp` only. A `.noinit`
+  low in RAM does NOT survive a reset: the Adafruit bootloader runs on every reset and rewrites it (measured, NOTES "Retention across
+  resets"). The block holds the pressure log and the clock epoch with a CRC-32; `platform/hw/retention_nrf.cpp` keeps its RAM
+  sections powered in System OFF. Anything else added there needs a version bump. Survives: reset, `REBOOT`, watchdog, System OFF.
+  Lost: a USB flash (DFU), battery out. The `pwr` lines at boot print the event ring (switch events, app switches, sheet acts, power
+  entries) of the last run. Bench `REBOOT` saves the block and soft-resets.
 
 ## Build, test, flash
 

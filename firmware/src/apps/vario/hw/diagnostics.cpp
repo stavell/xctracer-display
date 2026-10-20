@@ -273,9 +273,9 @@ void diagnosticsTick(uint32_t now, uint32_t& worstTickUs) {
   const Vec3& ca = compassHw.lastAccel();
   const Vec3& cm = compassHw.lastMag();
   const Vec3& cg = compassHw.lastGyro();
-  Serial.printf("cmp on=%d present=%d acc=%.2f,%.2f,%.2f mag=%.1f,%.1f,%.1f gyr=%.1f,%.1f,%.1f hdg=%.1f src=%d cal=%d orient=%d fused=%d bias=%.2f\n", app.compassOn(),
+  Serial.printf("cmp on=%d present=%d acc=%.2f,%.2f,%.2f mag=%.1f,%.1f,%.1f gyr=%.1f,%.1f,%.1f hdg=%.1f src=%d cal=%d orient=%d fused=%d bias=%.2f rec=%lu\n", app.compassOn(),
                 compassHw.present(), ca.x, ca.y, ca.z, cm.x, cm.y, cm.z, cg.x * 57.2958f, cg.y * 57.2958f, cg.z * 57.2958f,
-                vm.heading, (int)vm.headingSrc, vm.calValid, app.mountIndex(), app.fused(), app.ahrs().biasDps());
+                vm.heading, (int)vm.headingSrc, vm.calValid, app.mountIndex(), app.fused(), app.ahrs().biasDps(), (unsigned long)compassHw.recoveries());
   Ahrs::Debug d = app.ahrs().debug();
   Serial.printf("ahrs trust=%.2f magOk=%d hxy=%.1f mref=%.1f dip=%.3f dipref=%.3f gstd=%.3f still=%d bwins=%d winbad=%d\n",
                 d.trust, d.magOk, d.hxy, d.magRef, d.dip, d.dipRef, d.gstdDps, d.stillWin, d.biasWins, d.winBad);

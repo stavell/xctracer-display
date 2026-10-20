@@ -12,10 +12,12 @@ class CompassLis : public ICompass {
   const Vec3& lastAccel() const { return a_; }      // last mapped readings, for diagnostics
   const Vec3& lastMag() const { return m_; }
   const Vec3& lastGyro() const { return g_; }
+  uint32_t recoveries() const { return recoveries_; }   // bus resets after a second without a sample
   bool present() const { return haveImu_ && haveMag_; }
 
  private:
   bool haveImu_ = false, haveMag_ = false, on_ = false;
-  uint32_t gyroFrom_ = 0;
+  bool configure();
+  uint32_t gyroFrom_ = 0, lastGoodMs_ = 0, recoveries_ = 0;
   Vec3 a_, m_, g_;
 };

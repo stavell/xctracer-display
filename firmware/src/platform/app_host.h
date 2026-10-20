@@ -19,6 +19,7 @@
 // longest gap between two presented frames (FrameStats), for a title bar or a status line.
 #include <Adafruit_GFX.h>
 #include <stddef.h>
+#include "platform/power/pwr_log.h"
 #include <stdint.h>
 #include <string.h>
 #include "platform/input/combo_hold.h"
@@ -164,6 +165,7 @@ class AppHost : public IAppNav {
     if (index < 0 || index >= n_) return false;
     if (active_) active_->end();
     active_ = apps_[index];
+    pwrlog::note(nowMs, pwrlog::APP, index);
     activeIdx_ = index;
     pending_ = -1;
     aDown_ = bDown_ = false;
@@ -184,6 +186,7 @@ class AppHost : public IAppNav {
   void tick(uint32_t nowMs) {
     if (!active_) return;
     ButtonEvent ev = input_.poll(nowMs);
+    if (ev != BTN_NONE) pwrlog::note(nowMs, pwrlog::SWITCH, (int32_t)ev, (int32_t)input_.heldMs(nowMs));
     KeyEdge e;
     while (input_.popEdge(e)) {
       if (e.down) six_ = e.key != KEY_MAIN;                 // the hint follows the control used last
@@ -371,6 +374,7 @@ class AppHost : public IAppNav {
   void openSheet(uint32_t nowMs) {
     const bool inLauncher = activeIdx_ == launcher_;
     sheet_->open(inLauncher ? SystemSheet::R_SLEEP : active_->sheetStart(), canLeave(), nowMs);
+    pwrlog::note(nowMs, pwrlog::SHEET_OPEN, (int32_t)activeIdx_);
     active_->onHeld(0);
     active_->onSheet(true, nowMs);
     for (int k = 0; k < KEY_COUNT; k++)                    // keys down now would never see their release: end them for the app
@@ -379,6 +383,7 @@ class AppHost : public IAppNav {
   // True when the act ended this iteration (the box went to sleep or off).
   bool sheetAct(SystemSheet::Act a, uint32_t nowMs) {
     if (a == SystemSheet::A_NONE || !power_) return false;
+    pwrlog::note(nowMs, pwrlog::SHEET_ACT, (int32_t)a);
     sheet_->close();
     panel_.invalidate();
     active_->onSheet(false, nowMs);

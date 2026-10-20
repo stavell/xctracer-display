@@ -1268,6 +1268,64 @@ static void clock_view_look() {
   CHECK(memcmp(before, mp.raw(), sizeof before) == 0);
 }
 
+static bool varioHeadingLive(Box& b, BoxRun& u) {
+  u.run(1500);
+  return b.host.active() == &b.vario && b.r.compass.enabled && b.varioCore().motion().running() && b.varioCore().motion().valid();
+}
+
+static void box_motion_live() {
+  puts("box: the vario's heading is live after the intro and after the compass app");
+  {
+    std::unique_ptr<Box> pb(new Box());
+    Box& b = *pb;
+    BoxRun u(b);
+    b.r.compass.psi = 100;
+    b.boot(0, true);
+    u.run(6000);
+    CHECK(varioHeadingLive(b, u));
+  }
+  {
+    std::unique_ptr<Box> pb(new Box());
+    Box& b = *pb;
+    BoxRun u(b);
+    b.r.compass.psi = 100;
+    b.boot(0);
+    u.run(1000);
+    u.home();
+    CHECK(b.host.active() == &b.launcher);
+    CHECK(b.host.start(Box::APP_COMPASS, u.now));
+    u.run(1500);
+    CHECK(b.host.active() == &b.compassApp && b.r.compass.enabled);
+    u.home();
+    CHECK(b.host.active() == &b.launcher);
+    CHECK(b.host.start(Box::APP_VARIO, u.now));
+    CHECK(varioHeadingLive(b, u));
+  }
+}
+
+static void box_pwr_log() {
+  puts("box: the event ring notes switch events, app switches and sheet acts");
+  static pwrlog::Ring ring;
+  ring.magic = 0; ring.init();
+  pwrlog::ring() = &ring;
+  std::unique_ptr<Box> pb(new Box());
+  Box& b = *pb;
+  BoxRun u(b);
+  b.boot(0);
+  u.run(500);
+  const uint32_t n0 = ring.n;
+  u.shortp();
+  u.off();
+  int sw = 0, hold = 0, open = 0;
+  for (uint32_t i = n0; i < ring.n; i++) {
+    const pwrlog::Event& x = ring.e[i % pwrlog::Ring::kN];
+    if (x.code == pwrlog::SWITCH) { sw++; if (x.a == BTN_HOLD) hold++; }
+    if (x.code == pwrlog::SHEET_OPEN) open++;
+  }
+  CHECK(sw >= 2 && hold == 1 && open == 1);
+  pwrlog::ring() = nullptr;
+}
+
 static void test_box() {
   clock_sleep_logic();
   weather_station();
@@ -1288,6 +1346,8 @@ static void test_box() {
   box_lazy_apps();
   box_app_by_name();
   box_intro();
+  box_motion_live();
+  box_pwr_log();
 }
 
 }  // namespace bx

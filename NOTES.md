@@ -1402,3 +1402,28 @@ has to be white strokes on the dark liquid, on the pale card it would not show.
   is full, `read` retries EINTR, and a job that left no report is run once more (a note is printed); dying twice still fails. Checked by killing a child with SIGKILL mid-run: note, then pass.
 - **Diag image heap**: `benchFm` (a static `FlightModel`, 36240 bytes of .bss) in `diagnostics.cpp` only served a one-off timing run; it is now allocated for that run
   (`new (std::nothrow)`, freed after; no model = no timing line). `feather_sense_diag` .heap 49180 -> 85424 (.bss 184412 -> 148172); `feather_sense` 88348 and `feather_sense_box` 76732 unchanged.
+
+## Device pass: frozen compass, self power-off, retention (2026-10-20, box image on the board)
+
+- **Retention did not survive ANY reset, not only a flash.** Probe: before `NVIC_SystemReset` (bench `REBOOT`) a marker was written every 256 B
+  over 0x2002d400..0x2003f400; after the reset 256 of 290 survived (the 34 lost are the .bss tail the start-up code zeroes). The `.noinit`
+  block lived at 0x20006c24 (right after `.data`, low in RAM) and was lost on every reset: the Adafruit bootloader runs on each reset and
+  rewrites the low RAM. Fix: the block and the `pwrlog` ring live in the top 4 kB of RAM (`.retained`, NOBITS, 0x2003f000; box env
+  `-Wl,--defsym=__StackTop=0x2003f000 -Wl,--section-start=.retained=0x2003f000`; heap 76732 -> 71904 B). Evidence after the fix:
+  before `wth ... log=1 ret=none`, `tm now 12:50`; after `REBOOT`: `wth ... log=2 ret=ok`, `tm now 12:50`, `pwr` ring with the earlier events.
+  (log 1 -> 2: the restored sample plus the new one at boot.) A USB flash (DFU) still gives `ret=none`: the bootloader's flashing reuses the RAM.
+  So: resets, `REBOOT`, watchdog, System OFF keep the state; a flash and battery-out lose it; set the clock after a flash (`host/settime.py`).
+- **log= stayed 1 for 12 min**: not a sampling bug found. The sample is every 10 min since the last one; the box had been reset / powered off
+  in that run (millis restarts), which restarts the 10 min. After the fix: `log=2` held over a 5.5 min idle soak, sampling code unchanged.
+- **Self power-off**: the coordinator's later information says a person handled the box (two presses = pg 0 -> 2, a 6 s hold = power off, a press =
+  wake). Idle soak 5.5 min in the vario, nobody touching: no page change, no reset, no events. Kept the instrumentation: `platform/power/pwr_log.h`
+  (ring of 48 events in the retained page: switch events with held ms, sheet open / act, app switches, page changes, power-off entries,
+  wake, bench commands), printed as `pwr ...` lines once a terminal is attached. Emulator test `box_pwr_log`.
+- **Frozen vario compass**: not reproduced. After a flash (intro -> vario), after `APP compass|settings|sim|launcher -> vario`, and during a 5.5 min
+  soak `cmp` was live every time (`hdg` ~218-221, `fused=1`); the emulator test `box_motion_live` (intro -> vario, launcher -> compass -> sheet
+  Home -> launcher -> vario) also passes, so the ownership logic (each user starts and stops its own `MotionService`, the host ends the old app
+  before it begins the new one) is sound. The observed signature (identical raw values including noise for 12 s, `hdg=nan src=0`, a live App)
+  means `CompassLis::read` never returned a sample: a stuck I2C bus or chip, not logic. Hardening: `CompassLis::read` now notices one second
+  without a magnetometer sample, resets the bus (`Wire.end/begin`) and configures the chips again; the `cmp` line shows `rec=N`
+  (recoveries; 0 in all runs here). If the freeze comes back, `rec` > 0 means it was the bus and it healed, `rec=0` with a frozen line means
+  the vario was not being ticked.
