@@ -806,6 +806,45 @@ from the reference once a wind is shown. They fail on the old code (8 failures).
 persistent contradiction. Whole flights: `host/wind_ref.py <igc>` (manual), `build.sh wind lines.txt` as before.
 
 
+## Wind: a fresh circle fit beats the EKF (2026-10-20)
+
+`FlightModel::windSource()` (one place for vector and age; `windXY()` and `wind()` use it) now picks: the smoothed circle fit
+when it is valid and at most 30 s old (`WIND_FIT_FRESH_MS`), else the EKF when it is confident and at least one circle fit was
+accepted since `reset()`, else the circle fit if valid, else no wind. The age belongs to the source returned (circle: `windAt_`,
+EKF: `ekfInformedAt_`). EKF and circle-fit maths are unchanged. The thermal memory and the wind-compensated centring map use the
+same vector.
+
+Why (offline study, 64 real flights, reference `host/wind_ref.py`): (1) entering a thermal after a long glide, a stale but
+confident EKF (about 10 km/h and 70 deg off) overruled fresh, correct circle fits for 15 to 30 s, while its age read 0 (it is
+"informed" by any turn of 15 deg); it explained the circle with a changed airspeed (7 to 15.6 m/s) instead of a changed wind.
+(2) After launch the EKF went confident 32 s in, before any circle fit, 70 deg off.
+
+Method: `host/wind_ref.py <igc> --starts 0 --emu <emu>` over the 44 IGCs that have reference windows, rows "shown wind()" pooled
+weighted by n (weighted mean of the per-flight median and p90, max over flights, sum of confident-wrong seconds); emu built
+from main and from this change.
+
+| shown wind() (44 flights) | before | after |
+|---|---|---|
+| median error, weighted mean (km/h) | 1.94 | 1.19 |
+| p90 error, weighted mean (km/h) | 4.33 | 3.44 |
+| max (km/h) | 21.5 | 21.5 |
+| confident-wrong s (>8 km/h, age <= 120 s) | 327 | 275 |
+| seconds shown | 112573 | 112537 |
+
+(The study's rule, on its own harness, gave 1.92 to 1.14, p90 4.19 to 3.35, 328 to 257; the shipped code through the emulator
+moves the same way.)
+
+Centring cue (`emu cue`, "SHIPPED, all windows", 38 flights with circling): n 31971 to 32024, hit 79.9 % to 80.0 %: no change.
+
+Fixtures: `test_wind_ekf` step 8 (zigzag, no circle) used to expect a shown wind from the EKF alone; it now expects none (the
+EKF itself is still checked). The "sopot from 1500 s" replay shows no wind at all now (no circle fit passes its gates in that
+stretch; before, the EKF alone showed 7 km/h), so that fixture takes `minShown = 0`. SVE-09 unchanged. New tests:
+`test_wind_prefers_fresh_circle_fit` (A, long glide, B 15+ km/h away: follows B within the first accepted fit, age is the fit's)
+and `test_no_ekf_wind_before_first_circle`.
+
+Caveat: the reference is itself a (stricter, geometric) circle fit, so it may favour a circle-fit-first rule. Flights whose
+circles never pass the gates now show no wind where the EKF alone showed one (it may have been right).
+
 ## Flight simulator: playable air, chase camera, Day settings (2026-10-17)
 
 User feedback after playing: "I can't even reach a thermal". `build.sh simreach [PACK] [seeds] [t0..]` (`emu/sim_reach.cpp`, shared code

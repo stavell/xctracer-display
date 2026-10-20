@@ -205,11 +205,24 @@ void FlightModel::updateWind() {
   } else disagree_ = 0;
 }
 
-bool FlightModel::windXY(double& wx, double& wy) const {
-  if (ekf_.confident()) { wx = ekf_.wx(); wy = ekf_.wy(); return true; }
+// The one place that picks the wind source (vector and age together, so they cannot disagree). A fresh circle
+// fit measures the wind directly; a confident EKF can be stale after a long glide or lock on a wrong value
+// (offline study on 64 flights), so it only speaks when the circle fit is old, and never before the first fit.
+bool FlightModel::windSource(double& wx, double& wy, uint32_t& ageS) const {
+  if (windValid_ && clock_ - windAt_ <= WIND_FIT_FRESH_MS) {
+    wx = wx_; wy = wy_; ageS = (clock_ - windAt_) / 1000; return true;
+  }
+  if (windValid_ && ekf_.confident()) {
+    wx = ekf_.wx(); wy = ekf_.wy(); ageS = (clock_ - ekfInformedAt_) / 1000; return true;
+  }
   if (!windValid_) return false;
-  wx = wx_; wy = wy_;
+  wx = wx_; wy = wy_; ageS = (clock_ - windAt_) / 1000;
   return true;
+}
+
+bool FlightModel::windXY(double& wx, double& wy) const {
+  uint32_t age;
+  return windSource(wx, wy, age);
 }
 
 static Wind makeWind(double wx, double wy, uint32_t ageS) {
@@ -223,8 +236,9 @@ static Wind makeWind(double wx, double wy, uint32_t ageS) {
 
 Wind FlightModel::wind() const {
   double wx, wy;
-  if (!windXY(wx, wy)) return Wind();
-  return makeWind(wx, wy, ekf_.confident() ? (clock_ - ekfInformedAt_) / 1000 : (clock_ - windAt_) / 1000);
+  uint32_t age;
+  if (!windSource(wx, wy, age)) return Wind();
+  return makeWind(wx, wy, age);
 }
 
 Wind FlightModel::circleWind() const {

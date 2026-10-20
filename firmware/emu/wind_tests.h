@@ -74,7 +74,7 @@ static void test_ekf_recovers_from_wrong_state() {
 // The real flights. SVE-09 from 4000 s: the first circle ends at about 340 s, wind there 8-16 km/h toward 260-300. The old
 // EKF was "confident" at 45 km/h from 205 s on. sopot from 1500 s: wind 5-7 km/h toward about 300; the old EKF was confident at 27 km/h.
 // Whatever is shown must be absent or close to the independent reference (host/wind_ref.py); never confidently far off.
-static void checkReplay(const char* name, const uint16_t (*sc)[2], int n, double refKmh, double refTo, double tol, int firstCircleBy) {
+static void checkReplay(const char* name, const uint16_t (*sc)[2], int n, double refKmh, double refTo, double tol, int firstCircleBy, int minShown = 30) {
   printf("wind from a replay: %s\n", name);
   static FlightModel fm;
   double re = refKmh * sin(refTo * D2R), rn = refKmh * cos(refTo * D2R);
@@ -92,17 +92,18 @@ static void checkReplay(const char* name, const uint16_t (*sc)[2], int n, double
   });
   printf("  shown %d s, worst error %.1f km/h at %d s, EKF confident before the first circle: %d s\n", shownSecs, worst, worstSec, confidentBeforeCircle);
   CHECK(confidentBeforeCircle == 0);       // no turn yet: nothing to be confident about
-  CHECK(shownSecs > 30);                   // and it does get a wind once the circles are there
+  CHECK(shownSecs >= minShown);            // and it does get a wind once the circles are there
   CHECK(worst <= tol);
   double e, nn;
   shown(fm, e, nn);
+  if (minShown == 0 && !fm.wind().valid) return;   // no circle fit passes its gates here: the EKF alone no longer shows a wind
   CHECK(fm.wind().valid);
   CHECK(kmhVec(e - re, nn - rn) <= tol);
 }
 
 static void test_replays() {
   checkReplay("SVE-09 from 4000 s", sve_SC, sve_N, 13, 300, 8, 300);
-  checkReplay("sopot from 1500 s", sopot_SC, sopot_N, 7, 300, 8, 200);
+  checkReplay("sopot from 1500 s", sopot_SC, sopot_N, 7, 300, 8, 200, 0);   // no accepted circle fit in this stretch: since the circle-fit-first rule it shows nothing (was: EKF 7 km/h)
 }
 
 static void run() {

@@ -52,6 +52,8 @@ class FlightModel {
  private:
   void tick();
   void updateWind();
+  static constexpr uint32_t WIND_FIT_FRESH_MS = 30000;   // a circle fit this young beats the EKF
+  bool windSource(double& wx, double& wy, uint32_t& ageS) const;
   bool windXY(double& wx, double& wy) const;   // the one wind vector wind(), airTrail and thermals use
   void updateProfile();
   void updateTemperature();

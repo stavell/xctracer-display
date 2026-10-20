@@ -267,9 +267,9 @@ static void test_wind_ekf() {
   FlightModel fm;
   zigTrack(t, 240, 36, 15, 250);
   for (int i = 0; i < 240; i++) fm.feed(smp(i, true, 43, 26, t[i].speedKmh, t[i].course, 0, 1400));
-  Wind w = fm.wind();
-  CHECK(w.valid); CHECK(fm.ekfConfident()); NEAR(w.speedKmh, 15, 1.5); CHECK(angDiff(w.toDeg, 250) <= 10);
-  CHECK(w.ageS == 0);
+  // zigzag only, no circle: the EKF knows the wind but the shown wind waits for a circle fit
+  CHECK(!fm.wind().valid); CHECK(fm.ekfConfident());
+  NEAR(hypot(fm.ekf().wx(), fm.ekf().wy()) * 3.6, 15, 1.5);
   FlightModel st;
   for (int i = 0; i < 300; i++) { Gnd g = groundOf(36, 90, 15, 250); st.feed(smp(i, true, 43, 26, g.kmh, g.crs, 0, 1400)); }
   CHECK(!st.wind().valid); CHECK(!st.ekfConfident()); CHECK(st.ekfSigmaW() > 0.8f);
@@ -737,6 +737,48 @@ static void test_ekf_wind_age() {
   fl.fly(40, 18);                                         // circling again refreshes it
   w = fm.wind();
   CHECK(w.valid && w.ageS <= 10);
+}
+
+// A fresh circle fit beats a stale-but-confident EKF: wind A from circles, a long glide, then circles in wind B.
+static void test_wind_prefers_fresh_circle_fit() {
+  puts("wind: fresh circle fit over the EKF");
+  static FlightModel fm;
+  fm.reset();
+  WindFlier fl(&fm, 270, 12);
+  fl.fly(150, 18);
+  CHECK(fm.ekfConfident());
+  fl.fly(200, 0);                                         // long glide: the circle fit is stale, the EKF holds A
+  CHECK(fm.circleWind().ageS > 100);
+  fl.wx = 27 / 3.6 * sin(90 * D2R); fl.wy = 27 / 3.6 * cos(90 * D2R);   // B: 27 km/h toward 90
+  int guard = 0;
+  while (fm.circleWind().ageS > 5 && guard++ < 80) fl.fly(1, 18);
+  CHECK(guard < 80);
+  Wind w = fm.wind(), c = fm.circleWind();
+  CHECK(w.valid && w.ageS == c.ageS);                     // the age is the circle fit's
+  CHECK(fabsf(w.speedKmh - c.speedKmh) < 0.01f && angDiff(w.toDeg, c.toDeg) < 0.1);
+  NEAR(w.speedKmh, 27, 4);                                // followed B within the first accepted fit
+  CHECK(angDiff(w.toDeg, 90) <= 20);
+  // once the fit is older than 30 s the EKF (if confident) speaks, with its own age
+  fl.fly(40, 0);
+  CHECK(fm.circleWind().ageS > 30);
+  CHECK(fm.wind().valid);
+}
+
+// No EKF-sourced wind before the first accepted circle fit (S-turns after launch).
+static void test_no_ekf_wind_before_first_circle() {
+  puts("wind: nothing from the EKF before the first circle fit");
+  static FlightModel fm;
+  fm.reset();
+  static TrackPoint t[240];
+  zigTrack(t, 240, 36, 15, 250);                          // S-turns that make the EKF confident but never a full circle
+  bool confident = false;
+  for (int i = 0; i < 240; i++) {
+    fm.feed(smp(i, true, 43, 26, t[i].speedKmh, t[i].course, 0, 1400));
+    if (fm.ekfConfident()) confident = true;
+    CHECK(!fm.circleWind().valid);
+    CHECK(!fm.wind().valid);
+  }
+  CHECK(confident);
 }
 
 static void test_home_at_speed_crossing() {
@@ -1746,6 +1788,8 @@ static const TestEntry kTests[] = {
   {"test_home", test_home},
   {"test_ekf_seed_from_circle_fit", test_ekf_seed_from_circle_fit},
   {"test_ekf_wind_age", test_ekf_wind_age},
+  {"test_wind_prefers_fresh_circle_fit", test_wind_prefers_fresh_circle_fit},
+  {"test_no_ekf_wind_before_first_circle", test_no_ekf_wind_before_first_circle},
   {"test_home_at_speed_crossing", test_home_at_speed_crossing},
   {"test_air_trail", test_air_trail},
   {"test_thermal", test_thermal},
