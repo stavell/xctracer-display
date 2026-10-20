@@ -123,8 +123,8 @@ struct Box {
     registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
     registry.add("Sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
     registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
-    registry.add("Agents", "Claude Code", "pets for your Claude Code sessions", APP_PET, ICON_GENERIC);
     registry.add("Settings", "setup", "compass, mounting, time", APP_SETTINGS, ICON_SETTINGS, false);
+    registry.add("Agents", "Claude Code", "pets for your Claude Code sessions", APP_PET, ICON_GENERIC);
   }
 
   // A map pack for the vario (the kit must outlive the box; the vario opens its own kit on its reader when it starts);

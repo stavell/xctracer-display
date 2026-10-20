@@ -30,6 +30,8 @@ right is worse than no data.
       settings/  BoxSettings (time zone, mounting, magnetometer calibration over the key store), CompassCal (the calibration
                  flow) and its screen: shared by the vario and the Settings app
       storage/   map pack in a NOR flash: flash port (IFlash), flash header, USB serial frames + loader state machine, pack block reader
+      link/      OpcodeDispatch: the laptop link's opcode table (pure); consumers register opcode ranges (vario drawing, vario commands, pet snapshot)
+      pet/       the Claude Pet snapshot (strict decoder, Mailbox, Feed = IPetFeed, the status the box reports back); docs/claude_pet.md
       util/      spsc_ring, types (Vec3, MagCal, finite-math guard), fastmem (word-wide fills / copies), hot.h (HOT_FILE_O3: per-file -O3 on the device for measured hot loops)
       hw/        generic drivers: QSPI flash + PackService (map pack, USB loader), panel, buttons (+ keymap.h for the six front buttons), battery, power, compass/thermo
                  sensors, key store (boot app, high scores, shared settings), watchdog, pins
@@ -44,6 +46,7 @@ right is worse than no data.
                  its adapter and the terrain kit are ONE arena object (VarioBox, built when the vario opens, destroyed when it is left)
       hw/        vario-only hardware: tracer BLE central, laptop BLE peripheral + protocol, flash config,
                  diagnostics
+    firmware/src/apps/pet/        the Agents app (Claude Code pets: PetApp + placeholder art; box image only, not the examples image)
     firmware/src/apps/launcher/   the home screen (LauncherApp: status bar, icon grid, footer)
     firmware/src/apps/settings/   the Settings app (compass calibration, mounting, start-up app, intro, time zone, power off, About)
     firmware/src/apps/games/tetris/   rules, 1-bit view, TetrisApp

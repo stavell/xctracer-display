@@ -360,3 +360,9 @@ The daemon can show "box battery low" and "box is not showing the herd" (another
 The box has no idle auto-sleep: the clock sleep starts only from the system sheet (`Sleep`) or the power button logic in `power_nrf`. The pet app does not request it and nothing times out under it. The user can still choose Sleep in the sheet. The app does not hold the screen against that.
 
 Desk use means USB power. A box on its battery with a refreshing display and a BLE link will not last a night; the pet app draws at most 6 fps while a session waits and one frame every 3 s otherwise, but the radio is on all the time.
+
+### Step 2: the pet app and the feed file
+
+- The app is `apps/pet/` ("Agents", sub "Claude Code", startable), app index 7 in the box image. It is left out of the examples image (that one already has 8 apps).
+- Feed file for the emulator (shared with the daemon's `--fake-ble FILE`): text, one snapshot per line, `<ms> <hex>`; `<ms>` is milliseconds since the file start (decimal), `<hex>` is the full snapshot bytes as lowercase hex without spaces, starting with `30`; lines starting with `#` are comments. `./build.sh play pet --feed FILE` plays it; `firmware/emu/fixtures/pet_demo.feed` is a hand-made example that walks through every state and tool.
+- Placeholder art is drawn from shapes in `pet_art.cpp` (8 silhouettes, 3 overlays, per-state and per-tool motion); the real sprites are step 6 of the delivery plan and replace only that file.
