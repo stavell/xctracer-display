@@ -52,10 +52,6 @@ static void shots(const char* dir) {
   run(300);
   press(900);
   dump(b, dir, "list_home");
-  b.host.start(Box::APP_COMPASS, now);            // the compass tool's menu
-  run(1000);
-  press(900);
-  dump(b, dir, "list_tool");
 
   // Settings: the list, a mounting change, the calibration while turning the unit, About.
   b.host.start(Box::APP_SETTINGS, now);

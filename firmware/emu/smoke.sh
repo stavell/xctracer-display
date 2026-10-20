@@ -24,7 +24,7 @@ KEYS="$KEYS long 20 shot:out/box_vario_list.png long 10"
 KEYS="$KEYS +main 150 shot:out/box_sheet_poweroff.png -main 5 shot:out/box_sheet_vario.png main long 40 shot:out/box_launcher.png"
 KEYS="$KEYS main main main 10 shot:out/box_launcher_tetris.png long 20 shot:out/box_tetris_title.png"
 KEYS="$KEYS main 40 left left a up 30 left a down 20 shot:out/box_tetris_game.png"
-KEYS="$KEYS off 10 shot:out/box_sheet_tetris.png sheet:home 20 shot:out/box_launcher_back.png main main main long 30 shot:out/box_compass.png"
+KEYS="$KEYS off 10 shot:out/box_sheet_tetris.png sheet:home 20 shot:out/box_launcher_back.png main main main long 30 shot:out/box_compass.png main 20 shot:out/box_compass_flat.png"
 KEYS="$KEYS off sheet:home 20 main main main long 30 shot:out/box_settings.png long 30 shot:out/box_settings_cal.png main"
 KEYS="$KEYS main main main main main long 20 shot:out/box_settings_about.png main off sheet:home 20 off 10 shot:out/box_sheet_launcher.png sheet:back 20 shot:out/box_launcher_settings.png"
 KEYS="$KEYS main main main long 150 shot:out/box_sim.png right 40 a 30 shot:out/box_sim_3d.png off sheet:home 20 main main main long 120 shot:out/box_vario_back.png"
@@ -32,11 +32,11 @@ rm -f out/box_*.png
 OUT=$(out/play box --no-intro $SRC $PACKARG --seed 3 --keys "$KEYS") || exit 1
 echo "$OUT"
 APPS=$(echo "$OUT" | sed -n 's/^wrote .*, \([a-z]*\))$/\1/p' | tr '\n' ' ')
-WANT="vario vario vario vario vario vario vario launcher launcher tetris tetris tetris launcher compass settings settings settings launcher launcher flightsim flightsim vario "
-[ -n "$PACK" ] && WANT="vario vario vario vario vario vario vario vario launcher launcher tetris tetris tetris launcher compass settings settings settings launcher launcher flightsim flightsim vario "
+WANT="vario vario vario vario vario vario vario launcher launcher tetris tetris tetris launcher compass compass settings settings settings launcher launcher flightsim flightsim vario "
+[ -n "$PACK" ] && WANT="vario vario vario vario vario vario vario vario launcher launcher tetris tetris tetris launcher compass compass settings settings settings launcher launcher flightsim flightsim vario "
 [ "$APPS" = "$WANT" ] || { echo "SMOKE FAIL: apps were [$APPS], expected [$WANT]"; exit 1; }
 [ -n "$PACK" ] && { echo "$OUT" | grep -q "^terrain: " || { echo "SMOKE FAIL: pack $PACK was not loaded"; exit 1; }; }
-for f in vario_compass vario_thermal vario_center vario_holdbar vario_list sheet_poweroff sheet_vario launcher launcher_tetris tetris_title tetris_game sheet_tetris launcher_back compass settings settings_cal settings_about sheet_launcher launcher_settings sim sim_3d vario_back; do
+for f in vario_compass vario_thermal vario_center vario_holdbar vario_list sheet_poweroff sheet_vario launcher launcher_tetris tetris_title tetris_game sheet_tetris launcher_back compass compass_flat settings settings_cal settings_about sheet_launcher launcher_settings sim sim_3d vario_back; do
   [ -s "out/box_$f.png" ] || { echo "SMOKE FAIL: out/box_$f.png missing"; exit 1; }
 done
 [ -n "$PACK" ] && { [ -s out/box_vario_map.png ] || { echo "SMOKE FAIL: out/box_vario_map.png missing"; exit 1; }; }

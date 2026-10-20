@@ -17,6 +17,7 @@
 #include "apps/settings/settings_view.h"
 #include "platform/app_host.h"
 #include "platform/app_registry.h"
+#include "platform/sensors/motion.h"
 #include "platform/settings/box_settings.h"
 #include "platform/settings/cal_view.h"
 #include "platform/settings/compass_cal.h"
@@ -26,7 +27,7 @@ class SettingsApp : public IApp {
  public:
   SettingsApp(IBattery& battery, ICompass& compass, IKeyStore& keys, BoxSettings& settings,
               const AppRegistry& apps, const char* version)
-      : battery_(battery), compass_(compass), keys_(keys), settings_(settings), apps_(apps), version_(version), cal_(settings) {}
+      : battery_(battery), keys_(keys), settings_(settings), apps_(apps), version_(version), cal_(settings), motion_(compass, settings) {}
   void setPack(const terrain::IPackStatus* pack) { pack_ = pack; }
 
   enum Row { ROW_COMPASS, ROW_MOUNT, ROW_STARTUP, ROW_INTRO, ROW_TZ, ROW_ABOUT, ROW_COUNT };
@@ -57,17 +58,15 @@ class SettingsApp : public IApp {
   void readSensors(uint32_t nowMs);
 
   IBattery& battery_;
-  ICompass& compass_;
   IKeyStore& keys_;
   BoxSettings& settings_;
   const AppRegistry& apps_;
   const char* version_;
   const terrain::IPackStatus* pack_ = nullptr;
   CompassCal cal_;
+  MotionService motion_;              // the sensors (platform/sensors/motion.h): on only while the calibration screen is open
   Screen screen_ = S_LIST;
   int sel_ = 0;
-  int mount_ = 0;                     // mounting in use while calibrating
-  bool sensorsOn_ = false;
   bool dirty_ = true;
   bool dpadStep_ = false;             // the last change came from the arrows (finer time zone steps)
   uint32_t lastDraw_ = 0, heldMs_ = 0;

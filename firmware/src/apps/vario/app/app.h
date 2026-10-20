@@ -1,7 +1,6 @@
 #pragma once
 #include "apps/vario/app/ports.h"
-#include "platform/sensors/ahrs.h"
-#include "platform/sensors/compass.h"
+#include "platform/sensors/motion.h"
 #include "apps/vario/core/flight.h"
 #include "apps/vario/core/heading.h"
 #include "platform/sensors/heading_smoother.h"
@@ -20,7 +19,7 @@ struct AppConfig {
   uint32_t hostGraceMs = 10000;      // laptop frames keep the screen this long after the last draw command
   uint32_t freshMs = 3000;           // data older than this counts as no data
   uint32_t drawEveryMs = 333;        // live screen redraw cadence (3 Hz, the tracer's data rate)
-  uint32_t animCompassEveryMs = 33;  // compass page and standalone compass while the dial glides (30 fps)
+  uint32_t animCompassEveryMs = 33;  // compass page (and the page without data) while the dial glides (30 fps)
   float gpsGlideTauMs = 250.0f;      // dial glide for the GPS track (about 3 updates per second)
   float magGlideTauMs = 90.0f;       // dial glide for the magnetic compass alone (sensor already filtered, 80 Hz)
   float fusedGlideTauMs = 30.0f;     // dial glide for the gyro-fused heading (already smooth: nearly pass-through)
@@ -40,7 +39,6 @@ struct AppConfig {
   static constexpr float MAP_HALF_PIXEL_RAD = 0.5f / MAP_HALF_RADIUS_PX;
   bool mapHeadingUp = false;         // map page: north up (default, cheap to cache) or heading up (re-renders every 5 degrees)
   float mapMPerPx = 100.0f;          // map page scale (ground metres per pixel): the window shows 22 x 38 km
-  bool standalone = false;           // the compass & weather tool: no tracer, no page switching, always the compass page
   uint32_t injectHoldMs = 3000;      // injected / simulated data silences the live tracer this long
   float gpsHeadingOnKmh = 4.0f;      // GPS track counts as a heading above this speed ...
   float gpsHeadingOffKmh = 2.5f;     // ... and stops counting below this one (hysteresis)
@@ -82,14 +80,15 @@ class App {
   bool simOn() const { return simOn_; }
   bool listOpen() const { return listOpen_; }
   bool calibrating() const { return calibrating_; }
-  bool compassOn() const { return compassOn_; }
-  const Compass& compass() const { return compass_; }
-  const Ahrs& ahrs() const { return ahrs_; }
+  bool compassOn() const { return motion_.running(); }
+  const Compass& compass() const { return motion_.compass(); }
+  const Ahrs& ahrs() const { return motion_.ahrs(); }
+  const MotionService& motion() const { return motion_; }
   void requestRedraw() { redraw_ = true; }                  // the next wantsFrame() is true (a host that switched pages)
   float ambientC(uint32_t nowMs) const { return haveAmbient_ && nowMs - ambientMs_ <= 10000 ? ambientC_ : NAN; }
   float ambientRh(uint32_t nowMs) const { return haveAmbient_ && nowMs - ambientMs_ <= 10000 ? ambientRh_ : NAN; }
-  bool fused() const { return fused_; }                     // the compass heading comes from the gyro fusion
-  int mountIndex() const { return mount_; }
+  bool fused() const { return motion_.fused(); }                     // the compass heading comes from the gyro fusion
+  int mountIndex() const { return motion_.mountIndex(); }
   const char* lastRaw() const { return lastRaw_; }          // last line received, parsed or not (diagnostics)
   void describeTracer(char* buf, size_t n) const { tracer_.describe(buf, n); }
   const ViewModel& buildViewModel(uint32_t nowMs);   // fills and returns the member (it is far too big for the stack)
@@ -122,7 +121,6 @@ class App {
   ITracer& tracer_;
   ILaptop& laptop_;
   BoxSettings& settings_;
-  ICompass& compassHw_;
   IThermo& thermo_;
   IPower& power_;
   AppConfig cfg_;
@@ -135,15 +133,9 @@ class App {
   uint32_t linesOk_ = 0, linesBad_ = 0;
 
   char lastRaw_[100] = "";
-  Compass compass_;
-  Ahrs ahrs_;                        // gyro + accel + mag fusion; the heading source when a gyro is present
-  int mount_ = 0;                    // board -> case rotation (platform/sensors/mount.h), loaded from the settings
-  bool fused_ = false;               // this tick's compass heading is the fused one
-  uint32_t gyroMs_ = 0;
-  bool haveGyro_ = false;
+  MotionService motion_;             // the sensors: mounting, calibration, compass, gyro fusion (platform/sensors/motion.h)
   float drawnHeading_ = NAN;         // the dial heading of the last live draw
   bool smoothFused_ = false;         // smoother is currently tuned for the fused heading
-  bool compassOn_ = false;
   HeadingSelector heading_;          // GPS track or magnetic compass, whichever applies
   HeadingSource smoothSrc_ = HDG_NONE;   // source the smoother is currently tuned for
   HeadingSmoother smooth_;           // what the dial shows; advanced once per tick, never when drawing

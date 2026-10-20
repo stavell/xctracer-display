@@ -38,7 +38,6 @@ void SettingsApp::refresh() {
 }
 
 void SettingsApp::startCal() {
-  mount_ = settings_.mountIndex();
   cal_.start();
   screen_ = S_CAL;
   dirty_ = true;
@@ -46,17 +45,15 @@ void SettingsApp::startCal() {
 
 void SettingsApp::stopCal(bool keep) {
   if (cal_.active()) cal_.finish(keep);
-  if (sensorsOn_) { compass_.enable(false); sensorsOn_ = false; }
+  motion_.stop();
   if (screen_ == S_CAL) screen_ = S_LIST;
   refresh();
   dirty_ = true;
 }
 
 void SettingsApp::readSensors(uint32_t nowMs) {
-  if (!sensorsOn_) { compass_.enable(true); sensorsOn_ = true; }
-  Vec3 a, m, g;
-  bool hg = false;
-  if (compass_.read(a, m, g, hg)) cal_.feed(mountApply(mount_, a), mountApply(mount_, m), nowMs);
+  motion_.start();
+  if (motion_.poll(nowMs)) cal_.feed(motion_.accel(), motion_.mag(), nowMs);
 }
 
 void SettingsApp::tick(uint32_t nowMs) {

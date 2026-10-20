@@ -8,7 +8,7 @@
 #include "apps/intro/intro_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/settings/settings_app.h"
-#include "apps/vario/app/compass_tool.h"
+#include "apps/compass/compass_app.h"
 #include "apps/vario/app/terrain_kit.h"
 #include "apps/vario/app/vario_box.h"
 #include "mocks.h"
@@ -32,12 +32,12 @@ struct Box {
   MockKeyStore& keys = r.keys;
   WallClock clock;
   AppRegistry registry;
-  // Like main_box.cpp: the vario (with its map kit), the tool, Tetris and the sim share one arena and exist only while they are the active app.
-  static constexpr size_t kArenaBytes = maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(CompassTool), sizeof(TetrisApp)))));
+  // Like main_box.cpp: the vario (with its map kit), the compass app, Tetris and the sim share one arena and exist only while they are the active app.
+  static constexpr size_t kArenaBytes = maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(compass::CompassApp), sizeof(TetrisApp)))));
   AppArenaStore<kArenaBytes> arena;
   uint32_t seed;
   LazyApp<VarioBox> vario;
-  LazyApp<CompassTool> compassTool;
+  LazyApp<compass::CompassApp> compassApp;
   LazyApp<TetrisApp> tetris;
   LazyApp<sim::SimBox> flightSim;
   LazyApp<intro::IntroApp> introApp;
@@ -63,12 +63,12 @@ struct Box {
   static VarioBox* makeVario(void* mem, void* ctx) {
     Box& b = *static_cast<Box*>(ctx);
     return new (mem) VarioBox(b.r.panel, b.r.battery, b.r.tracer, b.r.laptop, b.r.settings, b.r.compass, b.r.thermo, b.r.power,
-                              cfg(false), &b.clock, b.kit ? b.kit->terrain.reader() : nullptr);
+                              cfg(), &b.clock, b.kit ? b.kit->terrain.reader() : nullptr);
   }
   App& varioCore() { return vario->core(); }                // the vario must be the active app
-  static CompassTool* makeCompass(void* mem, void* ctx) {
+  static compass::CompassApp* makeCompass(void* mem, void* ctx) {
     Box& b = *static_cast<Box*>(ctx);
-    CompassTool* t = new (mem) CompassTool(b.r.panel, b.r.battery, b.r.settings, b.r.compass, b.r.thermo, b.r.power, cfg(true));
+    compass::CompassApp* t = new (mem) compass::CompassApp(b.r.battery, b.r.compass, b.r.thermo, b.r.settings);
     t->setWeather(&b.weather);
     return t;
   }
@@ -95,21 +95,17 @@ struct Box {
     return i;
   }
 
-  static AppConfig cfg(bool tool) {
-    AppConfig c;
-    c.standalone = tool;
-    return c;
-  }
+  static AppConfig cfg() { return AppConfig(); }
 
   explicit Box(uint32_t seed = 1)
       : seed(seed), vario(arena, "vario", makeVario, this),
-        compassTool(arena, "compass", makeCompass, this), tetris(arena, "tetris", makeTetris, this),
+        compassApp(arena, "compass", makeCompass, this), tetris(arena, "tetris", makeTetris, this),
         flightSim(arena, "flightsim", makeSim, this), introApp(arena, "intro", makeIntro, this),
         launcher(r.battery, r.power, registry, r.settings, clock), settings(r.battery, r.compass, r.keys, r.settings, registry, "0.1"),
         host(r.panel, r.input), scores(r.keys) {
     host.add(vario);
     host.add(tetris);
-    host.add(compassTool);
+    host.add(compassApp);
     host.add(settings);
     host.add(launcher);
     host.add(flightSim);
@@ -126,7 +122,7 @@ struct Box {
   }
 
   // A map pack for the vario (the kit must outlive the box; the vario opens its own kit on its reader when it starts);
-  // the compass tool has no terrain.
+  // the compass app has no terrain.
   void setTerrain(TerrainKit* k) {
     kit = k;                                                // the sim opens the same pack when it is started
     launcher.setPack(k);

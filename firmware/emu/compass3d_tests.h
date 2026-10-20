@@ -5,7 +5,7 @@
 #include <math.h>
 #include <string.h>
 #include "apps/compass3d/compass3d.h"
-#include "apps/vario/app/compass_tool.h"
+#include "apps/compass/compass_app.h"
 
 namespace c3t {
 
@@ -337,7 +337,7 @@ static void frame_work() {
 }
 
 static void in_the_box() {
-  puts("compass3d: the compass tool shows the dome, a short press swaps to the flat page, every way out is unchanged");
+  puts("compass3d: the compass app shows the dome, a short press swaps to the flat page, every way out is the system sheet's");
   static Box b;
   bx::BoxRun u(b);
   b.r.compass.gyro = true;
@@ -347,38 +347,36 @@ static void in_the_box() {
   b.host.start(Box::APP_COMPASS, 0);
   b.r.compass.psi = 200; b.r.compass.pitch = 20; b.r.compass.roll = 5;
   u.run(3000);
-  CHECK(b.compassTool.alive());
-  printf("  arena: tool %zu bytes, vario %zu bytes\n", sizeof(CompassTool), sizeof(VarioBox));
-  CHECK(sizeof(CompassTool) <= sizeof(VarioBox));                        // the tool does not enlarge the shared arena
-  CHECK(b.compassTool->showing3d() && b.host.gameMode());                // the dome runs the frame clock: 50 fps
+  CHECK(b.compassApp.alive());
+  printf("  arena: compass app %zu bytes, vario %zu bytes, arena %zu bytes\n", sizeof(compass::CompassApp), sizeof(VarioBox), (size_t)Box::kArenaBytes);
+  CHECK(sizeof(compass::CompassApp) <= sizeof(VarioBox));                // the app does not enlarge the shared arena
+  CHECK(b.compassApp->showing3d() && b.host.gameMode());                 // the dome runs the frame clock: 50 fps
   const int p0 = b.r.panel.presents;
   u.run(1000);
   const int fps = b.r.panel.presents - p0;
   printf("  dome frames in one second: %d\n", fps);
   CHECK(fps >= 45 && fps <= 51);
   CHECK(!b.r.links.on);                                                  // a game-like mode: the laptop link is off
-  const App& core = b.compassTool->core();
-  CHECK(core.fused() && core.ahrs().valid());
-  CHECK(b.compassTool->view3d().input().valid);
-  CHECK(b.compassTool->view3d().readoutTenths() == bearingTenths(core.ahrs().heading()));
-  NEAR(angDist(core.ahrs().heading(), 200.0f), 0, 2.0);
-  u.shortp();                                                            // the flat dial and weather page the tool always had
-  CHECK(!b.compassTool->showing3d() && b.compassTool->flatPage() && !b.host.gameMode());
-  CHECK(b.compassTool->core().buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);
+  const MotionService& mo = b.compassApp->motion();
+  CHECK(mo.fused() && mo.ahrs().valid() && b.r.compass.enabled);
+  CHECK(b.compassApp->view3d().input().valid);
+  CHECK(b.compassApp->view3d().readoutTenths() == bearingTenths(mo.heading()));
+  NEAR(angDist(mo.heading(), 200.0f), 0, 2.0);
+  u.shortp();                                                            // the flat dial and weather page
+  CHECK(!b.compassApp->showing3d() && b.compassApp->flatPage() && !b.host.gameMode());
   const int p1 = b.r.panel.presents;
   u.run(500);
-  CHECK(b.r.panel.presents > p1);                                        // it animates and refreshes like before
+  CHECK(b.r.panel.presents > p1);                                        // it refreshes
+  NEAR(b.compassApp->ambientC(u.now), 21.4, 0.05);
   u.shortp();
-  CHECK(b.compassTool->showing3d() && b.host.gameMode());
-  u.longp();                                                             // the menu replaces the dome and runs on the App's own cadence
-  CHECK(core.listOpen() && !b.compassTool->showing3d() && !b.host.gameMode());
-  u.longp();                                                             // "< back" closes the menu
-  CHECK(!core.listOpen() && b.host.active() == &b.compassTool);
+  CHECK(b.compassApp->showing3d() && b.host.gameMode());
+  u.longp();                                                             // a long press does nothing: no menu in the tool
+  CHECK(b.compassApp->showing3d() && b.host.active() == &b.compassApp);
   u.home();
-  CHECK(b.host.active() == &b.launcher && !b.r.compass.enabled);         // the sheet's Home leaves the tool, sensors off
+  CHECK(b.host.active() == &b.launcher && !b.r.compass.enabled);         // the sheet's Home leaves the app, sensors off
   b.host.start(Box::APP_COMPASS, u.now);
   u.run(300);
-  CHECK(b.compassTool->showing3d());                                     // always opens on the dome
+  CHECK(b.compassApp->showing3d());                                      // always opens on the dome
   u.home();                                                              // from the dome (game mode) too
   CHECK(b.host.active() == &b.launcher && !b.r.power.off);
 }

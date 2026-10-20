@@ -1,16 +1,16 @@
-// The box image: home screen (launcher) + vario + Tetris + compass & weather tool + Settings on one platform.
+// The box image: home screen (launcher) + vario + Tetris + compass & weather + Settings on one platform.
 // Wiring only. Boot: straight into the start-up app (default: the vario; Settings changes it).
 // The home screen opens only on a deliberate gesture from inside an app (see README, "Box").
 #include <Arduino.h>
 #include <Wire.h>
 #include <bluefruit.h>
+#include "apps/compass/compass_app.h"
 #include "apps/games/sim/sim_box.h"
 #include "apps/intro/intro_app.h"
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
 #include "apps/settings/settings_app.h"
 #include "apps/vario/app/app.h"
-#include "apps/vario/app/compass_tool.h"
 #include "apps/vario/app/terrain_kit.h"
 #include "apps/vario/app/vario_app.h"
 #include "apps/vario/app/vario_box.h"
@@ -72,10 +72,9 @@ struct LaptopGate : ILinkGate {
 };
 static LaptopGate laptopGate;
 
-static AppConfig appConfig(bool tool) {
+static AppConfig appConfig() {
   AppConfig c;
   c.rotation = DISPLAY_ROTATION;
-  c.standalone = tool;
   return c;
 }
 // App indices in the host; the home screen lists all but itself.
@@ -84,7 +83,7 @@ enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, 
 // The apps that are not the start-up app share ONE RAM block (see platform/lazy_app.h): each is built when it is opened
 // and destroyed when it is left. Statically they cost 93 + 44 kB of .bss and left the image with 2 kB of heap, too little
 // for FreeRTOS to start any task (no USB, blank screen). The block is as big as the biggest of them.
-static constexpr size_t kArenaBytes = maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(CompassTool), sizeof(TetrisApp)))));
+static constexpr size_t kArenaBytes = maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(compass::CompassApp), sizeof(TetrisApp)))));
 static AppArenaStore<kArenaBytes> arena;
 
 // The map pack lives in the QSPI flash (platform/hw/pack_service.h). The vario is an arena app like the others: the App
@@ -151,20 +150,20 @@ static BoxTerrain boxTerrain;
 // Validation recorder (README "Flight log"): tracer lines and the gyro turn rate go to the last 256 kB of the QSPI flash.
 static flightlog::FlightLogger flightLog(pack.logSink());
 static VarioBox* makeVario(void* mem, void*) {
-  VarioBox* v = new (mem) VarioBox(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig(false), &wallClock,
+  VarioBox* v = new (mem) VarioBox(panel, battery, tracer, laptop, boxSettings, compassHw, thermo, power, appConfig(), &wallClock,
                                    pack.reader());
   v->core().setLog(&flightLog);
   return v;
 }
 static LazyApp<VarioBox> varioApp(arena, "vario", makeVario);
 
-// The compass & weather tool: the same App without a tracer or laptop, always on the compass page.
-static CompassTool* makeCompass(void* mem, void*) {
-  CompassTool* t = new (mem) CompassTool(panel, battery, boxSettings, compassHw, thermo, power, appConfig(true));
+// The compass & weather app (apps/compass): the motion service + thermometer + the pressure log, no vario App behind it.
+static compass::CompassApp* makeCompass(void* mem, void*) {
+  compass::CompassApp* t = new (mem) compass::CompassApp(battery, compassHw, thermo, boxSettings);
   t->setWeather(&weather);
   return t;
 }
-static LazyApp<CompassTool> compassApp(arena, "compass", makeCompass);
+static LazyApp<compass::CompassApp> compassApp(arena, "compass", makeCompass);
 
 struct TetrisScores : IScoreStore {
   uint32_t load() override { return keys.get(SLOT_TETRIS_BEST); }

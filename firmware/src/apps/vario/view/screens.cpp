@@ -6,6 +6,7 @@
 #include "platform/gfx/gray.h"
 #include "platform/gfx/shapes.h"
 #include "platform/gfx/font.h"
+#include "platform/gfx/widgets/compass_dial.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -224,52 +225,26 @@ static const char* cardinal16(float deg) {
   return n[((int)((deg + 11.25f) / 22.5f)) % 16];
 }
 
-// Heading-up compass in the Garmin style: the dial rotates so the current heading is under the fixed
-// pointer at the top; big N/E/S/W and smaller NE/SE/SW/NW sit on the ring, ticks every 10 degrees
-// (longer every 30), the heading in degrees is the big number in the centre with its source above it
-// (TRK = GPS track, MAG = magnetic compass). With no heading the dial stays north-up and shows "--".
+// The dial itself is platform/gfx/widgets/compass_dial.h (the compass app draws the same one); this pen puts it on
+// the view's canvas with the view's own text path, so the frames are the ones this file always drew.
+struct ViewDialPen : widgets::DialPen {
+  static const GFXfont* fnt(widgets::DialFont f) { return f == widgets::DIAL_F9 ? F9 : f == widgets::DIAL_F12B ? F12B : F18B; }
+  void line(int x0, int y0, int x1, int y1) override { gLine(x0, y0, x1, y1, BLK); }
+  void circle(int cx, int cy, int r) override { gCircle(cx, cy, r, BLK); }
+  void triangle(int x0, int y0, int x1, int y1, int x2, int y2) override { d->fillTriangle(x0, y0, x1, y1, x2, y2, BLK); }
+  void fillRect(int x, int y, int w, int h) override { d->fillRect(x, y, w, h, BLK); }
+  void textMid(int cx, int cy, const char* s, widgets::DialFont f, bool white) override { ::textMid(cx, cy, s, fnt(f), white ? WHT : BLK); }
+  void textCentered(int cx, int baseline, const char* s, widgets::DialFont f) override { text(cx, baseline, s, fnt(f), AC); }
+  void part(widgets::DialPart p, bool begin) override {
+    static const ProfId ids[] = {P_BEZEL, P_TICKS, P_LABELS, P_HDGNUM};
+    if (begin) { PROF_BEGIN(ids[p]); } else { PROF_END(ids[p]); }
+  }
+};
+
 static void compassDial(int cx, int cy, int R, float heading, HeadingSource src) {
-  const bool have = isfinite(heading);
-  const float course = have ? heading : 0.0f;
-  PROF_BEGIN(P_BEZEL);
-  gCircle(cx, cy, R, BLK);
-  gCircle(cx, cy, R - 1, BLK);
-  d->fillTriangle(cx - 8, cy - R - 4, cx + 8, cy - R - 4, cx, cy - R + 11, BLK);   // direction of travel
-  PROF_END(P_BEZEL);
-  PROF_BEGIN(P_TICKS);
-  const int rl = R - 26;   // label radius, clear of the grey ring (R-1 .. R-12)
-  for (int a = 0; a < 360; a += 10) {
-    if (a % 45 == 0) continue;   // letters sit there
-    float th = (a - course) * PI_F / 180.0f;
-    int len = (a % 30 == 0) ? 9 : 5;
-    gLine(cx + (R - 2) * sinf(th), cy - (R - 2) * cosf(th),
-                cx + (R - 2 - len) * sinf(th), cy - (R - 2 - len) * cosf(th), BLK);
-  }
-  PROF_END(P_TICKS);
-  PROF_BEGIN(P_LABELS);
-  static const char* L[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
-  for (int i = 0; i < 8; i++) {
-    float th = (i * 45 - course) * PI_F / 180.0f;
-    int lx = cx + rl * sinf(th), ly = cy - rl * cosf(th);
-    if (i == 0) {
-      d->fillRect(lx - 12, ly - 12, 25, 25, BLK);
-      textMid(lx, ly, "N", F12B, WHT);
-    } else if (i % 2 == 0) {
-      textMid(lx, ly, L[i], F12B);
-    } else {
-      textMid(lx, ly, L[i], F9);
-    }
-  }
-  PROF_END(P_LABELS);
-  PROF_BEGIN(P_HDGNUM);
-  char b[8];
-  if (have) {
-    if (src != HDG_NONE) text(cx, cy - 14, src == HDG_MAG ? "MAG" : "TRK", F9, AC);
-    text(cx, cy + 12, bearingText(b, sizeof b, heading), F18B, AC);
-  } else {
-    text(cx, cy + 8, "--", F18B, AC);
-  }
-  PROF_END(P_HDGNUM);
+  ViewDialPen pen;
+  widgets::drawCompassDial(pen, cx, cy, R, heading,
+                           src == HDG_NONE ? widgets::DIAL_SRC_NONE : src == HDG_MAG ? widgets::DIAL_SRC_MAG : widgets::DIAL_SRC_TRK);
 }
 
 // Arrow centred on (ax, ay) pointing along screen angle th (radians clockwise from up), half length L.

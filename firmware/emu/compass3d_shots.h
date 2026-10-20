@@ -1,5 +1,5 @@
 #pragma once
-// Renders of the 3D compass (the compass tool's page) through the whole box: a scripted orientation sequence (turning, tilting, a
+// Renders of the compass app (the 3D dome, and the flat page as the last one) through the whole box: a scripted orientation sequence (turning, tilting, a
 // quick spin that shows the inertia of the card, a disturbed field, no calibration, no sensor) drives the mock compass, whose gyro
 // follows the motion, so the AHRS and the card behave as on the device. Writes out/compass3d_<name>.pgm; compass3d_sheet.py puts
 // them on one contact sheet (docs/screens/compass3d_sheet.png). Included by emu_main.cpp.
@@ -17,6 +17,7 @@ struct Run {
   void set() { b.r.compass.psi = psi; b.r.compass.pitch = pitch; b.r.compass.roll = roll; }
   void feed() { if (now - thermoAt >= 2000) { thermoAt = now; b.r.thermo.set(21.4f + 0.2f * (float)((now / 2000) % 3), 48); } }
   uint32_t thermoAt = 0;
+  void tap() { b.r.input.press(now + 10, 100); hold(300); }          // a short press of the switch
   void hold(uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) { set(); feed(); b.tick(now); } }
   // Smooth move to a new orientation over ms (linear in each angle).
   void move(double p, double t, double r, uint32_t ms) {
@@ -77,6 +78,9 @@ static void shots(const char* dir) {
   u.dump(dir, "09_disturbed");
   b.r.compass.hardIron[0] = b.r.compass.hardIron[1] = b.r.compass.hardIron[2] = 0;
   u.hold(8000);
+  u.tap();                                        // a short press: the flat dial and the weather strip
+  u.hold(800);
+  u.dump(dir, "12_flat");
   // no calibration stored (a fresh box: the first one keeps the calibration it loaded)
   static Box c;
   Run v(c);

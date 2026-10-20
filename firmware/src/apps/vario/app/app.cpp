@@ -19,16 +19,13 @@ static float angDiffDeg(float a, float b) {      // absolute shortest angle betw
 App::App(IPanel& panel, IBattery& battery, ITracer& tracer, ILaptop& laptop,
          BoxSettings& settings, ICompass& compass, IThermo& thermo, IPower& power, AppConfig cfg)
     : panel_(panel), battery_(battery), tracer_(tracer), laptop_(laptop),
-      settings_(settings), compassHw_(compass), thermo_(thermo), power_(power), cfg_(cfg), cal_(settings) {}
+      settings_(settings), thermo_(thermo), power_(power), cfg_(cfg), motion_(compass, settings), cal_(settings) {}
 
 void App::begin(uint32_t nowMs) {
   tickMs_ = nowMs;
   if (log_) log_->sessionStart(nowMs);
   heading_.configure(cfg_.gpsHeadingOnKmh, cfg_.gpsHeadingOffKmh);
-  MagCal cal;
-  if (settings_.loadMagCal(cal)) compass_.setCalibration(cal);
-  mount_ = settings_.mountIndex();
-  if (!mountValid(mount_)) mount_ = 0;
+  motion_.loadSettings();
   tracer_.resume();                  // no-op unless end() paused it
   left_ = false;
   Command stale;                     // a fresh App (box image) or back from another app: what the laptop sent meanwhile is stale
@@ -45,11 +42,7 @@ void App::end() {
   if (listOpen_) { tracer_.listClose(); listOpen_ = false; }
   if (calibrating_) finishCalibration(false);
   tracer_.pause();
-  if (compassOn_) { compassHw_.enable(false); compassOn_ = false; }
-  compass_.reset();                  // keeps the calibration
-  ahrs_.reset();
-  haveGyro_ = false;
-  fused_ = false;
+  motion_.stop();
   ev_ = BTN_NONE;
   left_ = true;
 }
@@ -115,13 +108,9 @@ void App::handle(const Command& c, uint32_t now) {
       settings_.setTzMinutes(c.value);
       break;
     case Command::ORIENT:
-      if (mountValid(c.value) && c.value != mount_) {
+      if (mountValid(c.value) && c.value != motion_.mountIndex()) {
         settings_.setMountIndex(c.value);            // the platform moves the stored offsets (device frame) along
-        MagCal cal;
-        if (settings_.loadMagCal(cal)) compass_.setCalibration(cal);
-        mount_ = c.value;
-        compass_.reset();                            // keeps the calibration
-        ahrs_.reset();
+        motion_.remount();
       }
       break;
     case Command::CAL:
@@ -164,9 +153,7 @@ void App::startCalibration() {
 
 void App::finishCalibration(bool keep) {
   if (cal_.finish(keep)) {                                       // new offsets: use them now and re-seed the fusion
-    MagCal cal;
-    if (settings_.loadMagCal(cal)) compass_.setCalibration(cal);
-    ahrs_.reset();
+    motion_.recalibrated();
   }
   calibrating_ = false;
   panel_.invalidate();
@@ -184,40 +171,25 @@ void App::updateHeading(uint32_t now) {
   bool fresh = hasData(now);
   heading_.feedGps(fresh && s.fix, s.speedKmh, s.course);
 
-  if (!compassOn_) {
-    compassOn_ = true;
-    compassHw_.enable(true);
+  motion_.start();
+  if (motion_.poll(now)) {
+    cal_.feed(motion_.accel(), motion_.mag(), now);   // a calibration the laptop started (ctl.py cal start)
+    if (log_ && motion_.gyroSample() && motion_.ahrs().valid() && hasData(now))
+      log_->yaw(now, earthYawRateCwDps(motion_.gyro(), motion_.ahrs().bias(), motion_.ahrs().up()));
   }
-  Vec3 a, m, g;
-  bool hg = false;
-  if (compassOn_ && compassHw_.read(a, m, g, hg)) {
-    a = mountApply(mount_, a);                    // board frame -> device frame, all three sensors alike
-    m = mountApply(mount_, m);
-    compass_.update(a, m, now);                   // field strength and the no-gyro fallback
-    cal_.feed(a, m, now);                         // a calibration the laptop started (ctl.py cal start)
-    if (hg) {
-      g = mountApply(mount_, g);
-      ahrs_.update(g, a, compass_.corrected(m), now);
-      if (log_ && ahrs_.valid() && hasData(now)) log_->yaw(now, earthYawRateCwDps(g, ahrs_.bias(), ahrs_.up()));
-      gyroMs_ = now;
-      haveGyro_ = true;
-    }
-  }
-  if (haveGyro_ && now - gyroMs_ > 500) haveGyro_ = false;     // the gyro went quiet: the compass alone again
-  fused_ = haveGyro_ && ahrs_.valid();
-  bool magOk = fused_ || compass_.valid();
-  heading_.feedMag(compassOn_ && magOk, fused_ ? ahrs_.heading() : compass_.heading());
+  const bool fused = motion_.fused();
+  heading_.feedMag(motion_.valid(), motion_.heading());
   Heading h = heading_.current();
-  if (h.src != smoothSrc_ || (h.src == HDG_MAG && smoothFused_ != fused_)) {   // GPS track: ~3 updates/s, long glide; compass: fast, deadband
+  if (h.src != smoothSrc_ || (h.src == HDG_MAG && smoothFused_ != fused)) {   // GPS track: ~3 updates/s, long glide; compass: fast, deadband
     smoothSrc_ = h.src;
-    smoothFused_ = fused_;
+    smoothFused_ = fused;
     bool gps = h.src == HDG_GPS;
-    smooth_.setTau(gps ? cfg_.gpsGlideTauMs : (fused_ ? cfg_.fusedGlideTauMs : cfg_.magGlideTauMs));
+    smooth_.setTau(gps ? cfg_.gpsGlideTauMs : (fused ? cfg_.fusedGlideTauMs : cfg_.magGlideTauMs));
     // The fused heading is smooth and steady: no deadband, and no snapping to the target, or slow turns
     // would show as steps (and still ones as jumps).
-    const bool plain = gps || fused_;
+    const bool plain = gps || fused;
     smooth_.setDeadband(plain ? 0.0f : cfg_.magDeadbandDeg, cfg_.magDeadbandHoldMs);
-    smooth_.setSettle(fused_ && !gps ? 0.01f : HeadingSmoother::SETTLE_DEG);
+    smooth_.setSettle(fused && !gps ? 0.01f : HeadingSmoother::SETTLE_DEG);
   }
   smooth_.update(h.deg, now);   // once per tick: buildViewModel only reads it
 }
@@ -286,9 +258,9 @@ const ViewModel& App::buildViewModel(uint32_t now) {
   vm.heading = smooth_.value();
   vm.headingSrc = h.src;
   vm.calibrating = calibrating_;
-  vm.calValid = compass_.calibration().valid;
+  vm.calValid = motion_.calibrated();
   cal_.span(vm.calSpan);
-  vm.fieldUt = compass_.fieldUt();
+  vm.fieldUt = motion_.fieldUt();
   vm.page = page_;
   bool ambientFresh = haveAmbient_ && now - ambientMs_ <= 10000;   // the sensor reports every 2 s
   vm.ambientC = ambientFresh ? ambientC_ : NAN;
@@ -461,8 +433,7 @@ void App::drawListScreen(Bitmap1& bm, Adafruit_GFX& g, uint32_t now, uint32_t he
   for (int i = 0; i < lm.count; i++) tracer_.listItem(i, lm.items[i]);
   lm.selected = listSel_;
   lm.sixHint = sixHint_;
-  lm.tools = cfg_.standalone;
-  drawList(g, lm, buildViewModel(now), held, &bm);
+    drawList(g, lm, buildViewModel(now), held, &bm);
 }
 
 void App::backKey() {
@@ -529,7 +500,7 @@ void App::tick(uint32_t now) {
     }
     if (listSel_ > n) listSel_ = 0;
   } else {
-    if (ev == BTN_SHORT && !cfg_.standalone) {
+    if (ev == BTN_SHORT) {
       page_ = nextPage(page_);
       redraw_ = true;
     }
@@ -554,7 +525,7 @@ bool App::wantsFrame(uint32_t now) const {
   uint32_t anim = page_ == ViewModel::PAGE_THERMAL ? cfg_.animThermalEveryMs
                 : page_ == ViewModel::PAGE_COMPASS ? cfg_.animCompassEveryMs
                 : page_ == ViewModel::PAGE_HOME ? cfg_.animEveryMs : every;
-  if (!hasData(now)) anim = cfg_.animCompassEveryMs;      // the standalone compass glides on every page
+  if (!hasData(now)) anim = cfg_.animCompassEveryMs;      // no data: the compass glides on every page
   // Fused compass: animate while the shown heading is more than half a pixel from the drawn one. Others: until settled.
   bool moving;
   if (smoothSrc_ == HDG_MAG && smoothFused_) {

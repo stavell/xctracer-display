@@ -361,7 +361,7 @@ static void box_gestures() {
     tap(KEY_UP);    CHECK(b.launcher.selected() == 0);
     tap(KEY_RIGHT); CHECK(b.launcher.selected() == 1);
     tap(KEY_ACTION);
-    CHECK(b.host.active() == &b.compassTool);
+    CHECK(b.host.active() == &b.compassApp);
   }
   {
     Box b;                                          // the start-up app is stored and chosen in Settings
@@ -403,19 +403,18 @@ static void box_gestures() {
     CHECK(!c.r.tracer.paused && c.r.compass.enabled);
   }
   {
-    Box b;                                          // the compass tool: no page switching, menu, leave by hold
+    Box b;                                          // the compass app: dome / flat page on a short press, no menu, leave by the sheet
     BoxRun u(b);
     b.boot(0);
     b.host.start(Box::APP_COMPASS, 0);
     u.run(1000);
     CHECK(b.r.compass.enabled);
+    CHECK(b.compassApp->showing3d());
     u.shortp();
-    CHECK(b.compassTool->core().buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);   // a short press does not change pages
+    CHECK(b.compassApp->flatPage());                 // a short press swaps to the flat page
     u.longp();
-    CHECK(b.compassTool->core().listOpen());
-    u.longp();                                       // "< back" (no calibration here: that is Settings')
-    CHECK(!b.compassTool->core().listOpen() && b.host.active() == &b.compassTool);
-    u.home();                                        // the sheet leaves the tool (it does not power off)
+    CHECK(b.host.active() == &b.compassApp);         // a long press does nothing (no list: calibration is Settings')
+    u.home();                                        // the sheet leaves the app (it does not power off)
     CHECK(b.host.active() == &b.launcher && !b.r.power.off && !b.r.compass.enabled);
   }
   {
@@ -717,23 +716,23 @@ static void lazy_app_slots() {
   CHECK(!d.alive() && LifeApp::alive == 0);
 }
 
-// In the box the arena holds the sim, Tetris and the compass tool in turn; the high score survives the app.
+// In the box the arena holds the sim, Tetris and the compass app in turn; the high score survives the app.
 static void box_lazy_apps() {
-  puts("box: sim, Tetris and the compass tool share one arena, the best score is kept");
+  puts("box: sim, Tetris and the compass app share one arena, the best score is kept");
   Box b(1);
   BoxRun u(b);
   b.keys.set(SLOT_TETRIS_BEST, 4321);
   b.boot(0);
-  CHECK(!b.tetris.alive() && !b.compassTool.alive() && !b.flightSim.alive());
+  CHECK(!b.tetris.alive() && !b.compassApp.alive() && !b.flightSim.alive());
   b.host.start(Box::APP_TETRIS, 0);
   u.run(300);
-  CHECK(b.tetris.alive() && b.tetris->game().highScore() == 4321 && !b.compassTool.alive());
+  CHECK(b.tetris.alive() && b.tetris->game().highScore() == 4321 && !b.compassApp.alive());
   b.host.start(Box::APP_COMPASS, u.now);
   u.run(300);
-  CHECK(!b.tetris.alive() && b.compassTool.alive() && b.compassTool->core().buildViewModel(u.now).page == ViewModel::PAGE_COMPASS);
+  CHECK(!b.tetris.alive() && b.compassApp.alive() && b.compassApp->showing3d());
   b.host.start(Box::APP_SIM, u.now);
   u.run(100);
-  CHECK(!b.compassTool.alive() && b.flightSim.alive() && !b.r.compass.enabled);
+  CHECK(!b.compassApp.alive() && b.flightSim.alive() && !b.r.compass.enabled);
   b.host.start(Box::APP_TETRIS, u.now);
   u.run(300);
   CHECK(b.tetris.alive() && !b.flightSim.alive() && b.tetris->game().highScore() == 4321);
