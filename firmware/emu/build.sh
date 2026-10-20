@@ -10,7 +10,7 @@
 #   ./build.sh cue<lines.txt>      hit rate of the centring cue against the next turn (see emu_main.cpp cmdCue)
 #   ./build.sh logeval <log.bin> [--latency MS] [--wind]  flight log (host/logdl.py) through the dead reckoner: lag, error vs holding the last fix
 #   ./build.sh soak [lines.txt]     long session through the App, about a minute (see emu_main.cpp)
-#   ./build.sh play <app> [opts]    play an app on the PC in an SDL window (see play.cpp): tetris, pet [--feed FILE] (the Agents app), or box
+#   ./build.sh play <app> [opts]    play an app on the PC in an SDL window (see play.cpp): tetris, or box
 #                                   (the whole box: home screen + vario + Tetris + compass tool + Settings). The box loads a map pack
 #                                   (--pack FILE; default maps/bulgaria.pack if present, else the Sopot
 #                                   fixture; --pack none for a box without terrain)

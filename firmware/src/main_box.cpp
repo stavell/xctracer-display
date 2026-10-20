@@ -12,7 +12,6 @@
 #include "apps/intro/intro_app.h"
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
-#include "apps/pet/pet_app.h"
 #include "apps/settings/settings_app.h"
 #include "apps/vario/app/app.h"
 #include "apps/vario/app/terrain_kit.h"
@@ -23,8 +22,6 @@
 #include "platform/hw/battery_adc.h"
 #include "platform/hw/compass_lis.h"
 #include "platform/hw/game_log.h"
-#include "platform/pet/pet_feed.h"
-#include "platform/pet/pet_status.h"
 #ifdef SIM_BENCH
 #include "platform/hw/mbench.h"
 #endif
@@ -74,11 +71,7 @@ static retained::Block retainedBlock RETAINED_NOINIT;
 static retained::Retention retention(retainedBlock);
 static_assert(sizeof(retained::Block) + sizeof(pwrlog::Ring) + 64 <= 4096, "the retained RAM page (platformio.ini: .retained at 0x2003f000) is 4 kB");
 static TracerBle tracer(config);
-static LaptopLink laptopLink;
-static LaptopBle laptop(panel, laptopLink);
-// The pet snapshot from the laptop daemon (opcode 0x30): the BLE callback copies it into the mailbox, the Agents app reads it. Static: it outlives the app.
-static pet::Feed petFeed;
-static pet::Reporter petReporter;
+static LaptopBle laptop(panel);
 static VarioRadios radios(laptop, tracer);
 static PowerNrf power(panel, radios, PIN_BUTTON1);
 
@@ -99,9 +92,7 @@ static AppConfig appConfig() {
 }
 // App indices in the host; the home screen lists all but itself.
 enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO
-#ifndef WITH_EXAMPLES
-       , APP_PET                                // Agents (apps/pet); the examples image is full at 8 apps (AppHost::MAX_APPS) and leaves it out
-#else
+#ifdef WITH_EXAMPLES
        , APP_LEVEL                              // the example app of docs/PLATFORM.md, index = the order of host.add()
 #endif
 };
@@ -229,11 +220,6 @@ static LazyApp<intro::IntroApp> introApp(arena, "intro", makeIntro);
 static examples::LevelApp* makeLevel(void* mem, void*) { return new (mem) examples::LevelApp(battery, compassHw, boxSettings); }
 static LazyApp<examples::LevelApp> levelApp(arena, "level", makeLevel);
 #endif
-#ifndef WITH_EXAMPLES
-// Agents: the Claude Code pets (docs/claude_pet.md). About 0.5 kB of state in the arena; the snapshots live in the static petFeed.
-static pet_app::PetApp* makePet(void* mem, void*) { return new (mem) pet_app::PetApp(petFeed); }
-static LazyApp<pet_app::PetApp> petApp(arena, "agents", makePet);
-#endif
 static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);
 static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, FW_VERSION);
 
@@ -306,9 +292,7 @@ void setup() {
   Bluefruit.setName(DISP_NAME);
   Bluefruit.setTxPower(0);
   tracer.begin();
-  laptop.begin();                             // registers the vario's opcodes with the link
-  laptopLink.add(pet::OP_SNAPSHOT, pet::OP_SNAPSHOT, petFeed);
-  laptopLink.begin();                         // after every sink is registered
+  laptop.begin();
 
   pack.begin();
   pack.setTimeSink(&pcTime);
@@ -330,8 +314,6 @@ void setup() {
   host.add(introApp);
 #ifdef WITH_EXAMPLES
   host.add(levelApp);
-#else
-  host.add(petApp);
 #endif
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&gameLog);
@@ -346,9 +328,6 @@ void setup() {
   registry.add("Level", "example", "bubble level from the tilt sensor", APP_LEVEL, ICON_GENERIC, false);
 #endif
   registry.add("Settings", "setup", "compass, mounting, time", APP_SETTINGS, ICON_SETTINGS, false);
-#ifndef WITH_EXAMPLES
-  registry.add("Agents", "Claude Code", "pets for your Claude Code sessions", APP_PET, ICON_GENERIC);
-#endif
   power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION, &weather, &thermo, &baro, &retention});
   startStartupApp(true);
 }
@@ -406,20 +385,6 @@ void loop() {
   uint32_t t0 = fastMicros();
   host.tick(now);
   if (power.takeResumed()) { pwrlog::note(now, pwrlog::WAKE, 1); button.flush(); startStartupApp(true); }   // woke from the clock sleep: no reset, the wall clock survived; the intro plays too
-  {  // the box reports back to the laptop (notify characteristic D15A0003): on change and every 30 s while connected
-    pet::Status st;
-    st.shownValid = petFeed.anyShown();
-    st.shownSeq = petFeed.shownSeq();
-    st.appId = (uint8_t)(host.activeIndex() < 0 ? 255 : host.activeIndex());
-    st.petActive = host.active() && strcmp(host.active()->name(), "agents") == 0;
-    st.battPct = battery.percent();
-    st.battMv = battery.millivolts();
-    if (petReporter.due(now, laptopLink.connected(), st)) {
-      uint8_t buf[pet::STATUS_BYTES];
-      pet::encode(st, buf);
-      laptopLink.reportStatus(buf, sizeof buf);
-    }
-  }
   uint32_t dt = fastMicros() - t0;   // not micros(): it once gave -67 s here (a 4.2e9 us 'worst tick')
   if (dt > worstTickUs) worstTickUs = dt;
   gameLog.tick(now, dt);

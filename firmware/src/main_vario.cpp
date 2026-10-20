@@ -34,8 +34,7 @@ static BatteryAdc battery;
 static CompassLis compassHw;
 static ThermoSht thermo;
 static TracerBle tracer(config);
-static LaptopLink laptopLink;
-static LaptopBle laptop(panel, laptopLink);
+static LaptopBle laptop(panel);
 static VarioRadios radios(laptop, tracer);
 static PowerNrf power(panel, radios, PIN_BUTTON1);
 
@@ -75,8 +74,7 @@ void setup() {
   Bluefruit.setName(DISP_NAME);
   Bluefruit.setTxPower(0);
   tracer.begin();
-  laptop.begin();                             // registers the vario's opcodes with the link
-  laptopLink.begin();                         // after every sink is registered
+  laptop.begin();
 
   pack.begin();
   app.setLog(&flightLog);

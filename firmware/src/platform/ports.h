@@ -120,18 +120,6 @@ class ILinkGate {
   virtual void setLinksOn(bool on) = 0;
 };
 
-// The pet snapshot the laptop daemon wrote last (docs/claude_pet.md): the Agents app reads it, the laptop link's BLE callback
-// fills it (platform/pet/pet_feed.h). Static in the box image, so it outlives the app.
-namespace pet { struct Snapshot; }
-class IPetFeed {
- public:
-  virtual ~IPetFeed() {}
-  // True once a good snapshot exists; out = the last good one, seq changes when a new one arrived (0 before the first).
-  virtual bool latest(pet::Snapshot& out, uint32_t& seq) = 0;
-  virtual uint32_t lastWriteMs() = 0;                  // millis() of the last good write
-  virtual void markShown(uint8_t snapshotSeq) = 0;     // the app drew this snapshot (reported back to the laptop)
-};
-
 class IPower {
  public:
   virtual ~IPower() {}

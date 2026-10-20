@@ -112,10 +112,4 @@ if ! "$ROOT/.venv/bin/python" "$ROOT/host/test_find_port.py"; then
   exit 1
 fi
 echo
-echo "=== host: Claude Pet daemon tests ==="
-if ! "$ROOT/.venv/bin/python" "$ROOT/host/claude_pet/test_claude_pet.py"; then
-  echo "FAIL: host/claude_pet/test_claude_pet.py"
-  exit 1
-fi
-echo
-echo "CHECK OK: emulator tests 0 failures, box smoke run, device builds succeeded, stack check, RAM budget, host port test and Claude Pet daemon tests passed"
+echo "CHECK OK: emulator tests 0 failures, box smoke run, device builds succeeded, stack check, RAM budget and host port test passed"
