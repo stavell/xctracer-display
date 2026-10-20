@@ -1,5 +1,5 @@
 #pragma once
-// Screen renders of the box: the home screen in its states, the vario's menu with its "Home" row, the compass
+// Screen renders of the box: the home screen in its states, the vario's device list, the system sheet, the compass
 // tool's menu, Settings (list, calibration, About with and without a map pack). Included by emu_main.cpp; writes
 // out/<name>.pgm like the other scenarios.
 #include <stdio.h>
@@ -18,6 +18,11 @@ static void shots(const char* dir) {
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) b.tick(now); };
   auto press = [&](uint32_t dur) { b.r.input.press(now + 10, dur); run(dur + 300); };
+  auto toSleep = [&]() {                          // the 3 s hold opens the sheet; short presses to Sleep, a long press does it
+    press(3300);
+    for (int i = 0; i < 5 && b.host.sheet().cursorRow() != SystemSheet::R_SLEEP; i++) press(120);
+    press(900);
+  };
 
   b.r.battery.pct = 76;
   b.r.settings.setTzMinutes(180);
@@ -29,16 +34,23 @@ static void shots(const char* dir) {
   dump(b, dir, "launcher_tetris");
   press(120); press(120);                         // Settings
   dump(b, dir, "launcher_settings");
-  b.r.input.press(now + 10, 2500);                // held past 1.5 s: the footer warns about power-off
+  b.r.input.press(now + 10, 2500);                // held 1.8 s: the hold bar along the bottom
   run(1800);
-  dump(b, dir, "launcher_held");
+  dump(b, dir, "launcher_holdbar");
+  run(1500);
+  b.r.input.press(now + 10, 3400);                // the sheet over the launcher: Sleep first, no Home row
+  run(3500);
+  dump(b, dir, "sheet_launcher");
+  press(120); press(120); press(900);             // Sleep -> Power off -> Back, then its 3 -> 6 s power-off bar
+  b.r.input.press(now + 10, 5000);
+  run(4300);
+  dump(b, dir, "sheet_poweroff");
   run(1500);
 
-  b.host.start(Box::APP_VARIO, now);              // the vario's menu: back, Home, then the tracers found
+  b.host.start(Box::APP_VARIO, now);              // the vario's device list: back, then the tracers found
   b.r.tracer.addItem("XC-Tracer", -52);
   run(300);
   press(900);
-  press(120);
   dump(b, dir, "list_home");
   b.host.start(Box::APP_COMPASS, now);            // the compass tool's menu
   run(1000);
@@ -88,8 +100,11 @@ static void shots(const char* dir) {
   };
   history(1013.3f, [](int k) { return k > -18 ? 1017.8f + (k + 18) * 0.25f : 1017.8f + 2.0f * sinf(k * 0.05f) ; });
   b.r.thermo.set(21.4f, 58);
-  b.r.input.press(now + 10, 3300);
-  run(4500);
+  press(3300);
+  dump(b, dir, "sheet_vario");                    // the system sheet over the vario
+  for (int i = 0; i < 5 && b.host.sheet().cursorRow() != SystemSheet::R_SLEEP; i++) press(120);
+  press(900);
+  run(3600);
   dump(b, dir, "sleep_clock");
   b.r.battery.pct = 8;
   b.clock.set(7 * 3600 + 5 * 60 + 30, now);       // 10:05 local; the next minute change redraws
@@ -117,8 +132,8 @@ static void shots(const char* dir) {
     const float end = 1004.6f;
     history(end, [&](int k) { return k > -18 ? end - c.d3h + (k + 18) * c.d3h / 18.0f : end - c.d3h + 3.0f * sinf(k * 0.04f); });
     b.r.thermo.set(c.t, c.rh);
-    b.r.input.press(now + 10, 3300);
-    run(4500);
+    toSleep();
+    run(3600);
     char nm[48];
     snprintf(nm, sizeof nm, "sleep_station_%s", c.name);
     dump(b, dir, nm);

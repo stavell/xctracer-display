@@ -23,8 +23,9 @@
 //   left right up down a b main   tap the key (down for 3 frames, up)
 //   hold                          MAIN held 0.5 s (Tetris: swap the hold piece)
 //   long                          MAIN held 0.9 s (the "long press": list in the vario, start in the launcher)
-//   off                           MAIN held 3.2 s (3 s hold: power off in the vario, back to the launcher elsewhere)
-//   combo                         A + B held 1.6 s (back to the launcher)
+//   off                           MAIN held 3.2 s (3 s hold: opens the system sheet over any app)
+//   combo                         A + B held 1.6 s (the system sheet too)
+//   sheet:home|back|sleep|off     with the sheet open: short presses to that row, then a long press (Home, Back, Sleep, Power off)
 //   +left / -left                 press / release and keep it
 //   12                            wait 12 frames
 //   turn:90                       set the compass heading
@@ -210,7 +211,7 @@ struct PackHolder {
   }
 };
 
-// The flight simulator alone: no launcher (the pause menu's Home does nothing), same host and same fixed-step loop.
+// The flight simulator alone: no launcher and no system sheet, same host and same fixed-step loop.
 struct SimMachine : Machine {
   MockPanel p;
   MockInput in;
@@ -379,6 +380,12 @@ struct Runner {
       else if (tok == "hold") held(KEY_MAIN, 17);
       else if (tok == "long") held(KEY_MAIN, 30);
       else if (tok == "off") held(KEY_MAIN, 107);
+      else if (tok.compare(0, 6, "sheet:") == 0) {
+        const std::string w = tok.substr(6);
+        const SystemSheet::Row want = w == "home" ? SystemSheet::R_HOME : w == "sleep" ? SystemSheet::R_SLEEP : w == "off" ? SystemSheet::R_OFF : SystemSheet::R_BACK;
+        for (int n = 0; n < 5 && m.host().sheetOpen() && m.host().sheet().cursorRow() != want; n++) held(KEY_MAIN, 4);
+        held(KEY_MAIN, 30);
+      }
       else if (tok == "combo") { key(KEY_ACTION, true); key(KEY_B, true); step(54); key(KEY_ACTION, false); key(KEY_B, false); step(2); }
       else if (tok[0] == '+' && keyByName(tok.substr(1), k)) key(k, true);
       else if (tok[0] == '-' && keyByName(tok.substr(1), k)) key(k, false);
@@ -418,12 +425,12 @@ static int runHeadless(Machine& m, World& w, Args& a) {
 static const char* kHelp =
     "Keys:  arrows = D-pad      X = A      Z = B      Space = up (Tetris hard drop)\n"
     "       Enter / Esc = the user switch (hold it: 0.7-1.5 s long press, 3 s hold; the title shows the time)\n"
-    "       A + B held 1.5 s = back to the launcher      , and . or the mouse wheel = turn the compass\n"
+    "       3 s hold or A + B held 1.5 s = the system sheet (Back, Home, Sleep, Power off; hold on to 6 s = power off)      , and . or the mouse wheel = turn the compass\n"
     "       C = Tetris hold piece (a 0.46 s press of the switch)    R = restart    Q or close the window = quit\n"
     "Compass tool (3D compass, 50 fps): , . / wheel = turn the box, arrows = tilt it (0 = level), T = the mouse tilts it (x roll, y pitch);\n"
     "       the switch (Enter) swaps to the flat dial and weather page and back\n"
     "Flight sim (game mode, 50 fps): LEFT/RIGHT bank, UP speed bar, DOWN brake, X (A) = map / 3D view, F = time x1/x3/x5, Z (B) or Esc = pause menu\n"
-    "       (resume, view, assist, site, controls, zero tilt, new flight, home); after landing X = new flight\n"
+    "       (resume, view, assist, site, controls, zero tilt, new flight); after landing X = new flight\n"
     "       T = tilt steering with the mouse (x = roll, y = pitch, top of the window = top away = speed bar); T again = buttons\n";
 
 static int runWindow(Machine& m, World& w, Args& a) {

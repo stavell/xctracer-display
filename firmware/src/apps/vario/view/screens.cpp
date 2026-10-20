@@ -156,7 +156,7 @@ static void header(const ViewModel& vm, const char* title = nullptr) {
   }
   int pct = vm.localBattPct < 0 ? 0 : (vm.localBattPct > 100 ? 100 : vm.localBattPct);
   snprintf(b, sizeof b, "%d%%", pct);
-  text(W - 44, 17, b, F9, AR, WHT);
+  if (!title || strlen(title) <= 11) text(W - 44, 17, b, F9, AR, WHT);   // a long title (CHOOSE TRACER) leaves no room for the digits
   d->drawRect(W - 40, 6, 30, 13, WHT);
   d->fillRect(W - 10, 9, 3, 7, WHT);
   d->fillRect(W - 38, 8, (26 * pct) / 100, 9, WHT);

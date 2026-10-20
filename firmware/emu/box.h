@@ -47,6 +47,7 @@ struct Box {
   MockTilt tilt;
   TerrainKit* kit = nullptr;
   VarioProbe probe;
+  SystemSheet systemSheet;
   AppHost host;
   uint32_t score = 0;
   bool oneButton = false;             // the device today: only the switch (main_box.cpp: KEY_PIN_COUNT == 0); the PC player has the D-pad
@@ -116,12 +117,12 @@ struct Box {
     host.setLauncher(APP_LAUNCHER);
     host.setProbe(&probe);
     host.setLinkGate(&r.links);
-    host.setSystemSheet(&r.power);
+    host.setSystemSheet(&r.power, &systemSheet);
     registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
     registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
     registry.add("Sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
     registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
-    registry.add("Settings", "setup", "compass, mounting, time zone", APP_SETTINGS, ICON_SETTINGS, false);
+    registry.add("Settings", "setup", "compass, mounting, time", APP_SETTINGS, ICON_SETTINGS, false);
   }
 
   // A map pack for the vario (the kit must outlive the box; the vario opens its own kit on its reader when it starts);

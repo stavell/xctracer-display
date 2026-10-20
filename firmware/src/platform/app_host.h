@@ -35,6 +35,8 @@ class IAppNav {                                  // what an app may ask of the h
   // True while the six buttons are the input in use (the last key edge came from one of them), false for the single switch (the
   // default). Screens word their hints by it, so a hint never names a control that was not touched. Both stay fitted and usable.
   virtual bool sixButtons() const { return false; }
+  // True when the host's system sheet is on (box image): the 3 s hold then opens it, so an app must not announce its own power-off.
+  virtual bool hasSystemSheet() const { return false; }
 };
 
 class IApp {
@@ -148,14 +150,14 @@ class AppHost : public IAppNav {
   void setLauncher(int index) { launcher_ = index; }       // the app that lists the others; -1 = none
   void setProbe(IFrameProbe* p) { probe_ = p; }
   void setLinkGate(ILinkGate* g) { gate_ = g; }            // laptop link off while a game runs (null = never touched)
-  void setComboHold(uint32_t ms) { combo_ = ComboHold(ms); comboMs_ = ms; }
-  void setRotation(uint8_t r) { rotation_ = r; }
+  void setComboHold(uint32_t ms) { combo_ = ComboHold(ms); comboMs_ = (uint16_t)ms; }
+  void setRotation(uint8_t r) { rotation_ = r; }           // the panel rotation an app starts with (apps may change it)
   // Box image: turns on the system sheet. The 3 s hold and the A + B combo then open it over any app (not the ones that say
   // sheetBlocked()), and the sheet's Sleep / Power off call the port. Without this call (the vario-only image) the hold and the
   // combo behave as before: the app's own power-off, or back to the launcher.
-  void setSystemSheet(IPower* power) { power_ = power; }
-  bool sheetOpen() const { return sheet_.isOpen(); }
-  const SystemSheet& sheet() const { return sheet_; }           // the panel rotation an app starts with (apps may change it)
+  void setSystemSheet(IPower* power, SystemSheet* sheet) { power_ = power; sheet_ = sheet; }
+  bool sheetOpen() const { return sheetOn(); }
+  const SystemSheet& sheet() const { return *sheet_; }
 
   bool start(int index, uint32_t nowMs) {
     if (index < 0 || index >= n_) return false;
@@ -165,7 +167,7 @@ class AppHost : public IAppNav {
     pending_ = -1;
     aDown_ = bDown_ = false;
     keysDown_ = 0;
-    sheet_.close();
+    if (sheet_) sheet_->close();
     forceFrame_ = barDirty_ = false;
     barStep_ = 0;
     combo_.reset();
@@ -186,14 +188,14 @@ class AppHost : public IAppNav {
       if (e.down) six_ = e.key != KEY_MAIN;                 // the hint follows the control used last
       if (e.key == KEY_ACTION) aDown_ = e.down;
       else if (e.key == KEY_B) bDown_ = e.down;
-      if (e.key < 32) keysDown_ = e.down ? (keysDown_ | (1u << e.key)) : (keysDown_ & ~(1u << e.key));
-      if (sheet_.isOpen()) { if (sheetAct(sheet_.key(e.key, e.down, e.ms), nowMs)) return; }
+      if (e.key < 8) keysDown_ = (uint8_t)(e.down ? (keysDown_ | (1u << e.key)) : (keysDown_ & ~(1u << e.key)));
+      if (sheetOn()) { if (sheetAct(sheet_->key(e.key, e.down, e.ms), nowMs)) return; }
       else active_->onKey(e.key, e.down, e.ms);
     }
     const uint32_t held = input_.heldMs(nowMs);
-    if (sheet_.isOpen()) {                                  // input goes to the sheet only
-      if (ev != BTN_NONE && sheetAct(sheet_.input(ev, nowMs), nowMs)) return;
-      if (sheet_.isOpen() && sheetAct(sheet_.tick(nowMs, held), nowMs)) return;
+    if (sheetOn()) {                                  // input goes to the sheet only
+      if (ev != BTN_NONE && sheetAct(sheet_->input(ev, nowMs), nowMs)) return;
+      if (sheetOn() && sheetAct(sheet_->tick(nowMs, held), nowMs)) return;
     } else {
       active_->onHeld(held);
       if (power_ && ev == BTN_HOLD && !active_->sheetBlocked()) openSheet(nowMs);
@@ -201,7 +203,7 @@ class AppHost : public IAppNav {
       else if (ev != BTN_NONE) active_->onInput(KEY_MAIN, ev);
     }
     if (combo_.feed(aDown_, bDown_, nowMs)) {
-      if (power_) { if (!sheet_.isOpen() && !active_->sheetBlocked()) openSheet(nowMs); }
+      if (power_) { if (!sheetOn() && !active_->sheetBlocked()) openSheet(nowMs); }
       else if (canLeave() && active_->comboExit()) openLauncher();
     }
 
@@ -214,9 +216,9 @@ class AppHost : public IAppNav {
       return;                                              // its first frame comes on the next iteration
     }
     const uint32_t fi = active_->frameIntervalMs();
-    if (sheet_.isOpen()) {                                 // the app keeps ticking underneath; game-mode apps are not stepped
+    if (sheetOn()) {                                 // the app keeps ticking underneath; game-mode apps are not stepped
       const bool owns = active_->ownsPanel(nowMs);
-      const bool changed = sheet_.takeDirty();
+      const bool changed = sheet_->takeDirty();
       if (changed || (fi == 0 && !owns && active_->wantsFrame(nowMs))) presentFrame(nowMs, !owns);
       return;
     }
@@ -270,6 +272,7 @@ class AppHost : public IAppNav {
   int appCount() const override { return n_; }
   const char* appName(int index) const override { return index >= 0 && index < n_ ? apps_[index]->name() : ""; }
   bool sixButtons() const override { return six_; }
+  bool hasSystemSheet() const override { return power_ != nullptr; }
 
  private:
   // One iteration of the game-mode loop: if a frame is due and the panel can take it, step the simulation for the
@@ -337,7 +340,7 @@ class AppHost : public IAppNav {
   static const int kBarSteps = 16;
   void updateHoldBar(uint32_t nowMs, uint32_t held) {
     int step = 0;
-    if (power_ && !sheet_.isOpen() && !active_->sheetBlocked()) {
+    if (power_ && !sheetOn() && !active_->sheetBlocked()) {
       if (held >= ButtonFsmMs::kLong && held < ButtonFsmMs::kHold)
         step = 1 + (int)((held - ButtonFsmMs::kLong) * (kBarSteps - 1) / (ButtonFsmMs::kHold - ButtonFsmMs::kLong));
       const uint32_t c = combo_.heldMs(nowMs);
@@ -350,13 +353,16 @@ class AppHost : public IAppNav {
   }
   void drawHoldBar(const Bitmap1& bm) {
     if (barStep_ <= 0) return;
-    ui::bar(bm, 10, ui::H - 14, ui::W - 20, 10, (float)barStep_ / kBarSteps);
-    bm.fillRect(ui::W - 10, ui::H - 20, 2, 16, DRAW_CLEAR);   // the mark: the menu opens where the bar ends
+    const int x = 10, w = ui::W - 20, y = ui::H - 7;           // 7 px strip at the very bottom edge, below the hint lines
+    bm.fillRect(x, y, w, 7, DRAW_CLEAR);
+    bm.fillRect(x + 1, y + 1, w - 2, 5, DRAW_SET);
+    bm.fillRect(x + 2, y + 2, (w - 4) * barStep_ / kBarSteps, 3, DRAW_CLEAR);
+    bm.fillRect(x + w, y - 4, 2, 11, DRAW_CLEAR);                // the mark: the menu opens where the bar ends
   }
 
   void openSheet(uint32_t nowMs) {
     const bool inLauncher = activeIdx_ == launcher_;
-    sheet_.open(inLauncher ? SystemSheet::R_SLEEP : active_->sheetStart(), canLeave(), nowMs);
+    sheet_->open(inLauncher ? SystemSheet::R_SLEEP : active_->sheetStart(), canLeave(), nowMs);
     active_->onHeld(0);
     active_->onSheet(true, nowMs);
     for (int k = 0; k < KEY_COUNT; k++)                    // keys down now would never see their release: end them for the app
@@ -365,7 +371,7 @@ class AppHost : public IAppNav {
   // True when the act ended this iteration (the box went to sleep or off).
   bool sheetAct(SystemSheet::Act a, uint32_t nowMs) {
     if (a == SystemSheet::A_NONE || !power_) return false;
-    sheet_.close();
+    sheet_->close();
     panel_.invalidate();
     active_->onSheet(false, nowMs);
     gameClock_ = false;                                    // a game restarts its frame clock, no catch-up for the time it stood
@@ -380,11 +386,12 @@ class AppHost : public IAppNav {
     panel_.clear();
     Bitmap1 bm = panel_.bitmap();
     if (drawApp) active_->draw(bm, panel_.gfx(), nowMs);
-    if (sheet_.isOpen()) sheet_.draw(bm, six_);
+    if (sheetOn()) sheet_->draw(bm, six_);
     else drawHoldBar(bm);
     panel_.present();
   }
 
+  bool sheetOn() const { return sheet_ && sheet_->isOpen(); }
   bool canLeave() const { return hasLauncher() && activeIdx_ != launcher_; }
 
   IPanel& panel_;
@@ -401,11 +408,11 @@ class AppHost : public IAppNav {
   bool aDown_ = false, bDown_ = false;
   ComboHold combo_;
   IPower* power_ = nullptr;                  // set: the system sheet is on (box image)
-  SystemSheet sheet_;
+  SystemSheet* sheet_ = nullptr;             // owned by the box image (a vario-only image pays nothing for it)
   bool six_ = false, forceFrame_ = false, barDirty_ = false;
-  int barStep_ = 0;
-  uint32_t comboMs_ = 1500;
-  uint32_t keysDown_ = 0;                    // bit per Key: debounced state of every key, to release them when the sheet opens
+  int8_t barStep_ = 0;
+  uint16_t comboMs_ = 1500;
+  uint8_t keysDown_ = 0;                     // bit per Key: debounced state of every key, to release them when the sheet opens
   // game mode
   bool gameClock_ = false;
   uint32_t nextFrame_ = 0, simMs_ = 0, statAt_ = 0, lastPresent_ = 0;

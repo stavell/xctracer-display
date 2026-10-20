@@ -15,8 +15,8 @@ const char* label(SystemSheet::Row r) {
 
 void SystemSheet::draw(const Bitmap1& bm, bool sixButtons) {
   f_.ensure(bm.rotation);
-  const int rowH = 44, headH = 38, footH = 40;
-  const int w = 200, h = headH + n_ * rowH + footH;
+  const int rowH = 44, headH = 38, footH = 46;
+  const int w = 216, h = headH + n_ * rowH + footH;
   const int x = (W - w) / 2, y = (H - h) / 2;
   roundFrame(bm, x, y, w, h, 10, 3, DRAW_CLEAR);                 // black outline, white inside
   centered(bm, f_.bold, W / 2, y + 26, "SYSTEM", DRAW_CLEAR);
@@ -30,7 +30,7 @@ void SystemSheet::draw(const Bitmap1& bm, bool sixButtons) {
   const int fy = y + headH + n_ * rowH;
   if (keepHolding()) {
     centered(bm, f_.bold, W / 2, fy + 18, "keep holding: power off", DRAW_CLEAR);
-    bar(bm, x + 14, fy + 24, w - 28, 8, barStep() / 12.0f);
+    bar(bm, x + 14, fy + 26, w - 28, 8, barStep() / 12.0f);
   }
   else centered(bm, f_.small, W / 2, fy + 22, sixButtons ? "up/down  A: do  B: back" : "press: next   hold: do", DRAW_CLEAR);
 }

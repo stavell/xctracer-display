@@ -31,7 +31,7 @@ Rendered by the PC emulator from the same drawing code that runs on the device (
 | ![Compass](docs/screens/live.png) | ![Thermal](docs/screens/thermal_memory.png) | ![Profile](docs/screens/profile_inversion.png) | ![Home](docs/screens/home.png) |
 | **Compass**: speed, glide, altitude, climb, heading-up dial (GPS track or magnetic), wind | **Thermal**: heading-up map of the recent track in the air-mass frame, remembered thermals with their climb | **Profile**: wind and temperature by altitude, inversion band shaded | **Home**: direction and distance home, required glide ratio, arrival height |
 | ![Standalone](docs/screens/standalone.png) | ![Vario menu](docs/screens/list.png) | ![Calibration](docs/screens/calibrate.png) | ![Status](docs/screens/status.png) |
-| **Standalone**: no tracer connected, the box is a compass with temperature and humidity | **Vario menu**: pick the tracer, sorted by signal (and Home, in the box image) | **Compass calibration**: turn the box until the bars fill (Settings app) | **Status**: connecting / waiting for data |
+| **Standalone**: no tracer connected, the box is a compass with temperature and humidity | **Vario menu**: pick the tracer, sorted by signal | **Compass calibration**: turn the box until the bars fill (Settings app) | **Status**: connecting / waiting for data |
 
 | ![Vario with AGL](docs/screens/live_agl.png) | ![Map](docs/screens/map.png) | ![Map, mountains](docs/screens/map_mountains.png) | |
 |---|---|---|---|
@@ -131,20 +131,19 @@ On the PC: `firmware/emu/build.sh play box --igc f.igc --pack maps/bulgaria.pack
 |---|---|
 | Short press (under 0.7 s) | Flight screen: switch page. Lists and calibration: see below. |
 | Hold 0.7 to 1.5 s, then release | Flight screen: open the device list. |
-| Hold past 1.5 s | "Keep holding to power off" banner with a progress bar. Releasing before 3 s cancels. |
-| Hold to 3 s | Powers off. Vario-only image: System OFF. Box image: the **clock sleep**; keep holding 3 s more (a bar fills under the clock) for System OFF, see below. |
+| Hold past 1.5 s | Vario-only image: "Keep holding to power off" banner with a progress bar. Releasing before 3 s cancels. Box image: a thin progress bar along the bottom edge shows from 0.7 s (it fills toward 3 s); it is only a cue, a release before 3 s is the normal press / long press / cancel. |
+| Hold to 3 s | Vario-only image: powers off (System OFF). Box image: opens the **system sheet** (Back, Home, Sleep, Power off) over any app; keep holding to 6 s in total (a second bar fills inside the sheet) for System OFF straight away. See "Box" below. |
 | Power on (System OFF) | Hold the switch about 1 s. A shorter tap puts the box back to sleep. |
 | Wake (clock sleep) | Hold the switch about 1 s. A shorter press only refreshes the clock. |
 
-**Clock sleep** (box image; the 3 s hold, a two-step power-off): the box stops the tracer link, the laptop link, the
+**Clock sleep** (box image; the system sheet's Sleep): the box stops the tracer link, the laptop link, the
 compass sensors and the map flash, and shows only the local time (HH:MM, big) and the battery on the panel, redrawn once
 a minute, plus a small weather station: temperature and humidity (SHT30), the pressure in hPa with a 3 h tendency
 arrow, a rough barometer forecast pictogram (sun / sun and cloud / cloud / rain / storm) and a 24 h pressure chart (the
 board's BMP280, one sample per 10 min, kept in RAM: a reset or the full power-off clears the history). The time is the tracer's GPS time carried on by the box's own clock; with no GPS time yet, or none for 12 h,
 it shows `--:--` (never a guess). Holding the switch for 1 s wakes the box without a reset into the start-up app,
 which restarts its tracer link and sensors as after a power-on; the clock stays valid across the sleep. When the battery is
-nearly empty the sleep falls into System OFF. Keeping the switch down after the sleep began fills a bar under the clock; at the end (3 s) the box goes to System OFF (nothing
-runs, the clock is lost); releasing before that keeps the clock. That continued hold never wakes the box. The sleep current is not measured yet (see NOTES.md).
+nearly empty the sleep falls into System OFF. The battery percentage sits next to the battery icon (read once per minute redraw, `--` when unknown). The expert path to System OFF is the switch held to 6 s from anywhere (the sheet opens at 3 s); a hold inside the sleep only wakes the box. The sleep current is not measured yet (see NOTES.md).
 
 ### Flight screen
 
@@ -189,13 +188,12 @@ Wind comes from a circle fit over about the last 30 s of ground velocity while t
 
 ### Vario menu
 
-Hold the switch for 0.7 to 1.5 s on the flight screen. Press moves the selection down (it wraps), hold
+Hold the switch for 0.7 to 1.5 s on the flight screen (six buttons: A). Press (DOWN / RIGHT) moves the selection down (it wraps), hold
 selects. The menu holds only flying things.
 
 | Row | Hold does |
 |---|---|
 | `< back` | closes the menu |
-| `Home` | box image only: leaves the vario for the home screen (see "Box" below) |
 | tracer name, `-NN dBm   XX:XX` | connects to it and saves it |
 
 Devices are sorted by signal strength. The two letters-and-digits are the last two bytes of the address,
@@ -329,7 +327,7 @@ of the screen and the horizon tilts a third of the bank); the chase camera circl
 | up / down | speed bar (37 -> 52 km/h) / brake (down to 28 km/h; the wing stalls in a turn at that speed) |
 | X (A) | toggle map / 3D chase view |
 | F | simulation speed x1 / x3 / x5 (default x3; also the pause menu Speed row); a box under the top strip shows it |
-| Z or Esc (B / MAIN) | pause menu: Resume, View, Assist (thermals on the map and in 3D), Thermals view columns/bubbles/both, Site (8 takeoffs), Controls Buttons / Tilt, Zero tilt, Speed x1/x3/x5, Thermals, Wind from, Wind speed, New flight, Home |
+| Z or Esc (B / MAIN) | pause menu: Resume, View, Assist (thermals on the map and in 3D), Thermals view columns/bubbles/both, Site (8 takeoffs), Controls Buttons / Tilt, Zero tilt, Speed x1/x3/x5, Thermals, Wind from, Wind speed, New flight |
 | T | tilt steering with the mouse: x = roll, y = pitch (top of the window = top of the box away = speed bar); T again = buttons |
 | after landing | X = new flight, Z = home |
 
@@ -342,11 +340,11 @@ gives it roll and pitch from the accelerometer (`sim/accel_tilt.h`).
 
 **One button (the box today: only the board's switch).** The sim steers by tilt (the board's accelerometer, gravity only, through
 the case mounting; on only while the sim is open) and every list works like the home screen: short press = next row (wraps),
-long press = act on the row. Day screen: Site, Thermals, Wind from, Wind speed, Start, Home. After Start the "ZERO TILT" page
+long press = act on the row. Day screen: Site, Thermals, Wind from, Wind speed, Start. After Start the "ZERO TILT" page
 comes before the first flight: hold the box the way you fly, long press = zero and fly. Flying: tilt steers, short = pause menu,
-long = map / 3D. Pause menu: short = next row, long = act (Controls re-opens the zero page; Home is the last row). After
-landing: short switches "New flight" / "Home", long does it. Holding the switch 3 s still leaves the app. With the D-pad
-wired (`KEY_PIN_COUNT > 0`) the sim keeps the keys above instead.
+long = map / 3D. Pause menu: short = next row, long = act (Controls re-opens the zero page; New flight is the last row). After
+landing: long = "New flight". Leaving is the system sheet's job (hold 3 s; the flight stands still while it is open). With the D-pad
+wired (`KEY_PIN_COUNT > 0`) the sim keeps the keys above as well, the switch works at the same time.
 
 The window title shows frames per second, the longest gap between two frames in the last second, the slowest host tick and
 the count of late frames.
@@ -415,14 +413,14 @@ In the box image the vario is an app like the others: it exists in RAM only whil
 the compass tool and the flight sim). Leaving it to another app loses its flight state (trail, wind, thermals, map cache);
 coming back starts fresh and reconnects the tracer. The radios, settings and the wall clock live on.
 
-![Home screen, Settings, compass calibration, About, the vario menu with its Home row](docs/screens/box.png)
+![Home screen, Settings, compass calibration, About, the vario menu](docs/screens/box.png)
 
 **3D compass** (`apps/compass3d`, the Compass & weather tool's first page, 50 fps). A compass card with a raised, graduated rim floats level
 in a glass dome and points north while the box is tilted and turned (AHRS quaternion, perspective, back-face culling, 8x8 Bayer shading
 with a fixed light, soft shadow, glass reflections). The card follows through a damped spring like a liquid compass (a little overshoot);
 the number below is the exact heading (`0.0`..`359.9`, the vario's helper), with a bubble level and temperature / humidity. No calibration
 shows a figure-8 hint, a disturbed field greys and shakes the card (magnet icon), no attitude shows dashes. A short press of the switch swaps
-to the flat dial and weather page; the long press menu (Home) and every other way out are unchanged. Try it: `build.sh play box`, open Compass,
+to the flat dial and weather page; the long press menu ("< back") and the system sheet work as everywhere. Try it: `build.sh play box`, open Compass,
 arrows tilt the virtual box, `,` `.` turn it.
 
 ![3D compass: turning, tilting, a quick spin, disturbed field, no calibration, no sensor](docs/screens/compass3d_sheet.png)
@@ -440,27 +438,28 @@ and deterministic. Settings > Intro turns it off. It lives in the shared app are
 status; box battery), a grid of large tiles (icon and name; the chosen tile is inverted) and a footer with a line about the
 chosen app and the key hint. Apps register with a name, a few words, a line of text and an icon (`platform/app_registry.h`,
 `platform/gfx/icons.h`), so a new app is one `registry.add(...)` in `main_box.cpp`. Single switch: short press = next
-tile, long press (0.7-1.5 s) = open, 3 s hold = power off. Six buttons: arrows move over the grid, A opens.
+tile, long press (0.7-1.5 s) = open, 3 s hold = the system sheet (cursor on Sleep). Six buttons: arrows move over the grid, A opens. The
+screens share one title bar (title, battery icon and percentage) and one hint line at the bottom; the hint names the switch or the
+six buttons by whichever was used last, so it never names a control that was not touched. Both stay usable at any time.
 
-**Settings** (`apps/settings`, on the platform pieces in `platform/settings/`): Compass (calibration), Board mounting
-(index 0..23, long press = +1, or the arrows), Start-up app (long press cycles the apps that may start the box; Settings
+**Settings** (`apps/settings`, on the platform pieces in `platform/settings/`): Calibrate compass, Mounting
+(position 1..24, long press = +1, or the arrows), Start-up app (long press cycles the apps that may start the box; Settings
 and the home screen are not offered), Time zone (long press = +1 h, arrows = 30 min; `ctl.py tz` sets any value),
 Intro (long press toggles the start-up animation On / Off, default On),
-About (firmware version, map pack and its area, the pack's Copernicus and OpenStreetMap credits), Home.
+About (firmware version, map pack and its area, the pack's Copernicus and OpenStreetMap credits).
 
-**Getting to the home screen** (a deliberate gesture from inside an app, nothing that a flight can trigger by accident):
-
-| Where | Gesture |
-|---|---|
-| Vario | long press (0.7-1.5 s) for the vario menu, one short press to the **Home** row, long press. The vario's other gestures are unchanged: short = page, 3 s hold = power off. |
-| Tetris | pause (short press), then long press (or B) = Home; short press (or A) resumes. Or the 3 s hold. |
-| Compass tool | long press for its menu, short press to **Home**, long press. Or the 3 s hold. |
-| Settings | the **Home** row, B, or the 3 s hold. |
-| Any app, six-button case | hold **A + B** together for 1.5 s (the vario too; `IApp::comboExit()` is the switch, a one-line override turns it off for an app). The front buttons are not wired yet: define `PIN_KEY_UP/DOWN/LEFT/RIGHT/A/B` in `platform/hw/pins.h` (`platform/hw/keymap.h` is the table). |
-| Home screen | short press = next tile, long press = open; arrows and A on the six buttons; 3 s hold = power off. |
-
-The 3 s hold was chosen for games because the switch's other gestures are taken (short: page or pause, 0.7-1.5 s: menu
-or start, release between 1.5 and 3 s: cancelled) and the hold is the only one that cannot be mistaken for them.
+**The system sheet** (box image, `platform/ui/system_sheet.h`, drawn by the host over ANY app, also the launcher): hold the
+switch 3 s, or hold **A + B** 1.5 s on the six buttons. Rows: `Back`, `Home` (not in the launcher), `Sleep` (the clock sleep),
+`Power off` (System OFF). Press = next row, long press = do it; six buttons: UP / DOWN move, A does, B = Back. The cursor starts on
+Back in the vario and the compass tool, on Sleep in the launcher and on Home elsewhere. It closes by itself after 6 s without input
+(= Back). While it is open input goes to the sheet only; the vario keeps receiving data and logging underneath, Tetris pauses (the
+pause screen is what Back returns to), the flight sim goes to its pause menu and stands still. Holding the switch on to 6 s in total
+is Power off from anywhere (a "keep holding: power off" bar fills inside the sheet from 3 to 6 s). The start-up animation is the only
+exception: the hold there just skips it. This is also the only way to the home screen, so nothing a flight can trigger by accident
+leaves the vario. There are no Home rows in the apps any more; the vario's device list, the compass tool's menu and Settings only
+have what belongs to them. Both input devices may be fitted at once: every screen works with the switch alone and with the six
+buttons alone (in the vario the six buttons map DOWN / RIGHT to a press, A to a long press, B to "< back" / cancel). The front buttons
+are not wired yet: define `PIN_KEY_UP/DOWN/LEFT/RIGHT/A/B` in `platform/hw/pins.h` (`platform/hw/keymap.h` is the table).
 
 **What leaving the vario does.** The tracer link and scan stop and the compass sensors are switched off (`App::end`,
 `ITracer::pause`); coming back restarts the scan (a few seconds until data flows) and the sensors. The flight model
@@ -482,14 +481,14 @@ plays an IGC file (converted by `host/make_lines.py`) or a line file (`--lines f
 | Key | Function |
 |---|---|
 | Enter or Esc | the user switch. Hold it: 0.7-1.5 s is the long press, 3 s the hold; the title shows `MAIN 1.2 s` |
-| arrows, X, Z | D-pad, A, B (A + B held 1.5 s = home screen) |
+| arrows, X, Z | D-pad, A, B (A + B held 1.5 s = the system sheet) |
 | `,` `.` or mouse wheel | turn the compass heading |
 | arrows, `0`, `T` (Compass tool) | tilt the virtual box (pitch, roll; `0` = level), `T` = the mouse tilts it (x roll, y pitch) |
 | C, R, Q | Tetris hold piece, restart (reboot the box), quit |
 
 The window title shows the app, frames per second (frames the host actually presented) and the compass heading.
 Headless: `play box --igc f.igc --speed 12 --keys "200 shot:a.png main 30 long 20 shot:b.png"` (tokens: `main left
-right up down a b` taps, `long` 0.9 s, `off` 3.2 s hold, `combo` A + B, `+key` / `-key`, a number = 30 ms frames,
+right up down a b` taps, `long` 0.9 s, `off` 3.2 s hold (opens the sheet), `sheet:home|back|sleep|off` (press to that row, long press), `combo` A + B, `+key` / `-key`, a number = 30 ms frames,
 `turn:90`, `tilt:30,-10` (pitch, roll), `shot:file.png`). `firmware/emu/build.sh smoke` runs a fixed script and checks which app is active at each
 screenshot (`emu/out/box_*.png`); `check.sh` runs it.
 

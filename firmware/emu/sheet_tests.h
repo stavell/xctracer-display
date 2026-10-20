@@ -89,12 +89,13 @@ static void host() {
   puts("system sheet: host (hold, combo, cursor defaults, idle close, input only to the sheet, hold bar)");
   Rig r;
   AppHost h(r.panel, r.input);
+  SystemSheet sheetObj;
   SheetSpy a("a"), v("v"), l("l"), intro("intro");
   v.start = SystemSheet::R_BACK;
   intro.blocked = true;
   h.add(a); h.add(v); h.add(l); h.add(intro);
   h.setLauncher(2);
-  h.setSystemSheet(&r.power);
+  h.setSystemSheet(&r.power, &sheetObj);
   uint32_t now = 0;
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) h.tick(now); };
   h.start(0, now);

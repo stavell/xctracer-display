@@ -204,6 +204,7 @@ static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);
 static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, FW_VERSION);
 
 static VarioProbe probe;
+static SystemSheet systemSheet;                // the overlay of the 3 s hold / A + B (the vario-only image has none)
 static AppHost host(panel, button);
 static char* scratchBuf() { size_t c; return diagnosticsScratch(&c); }
 static GameLog gameLog(host, panel, fastMicros, &probe, scratchBuf(), 560);    // the "gm ..." line while a game runs; forwards clear / present to the vario probe
@@ -269,13 +270,13 @@ void setup() {
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&gameLog);
   host.setLinkGate(&laptopGate);
-  host.setSystemSheet(&power);                // the 3 s hold / A + B: Back, Home, Sleep, Power off
+  host.setSystemSheet(&power, &systemSheet);                // the 3 s hold / A + B: Back, Home, Sleep, Power off
   host.setRotation(DISPLAY_ROTATION);
   registry.add("Vario", "flying", "flight display, tracer link", APP_VARIO, ICON_VARIO);
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
   registry.add("Sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
-  registry.add("Settings", "setup", "compass, mounting, time zone", APP_SETTINGS, ICON_SETTINGS, false);
+  registry.add("Settings", "setup", "compass, mounting, time", APP_SETTINGS, ICON_SETTINGS, false);
   power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION, &weather, &thermo, &baro});
   startStartupApp(true);
 }

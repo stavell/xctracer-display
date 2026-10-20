@@ -20,6 +20,7 @@ right is worse than no data.
       sensors/   compass tilt + hard-iron, AHRS, heading smoother, mount table
       panel/     pure panel helpers: line diff, Sharp frame packing
       input/     button state machine, A+B combo hold, key debounce
+      ui/        the system sheet (Back / Home / Sleep / Power off overlay the host draws over any app)
       settings/  BoxSettings (time zone, mounting, magnetometer calibration over the key store), CompassCal (the calibration
                  flow) and its screen: shared by the vario and the Settings app
       storage/   map pack in a NOR flash: flash port (IFlash), flash header, USB serial frames + loader state machine, pack block reader
@@ -64,13 +65,16 @@ right is worse than no data.
   rates, half-pixel rules) live in the app's `wantsFrame`. The vario's list / calibration screens only draw on the tick
   after they were opened (as they always did): that is part of the cadence, keep it.
 - **Flight safety of the box image.** The box boots straight into the start-up app (default: the vario, stored in the
-  key store). The launcher opens only on a deliberate gesture from inside an app: the vario's device list has an
-  "Home" row (long press, one short press to the row, long press), a long press on the Tetris pause screen, the compass
-  tool's "Home" row, the Settings "Home" row, 3 s hold of the switch in games and tools (in the box the 3 s hold powers off into the clock sleep; holding 3 s more goes to System OFF), A + B held 1.5 s on the
-  six-button hardware. The vario menu holds only flying things (tracer choice, Home); compass calibration is the
-  Settings app's and runs the sensors only while its screen is open. Leaving the vario stops the tracer scan and link and the compass sensors
+  key store). The launcher opens only on a deliberate gesture: the **system sheet** (`platform/ui/system_sheet.h`, drawn and
+  fed by `AppHost`), opened by the switch held 3 s or A + B held 1.5 s over any app except the intro (`IApp::sheetBlocked()`:
+  the hold only skips the animation), with the row `Home` (rows: Back, Home, Sleep, Power off; no Home in the launcher). Holding
+  the switch on to 6 s is Power off from anywhere. No app has a Home row; lists start with "< back". The sheet closes itself after
+  6 s; while open, input goes to it only, the vario keeps ticking, game-mode apps are not stepped and Tetris / the sim pause
+  (`IApp::onSheet`). Both input devices stay usable at the same time (switch AND six buttons); hints follow the one used last
+  (`IAppNav::sixButtons()`). Leaving the vario stops the tracer scan and link and the compass sensors
   (`App::end`, `ITracer::pause`); entering it again restarts them. Games never run unless chosen. The vario-only image
-  (`feather_sense`) has no launcher and none of this (no Home row; calibration only by `ctl.py cal`). `scripts/check.sh` proves the vario draws the same frames in
+  (`feather_sense`) has no host sheet and none of this (its 3 s hold powers off, no Home row; calibration only by `ctl.py cal`):
+  `AppHost::setSystemSheet` is called by `main_box.cpp` only. `scripts/check.sh` proves the vario draws the same frames in
   the box as alone (`box_vario_matches_alone`).
 - **RAM budget.** .heap (what static RAM leaves over) feeds FreeRTOS: the box image once had 2 kB and did not boot at all.
   In the box image NO app is static: the vario (`VarioBox`: App + adapter + terrain kit), Tetris, the compass tool and the flight sim (`SimBox`) share one

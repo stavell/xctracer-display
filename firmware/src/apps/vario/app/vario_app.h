@@ -46,7 +46,8 @@ class VarioApp : public IApp {
     else if (key == KEY_ACTION) onInput(KEY_MAIN, BTN_LONG);
     else if (key == KEY_B) app_.backKey();
   }
-  void onHeld(uint32_t heldMs) override { app_.onHeld(heldMs); }
+  // In the box the hold opens the host's sheet (with its own progress bar): the vario shows no power-off banner then.
+  void onHeld(uint32_t heldMs) override { app_.onHeld(nav() && nav()->hasSystemSheet() ? 0 : heldMs); }
   SystemSheet::Row sheetStart() const override { return SystemSheet::R_BACK; }
   bool wantsFrame(uint32_t nowMs) override { return app_.wantsFrame(nowMs); }
   // The vario polls its sensors and the link on every host iteration, so it always wants the next tick.

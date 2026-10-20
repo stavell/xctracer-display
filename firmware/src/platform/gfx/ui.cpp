@@ -69,7 +69,7 @@ void hintLine(const Bitmap1& bm, UiFonts& f, const char* text) {
   f.ensure(bm.rotation);
   bm.hspan(0, HINT_TOP, W, DRAW_CLEAR);
   bm.hspan(0, HINT_TOP + 1, W, DRAW_CLEAR);
-  drawText(bm, (W - textWidth(text, f.small)) / 2, H - 10, text, f.small, DRAW_CLEAR);
+  drawText(bm, (W - textWidth(text, f.small)) / 2, H - 12, text, f.small, DRAW_CLEAR);
 }
 
 const Font1& fitFont(const char* s, int maxW, const Font1& a, const Font1& b) {

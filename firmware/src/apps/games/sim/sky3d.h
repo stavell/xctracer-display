@@ -51,6 +51,7 @@ class SkyFx {
 
  private:
   struct Pj;
+  void drawClouds(const Bitmap1& bm, const VoxelView& vv, const Pj& pj, int n, float cb);
   void drawCloud(const Bitmap1& bm, const VoxelView& vv, const Pj& pj, const ColumnInfo& c, float sx, float sy, float s, int cs);
   void drawShaft(const Bitmap1& bm, const VoxelView& vv, const Pj& pj, const Air& air, const ColumnInfo& c, float t, float cb, int nseg,
                  int cs, int level);

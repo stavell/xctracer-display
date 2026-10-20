@@ -214,6 +214,41 @@ void SkyFx::drawBubbles(const Bitmap1& bm, const VoxelView& vv, const Pj& pj, co
 
 // ---------------------------------------------------------------------------------------------------------------- frame
 
+// The cloud pass in its own frame (the candidate list is 640 bytes): the loop task has 4 KB of stack and the assist pass below needs its own arrays.
+__attribute__((noinline)) void SkyFx::drawClouds(const Bitmap1& bm, const VoxelView& vv, const Pj& pj, int n, float cb) {
+  struct Cand { int i; float sx, sy, s, wpx; } cand[kMaxCols];
+  int nc = 0;
+  for (int i = 0; i < n; i++) {
+    const ColumnInfo& c = col_[i];
+    if (c.cloud < 0.03f) continue;
+    float sx, sy, s;
+    if (!pj.pt(c.cloudX, c.cloudY, cb, &sx, &sy, &s) || s < 350.0f || s > VoxelView::kMaxDist) continue;
+    const float wpx = c.width * pj.f / s;
+    if (wpx < 5.0f || sx < -0.6f * wpx || sx > kW + 0.6f * wpx) continue;
+    cand[nc++] = {i, sx, sy, s, wpx};
+  }
+  for (int a = 1; a < nc; a++) {                        // far to near
+    Cand k = cand[a];
+    int b = a - 1;
+    while (b >= 0 && cand[b].s < k.s) { cand[b + 1] = cand[b]; b--; }
+    cand[b + 1] = k;
+  }
+  int first = nc > kMaxClouds && !unlimited_ ? nc - kMaxClouds : 0;
+  // Cost per column evaluation about 330 cycles (7 sqrt and six spans); coarser (4 columns per evaluation) halves it.
+  int cs = 2;
+  auto cost = [&](int step) { float c = 0; for (int a = first; a < nc; a++) c += fminf(cand[a].wpx * 1.2f, (float)kW) / step * 330.0f; return c; };
+  if (cost(2) > kCloudBudget && !unlimited_) { cs = 4; st_.level = 1; }
+  while (!unlimited_ && first < nc - 1 && cost(cs) > kCloudBudget) first++;           // leave the farthest out
+  for (int a = first; a < nc; a++) {
+    const Cand& k = cand[a];
+    const int before = st_.cloudCols;
+    drawCloud(bm, vv, pj, col_[k.i], k.sx, k.sy, k.s, cs);
+    st_.clouds++;
+    shots_[nShots_++] = {col_[k.i].id, k.sx, k.sy, k.wpx, k.s, st_.cloudCols == before};
+  }
+  st_.cloudCycles = st_.cloudCols / (float)cs * 330.0f;
+}
+
 void SkyFx::draw(const Bitmap1& bm, const VoxelView& vv, const Air& air, const Glider& g, const Camera& cam, float t, bool assist,
                  Style style, bool clouds) {
   st_ = Stats();
@@ -230,39 +265,7 @@ void SkyFx::draw(const Bitmap1& bm, const VoxelView& vv, const Air& air, const G
   st_.found = n;
 
   // ---- clouds: the nearest few that are in front of the camera, far to near
-  if (clouds) {
-    struct Cand { int i; float sx, sy, s, wpx; } cand[kMaxCols];
-    int nc = 0;
-    for (int i = 0; i < n; i++) {
-      const ColumnInfo& c = col_[i];
-      if (c.cloud < 0.03f) continue;
-      float sx, sy, s;
-      if (!pj.pt(c.cloudX, c.cloudY, cb, &sx, &sy, &s) || s < 350.0f || s > VoxelView::kMaxDist) continue;
-      const float wpx = c.width * pj.f / s;
-      if (wpx < 5.0f || sx < -0.6f * wpx || sx > kW + 0.6f * wpx) continue;
-      cand[nc++] = {i, sx, sy, s, wpx};
-    }
-    for (int a = 1; a < nc; a++) {                        // far to near
-      Cand k = cand[a];
-      int b = a - 1;
-      while (b >= 0 && cand[b].s < k.s) { cand[b + 1] = cand[b]; b--; }
-      cand[b + 1] = k;
-    }
-    int first = nc > kMaxClouds && !unlimited_ ? nc - kMaxClouds : 0;
-    // Cost per column evaluation about 330 cycles (7 sqrt and six spans); coarser (4 columns per evaluation) halves it.
-    int cs = 2;
-    auto cost = [&](int step) { float c = 0; for (int a = first; a < nc; a++) c += fminf(cand[a].wpx * 1.2f, (float)kW) / step * 330.0f; return c; };
-    if (cost(2) > kCloudBudget && !unlimited_) { cs = 4; st_.level = 1; }
-    while (!unlimited_ && first < nc - 1 && cost(cs) > kCloudBudget) first++;           // leave the farthest out
-    for (int a = first; a < nc; a++) {
-      const Cand& k = cand[a];
-      const int before = st_.cloudCols;
-      drawCloud(bm, vv, pj, col_[k.i], k.sx, k.sy, k.s, cs);
-      st_.clouds++;
-      shots_[nShots_++] = {col_[k.i].id, k.sx, k.sy, k.wpx, k.s, st_.cloudCols == before};
-    }
-    st_.cloudCycles = st_.cloudCols / (float)cs * 330.0f;
-  }
+  if (clouds) drawClouds(bm, vv, pj, n, cb);
 
   // ---- assist: the thermals
   if (!assist) return;
