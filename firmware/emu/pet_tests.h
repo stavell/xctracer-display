@@ -2,7 +2,7 @@
 // The pet snapshot (platform/pet): strict decoder (every reject case), the mailbox (latest wins, keeps the last good), the laptop
 // link's opcode dispatch with the vario's commands as one consumer, the status the box reports back. Included by tests.cpp.
 #include "apps/vario/app/command_queue.h"
-#include "pet_fixture.h"
+#include "pet_rig.h"
 #include "platform/link/opcode_dispatch.h"
 #include "platform/pet/pet_status.h"
 
@@ -167,11 +167,140 @@ static void status() {
   CHECK(r.due(35000, true, ap));                                    // ... and a reconnect sends again
 }
 
+using petfx::SlotSpec;
+
+static int framesIn(PetRig& t, uint32_t ms) { const uint32_t f = t.app.framesDrawn(); t.run(ms); return (int)(t.app.framesDrawn() - f); }
+
+static void cadence() {
+  puts("pet app: change-driven frame cadence, staleness, transitions");
+  static PetRig t;
+  CHECK(t.app.frameIntervalMs() == 0 && !t.host.gameMode());
+  CHECK(sizeof(pet_app::PetApp) - sizeof(UiFonts) < 1024);
+  t.run(200);
+  CHECK(t.app.stale() && t.app.framesDrawn() >= 1);               // no snapshot yet: the sleeping empty herd with the unplugged sign
+  CHECK(framesIn(t, 10000) == 0);                                  // and no frames until one arrives
+  CHECK(!t.r.pets.anyShown());
+
+  // only DONE / IDLE: one frame every 3 s
+  t.send(petfx::make(1, 0, 10, 0, 0, {{0, pet::S_DONE, 0, 0, 0, 0, 50, 1, "A"}, {1, pet::S_IDLE, 0, 0, 1, 1, 50, 30, "B"}}));
+  t.run(20);
+  CHECK(!t.app.stale() && t.r.pets.anyShown() && t.r.pets.shownSeq() == 1);
+  const int slow = framesIn(t, 12000);
+  CHECK(slow >= 3 && slow <= 5);
+
+  // working: 2 fps
+  t.send(petfx::make(2, 0, 10, 0, 0, {{0, pet::S_WORKING, pet::T_SHELL, 0, 0, 0, 50, 1, "A"}, {1, pet::S_IDLE, 0, 0, 1, 1, 50, 30, "B"}}));
+  t.run(30);
+  const int work = framesIn(t, 10000);
+  CHECK(work >= 19 && work <= 21);
+  CHECK(t.r.pets.shownSeq() == 2);
+
+  // a slot waits: 6 fps
+  t.send(petfx::make(3, 0, 10, 0, 0, {{0, pet::S_WORKING, pet::T_SHELL, 0, 0, 0, 50, 1, "A"}, {1, pet::S_PERMISSION, 0, 0, 1, 1, 50, 0, "B"}}));
+  t.run(30);
+  CHECK(t.app.anyWaiting());
+  const int fast = framesIn(t, 10000);
+  CHECK(fast >= 58 && fast <= 62);
+
+  // a new snapshot draws at once, whatever the cadence
+  t.send(petfx::make(4, 0, 10, 0, 0, {{0, pet::S_DONE, 0, 0, 0, 0, 50, 1, "A"}, {1, pet::S_IDLE, 0, 0, 1, 1, 50, 0, "B"}}));
+  t.run(20);
+  CHECK(t.r.pets.shownSeq() == 4);
+  const int slow2 = framesIn(t, 9000);
+  CHECK(slow2 >= 2 && slow2 <= 4);
+
+  // no snapshot for 30 s: one frame (asleep, unplugged), then none; a snapshot wakes it
+  t.run(30000 - 9000 - 60);
+  const int f0 = (int)t.app.framesDrawn();
+  t.run(3000);
+  CHECK(t.app.stale());
+  CHECK((int)t.app.framesDrawn() - f0 <= 3);
+  CHECK(framesIn(t, 20000) == 0);
+  t.send(petfx::make(5, 0, 10, 0, 0, {{0, pet::S_DONE, 0, 0, 0, 0, 50, 1, "A"}}));
+  t.run(20);
+  CHECK(!t.app.stale() && t.r.pets.shownSeq() == 5);
+
+  // a slot appears: the egg plays for 2 s at 6 fps; a slot disappears: the goodbye plays for 2 s; the app never asks for power
+  t.send(petfx::make(6, 0, 10, 0, 0, {{0, pet::S_DONE, 0, 0, 0, 0, 50, 1, "A"}, {3, pet::S_DONE, 0, 0, 2, 2, 50, 1, "NEW"}}));
+  t.run(20);
+  CHECK(t.app.hatching() == 1);
+  const int egg = framesIn(t, 1900);
+  CHECK(egg >= 10 && egg <= 13);
+  t.run(300);
+  CHECK(t.app.hatching() == 0);
+  t.send(petfx::make(7, 0, 10, 0, 0, {{0, pet::S_DONE, 0, 0, 0, 0, 50, 1, "A"}}));
+  t.run(20);
+  CHECK(t.app.leaving() == 1);
+  t.run(2100);
+  CHECK(t.app.leaving() == 0);
+  CHECK(t.r.power.requests == 0 && t.r.power.offs == 0);
+
+  // a bad snapshot changes nothing; the system sheet is the way out
+  const uint32_t seq = t.r.pets.shownSeq();
+  auto bad = petfx::oneOfEach(9);
+  bad[1] = 7;
+  t.send(bad);
+  t.run(100);
+  CHECK(t.r.pets.shownSeq() == seq);
+  t.r.input.press(t.now + 5, 3200);
+  t.run(3300);
+  CHECK(t.host.sheetOpen());
+}
+
+static void restart() {
+  puts("pet app: opening with a herd shows it without eggs; an old snapshot is stale");
+  PetRig t;
+  t.send(petfx::oneOfEach(1));
+  t.app.end();
+  t.app.begin(t.now);
+  t.run(100);
+  CHECK(!t.app.stale() && t.app.hatching() == 0 && t.app.anyWaiting());
+  t.run(31000);
+  CHECK(t.app.stale() && t.app.anyWaiting());                      // the cells are kept, drawn asleep
+}
+
+static void demoFeed() {
+  puts("pet: the demo feed file decodes, walks through every state and tool, plays through the app");
+  std::vector<petfx::Feed> feed;
+  std::string err;
+  CHECK(petfx::loadFeed("fixtures/pet_demo.feed", feed, err));
+  CHECK(feed.size() >= 15);
+  unsigned states = 0, tools = 0;
+  uint32_t last = 0;
+  bool hidden = false, limit = false, full = false;
+  for (const petfx::Feed& f : feed) {
+    pet::Snapshot s;
+    CHECK(pet::decode(f.bytes.data(), f.bytes.size(), s));
+    CHECK(f.atMs >= last);
+    last = f.atMs;
+    for (int i = 0; i < s.n; i++) { states |= 1u << s.slot[i].state; if (s.slot[i].state == pet::S_WORKING) tools |= 1u << s.slot[i].tool; }
+    hidden |= s.hidden > 0 && s.hiddenWaiting > 0;
+    limit |= s.bowlIsLimit();
+    full |= s.n == 6;
+  }
+  CHECK(states == 63 && tools == 255 && hidden && limit && full);
+  PetRig t;
+  size_t next = 0;
+  bool sawStale = false;
+  for (uint32_t ms = 0; ms <= last + 5000; ms += 10) {
+    while (next < feed.size() && ms >= feed[next].atMs) { t.send(feed[next].bytes); next++; }
+    t.run(10);
+    sawStale |= t.app.stale() && next > 1;
+  }
+  CHECK(next == feed.size() && sawStale && !t.app.stale());
+  // the file reader rejects garbage
+  std::vector<petfx::Feed> none;
+  CHECK(!petfx::loadFeed("fixtures/does_not_exist.feed", none, err));
+}
+
 static void run() {
   decoder();
   mailbox();
   dispatch();
   status();
+  cadence();
+  restart();
+  demoFeed();
 }
 
 }  // namespace pet_t

@@ -3,6 +3,7 @@
 // white). The host draws only when the active app asks for a frame.
 //
 //   build.sh play tetris [--scale 2] [--plain] [--seed N]       Tetris alone (no launcher)
+//   build.sh play pet [--feed FILE]                              the Agents app alone; FILE = a daemon feed (`<ms> <hex>` per line, emu/fixtures/pet_demo.feed)
 //   build.sh play sim [--pack FILE] [--scale 2]                  the flight simulator alone (needs a map pack; default the
 //                                                               Bulgaria pack of the study if it exists, else the Sopot fixture)
 //   build.sh play box [--igc f.igc --start S --speed N] [--lines f.txt] [--sim] [--battery P] [--temp C]
@@ -44,6 +45,7 @@
 #include <vector>
 #include <memory>
 #include "box.h"
+#include "pet_rig.h"
 
 static const int LW = 240, LH = 400;
 static const uint32_t TICK_MS = 10;                  // the device loop's delay(10)
@@ -146,6 +148,7 @@ struct Args {
   bool seedGiven = false;
   std::string igc, lines;
   std::string pack = "default";
+  std::string feed;                                  // pet: the daemon's feed file
   bool noIntro = false;                              // box: skip the start-up animation (the smoke run needs the app at once)
   bool sim = false;                                  // the vario's built-in test flight instead of tracer lines
   int start = 0, seconds = 3600;
@@ -255,6 +258,35 @@ struct BoxMachine : Machine {
   Rig* rig() override { return &b.r; }
   sim::SimApp* flightSim() override { return b.flightSim.get(); }
   MockTilt* tilt() override { return &b.tilt; }
+};
+
+// The Agents app alone over the real mailbox, fed from a daemon feed file (`claude_pet.py --fake-ble FILE`, format in pet_fixture.h).
+struct PetMachine : Machine {
+  PetRig t;
+  std::vector<petfx::Feed> feed;
+  size_t next = 0;
+  uint32_t t0 = 0;
+  bool started = false;
+  explicit PetMachine(const std::string& file) {
+    if (file.empty()) return;
+    std::string err;
+    if (!petfx::loadFeed(file.c_str(), feed, err)) { fprintf(stderr, "feed: %s\n", err.c_str()); exit(2); }
+    printf("pet feed: %zu snapshots\n", feed.size());
+  }
+  MockPanel& panel() override { return t.r.panel; }
+  MockInput& input() override { return t.r.input; }
+  AppHost& host() override { return t.host; }
+  void tick(uint32_t now) override {
+    if (!started) { started = true; t0 = now; }
+    while (next < feed.size() && now - t0 >= feed[next].atMs) {
+      t.r.pets.onPacket(feed[next].bytes.data(), (uint16_t)feed[next].bytes.size(), now);
+      next++;
+    }
+    t.host.tick(now);
+  }
+  void boot(uint32_t now) override { t.host.start(0, now); }
+  void restart(uint32_t now) override { next = 0; started = false; t.host.start(0, now); }   // R: the feed from the start
+  Rig* rig() override { return &t.r; }
 };
 
 static std::vector<std::string> loadLines(const Args& a) {
@@ -603,6 +635,7 @@ int main(int argc, char** argv) {
     else if (s == "--seed" && more) { a.seed = (uint32_t)strtoul(argv[++i], nullptr, 10); a.seedGiven = true; }
     else if (s == "--sim") a.sim = true;
     else if (s == "--no-intro") a.noIntro = true;
+    else if (s == "--feed" && more) a.feed = argv[++i];
     else if (s == "--pack" && more) a.pack = argv[++i];
     else if (s == "--igc" && more) a.igc = argv[++i];
     else if (s == "--lines" && more) a.lines = argv[++i];
@@ -623,8 +656,9 @@ int main(int argc, char** argv) {
   if (a.app == "tetris") m = new TetrisMachine(seed);
   else if (a.app == "box") { BoxMachine* bm = new BoxMachine(seed, a.pack); bm->intro = !a.noIntro; m = bm; }
   else if (a.app == "sim") m = new SimMachine(a.pack);
+  else if (a.app == "pet") m = new PetMachine(a.feed);
   else {
-    fprintf(stderr, "unknown app '%s' (known: tetris, box, sim)\n", a.app.c_str());
+    fprintf(stderr, "unknown app '%s' (known: tetris, box, sim, pet)\n", a.app.c_str());
     return 2;
   }
   World w;

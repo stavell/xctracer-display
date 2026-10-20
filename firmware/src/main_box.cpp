@@ -12,6 +12,7 @@
 #include "apps/intro/intro_app.h"
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
+#include "apps/pet/pet_app.h"
 #include "apps/settings/settings_app.h"
 #include "apps/vario/app/app.h"
 #include "apps/vario/app/terrain_kit.h"
@@ -98,7 +99,9 @@ static AppConfig appConfig() {
 }
 // App indices in the host; the home screen lists all but itself.
 enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO
-#ifdef WITH_EXAMPLES
+#ifndef WITH_EXAMPLES
+       , APP_PET                                // Agents (apps/pet); the examples image is full at 8 apps (AppHost::MAX_APPS) and leaves it out
+#else
        , APP_LEVEL                              // the example app of docs/PLATFORM.md, index = the order of host.add()
 #endif
 };
@@ -226,6 +229,11 @@ static LazyApp<intro::IntroApp> introApp(arena, "intro", makeIntro);
 static examples::LevelApp* makeLevel(void* mem, void*) { return new (mem) examples::LevelApp(battery, compassHw, boxSettings); }
 static LazyApp<examples::LevelApp> levelApp(arena, "level", makeLevel);
 #endif
+#ifndef WITH_EXAMPLES
+// Agents: the Claude Code pets (docs/claude_pet.md). About 0.5 kB of state in the arena; the snapshots live in the static petFeed.
+static pet_app::PetApp* makePet(void* mem, void*) { return new (mem) pet_app::PetApp(petFeed); }
+static LazyApp<pet_app::PetApp> petApp(arena, "agents", makePet);
+#endif
 static LauncherApp launcher(battery, power, registry, boxSettings, wallClock);
 static SettingsApp settingsApp(battery, compassHw, keys, boxSettings, registry, FW_VERSION);
 
@@ -322,6 +330,8 @@ void setup() {
   host.add(introApp);
 #ifdef WITH_EXAMPLES
   host.add(levelApp);
+#else
+  host.add(petApp);
 #endif
   host.setLauncher(APP_LAUNCHER);
   host.setProbe(&gameLog);
@@ -334,6 +344,9 @@ void setup() {
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
 #ifdef WITH_EXAMPLES
   registry.add("Level", "example", "bubble level from the tilt sensor", APP_LEVEL, ICON_GENERIC, false);
+#endif
+#ifndef WITH_EXAMPLES
+  registry.add("Agents", "Claude Code", "pets for your Claude Code sessions", APP_PET, ICON_GENERIC);
 #endif
   registry.add("Settings", "setup", "compass, mounting, time", APP_SETTINGS, ICON_SETTINGS, false);
   power.enableClockSleep({&boxSettings, &wallClock, &battery, &compassHw, &pack, DISPLAY_ROTATION, &weather, &thermo, &baro, &retention});

@@ -1,5 +1,6 @@
 #pragma once
 // Mock hardware for the PC emulator: every port of the app, driven by scripts instead of pins.
+#include "platform/pet/pet_feed.h"
 #include <string.h>
 #include <deque>
 #include <string>
@@ -328,6 +329,7 @@ struct Rig {
   MockBattery battery;
   MockTracer tracer;
   MockLaptop laptop;
+  pet::Feed pets;               // the laptop's pet snapshots (opcode 0x30), the real mailbox
   MockLinks links;
   MockKeyStore keys;            // the box's flash store: start-up app, high score, time zone, mounting, calibration
   BoxSettings settings{keys};
