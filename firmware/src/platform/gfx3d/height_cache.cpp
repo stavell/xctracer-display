@@ -1,7 +1,7 @@
-#include "apps/games/sim/height_cache.h"
+#include "platform/gfx3d/height_cache.h"
 #include <string.h>
 
-namespace sim {
+namespace gfx3d {
 
 namespace {
 // The sun: from the south-west, 38 degrees up.
@@ -222,4 +222,4 @@ bool HeightCache::gradient(float x, float y, float d, float* gx, float* gy) cons
   return true;
 }
 
-}  // namespace sim
+}  // namespace gfx3d

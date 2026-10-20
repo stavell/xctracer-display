@@ -1,10 +1,10 @@
 #include "platform/util/hot.h"
 HOT_FILE_O3
-#include "apps/games/sim/chase.h"
+#include "platform/gfx3d/chase.h"
 #include <math.h>
 #include "platform/gfx/shapes.h"
 
-namespace sim {
+namespace gfx3d {
 
 void ChaseCam::update(const Glider& g, float rollOverride, float dt) {
   heading_ = wrapPi(heading_ + wrapPi(g.heading - heading_) * lagFactor(dt, kHeadingTau));
@@ -210,4 +210,4 @@ void ChaseCam::drawGlider(const Bitmap1& bm, const Glider& g, const HeightCache&
   sprite(bm, sx, py, W, thick, rollRel, true, 0);
 }
 
-}  // namespace sim
+}  // namespace gfx3d

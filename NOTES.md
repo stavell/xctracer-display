@@ -1389,3 +1389,16 @@ has to be white strokes on the dark liquid, on the pale card it would not show.
   hardware (no board available): whether the bootloader touches the RAM, and whether System OFF keeps it; the status line shows
   `ret=ok|crc|none` after a boot to find out.
 - **Bench**: `APP name`, `APP?`, the `wth` line every 5 s while a terminal is attached.
+## Wrap-up: platform/gfx3d, sim test robustness, diag heap (2026-10-20)
+
+- **platform/gfx3d** (namespace `gfx3d`): `voxel`, `height_cache`, `terrain_source`, `sky3d`, `chase`, `air`, `glider`, `world`, `takeoffs`, `sim_math` moved out of
+  `apps/games/sim`. The intro uses all of them (World = height cache + air, Glider for the camera), so they are platform code; the sim keeps SimApp, HUD, top-down view and
+  tilt control and sees the names through `apps/games/sim/gfx3d_use.h` (`sim::World` still resolves). Pure move: `HOT_FILE_O3` stayed on voxel / chase / sky3d / glider.
+  Evidence: all 243 files of `out/` (every .pgm/.png: sim_*, intro_*, box_sim*, box_* from the smoke run) are byte-identical before and after (`cmp`), 1684937 checks / 0 failures both
+  times (includes `box_intro`, the sim tests), box image .bss/.data/.heap unchanged (155712 / 3076 / 76732), .text within 16 bytes.
+- **`sim_playability` / `sim_day_settings` flakiness**: not reproducible. 16 solo runs while the full suite ran twice, then 72 runs with 12 copies of the two tests at once (each forking
+  8 children): 0 failures, all deterministic (no wall clock, no uninitialised state; the scripted pilot is seeded). The only way left to see a failure is a forked job that leaves no
+  report (fork refused with EAGAIN/ENOMEM, a child killed from outside, `read` interrupted), which `forkEach` counted as a failed check at once. Now: fork is retried while the machine
+  is full, `read` retries EINTR, and a job that left no report is run once more (a note is printed); dying twice still fails. Checked by killing a child with SIGKILL mid-run: note, then pass.
+- **Diag image heap**: `benchFm` (a static `FlightModel`, 36240 bytes of .bss) in `diagnostics.cpp` only served a one-off timing run; it is now allocated for that run
+  (`new (std::nothrow)`, freed after; no model = no timing line). `feather_sense_diag` .heap 49180 -> 85424 (.bss 184412 -> 148172); `feather_sense` 88348 and `feather_sense_box` 76732 unchanged.

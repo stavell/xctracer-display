@@ -1,12 +1,12 @@
 #include "platform/util/hot.h"
 HOT_FILE_O3
-#include "apps/games/sim/voxel.h"
+#include "platform/gfx3d/voxel.h"
 #include <math.h>
 #include <string.h>
 #include "platform/gfx/gray.h"
 #include "platform/util/fastmem.h"
 
-namespace sim {
+namespace gfx3d {
 
 namespace {
 constexpr float kFogLevel = 12.0f;        // distant terrain fades to this grey, so ridges still stand out against the sky
@@ -176,4 +176,4 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
   (void)lastSpans;
 }
 
-}  // namespace sim
+}  // namespace gfx3d

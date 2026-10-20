@@ -1,22 +1,23 @@
 #pragma once
 // Tests for the flight simulator (apps/games/sim) and the platform's game mode (fixed-timestep host). Included by
 // tests.cpp after CHECK / NEAR; run() is called from main.
+#include <errno.h>
 #include <math.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
 #include "apps/games/sim/accel_tilt.h"
-#include "apps/games/sim/air.h"
-#include "apps/games/sim/glider.h"
-#include "apps/games/sim/height_cache.h"
+#include "platform/gfx3d/air.h"
+#include "platform/gfx3d/glider.h"
+#include "platform/gfx3d/height_cache.h"
 #include "apps/games/sim/sim_app.h"
 #include "platform/game_probe.h"
-#include "apps/games/sim/terrain_source.h"
+#include "platform/gfx3d/terrain_source.h"
 #include "apps/games/sim/tilt.h"
 #include "apps/games/sim/topdown.h"
-#include "apps/games/sim/voxel.h"
-#include "apps/games/sim/world.h"
+#include "platform/gfx3d/voxel.h"
+#include "platform/gfx3d/world.h"
 #include "sim_reach.h"
 #include "sim_shots.h"
 #include "box.h"
@@ -48,44 +49,62 @@ struct Hills : IHeightSource {
 };
 
 // Runs fn(i, result) for i < n (at most 64, 8 at a time) in forked children, one core each, and fills out[i] with what they report. The
-// children inherit the statics copy-on-write, so a test keeps its single-process shape; their CHECK counts are added to ours
-// (a child that dies counts as a failure). For the slow scripted-pilot runs.
+// children inherit the statics copy-on-write, so a test keeps its single-process shape; their CHECK counts are added to ours.
+// For the slow scripted-pilot runs. A job is deterministic, so one that leaves no report (fork refused, the process killed from
+// outside under load: the harness limits are not ours) is run once more; one that dies twice counts as a failure.
 struct ForkResult { double a = 0, b = 0; };
+template <class F> static int forkSpawn(int i, F& fn) {
+  int p[2];
+  if (pipe(p) != 0) return -1;
+  pid_t pid = -1;
+  for (int tries = 0; tries < 100 && pid < 0; tries++) {      // EAGAIN / ENOMEM: the machine is full of our siblings; wait for room
+    fflush(stdout);
+    pid = fork();
+    if (pid < 0) { if (wait(nullptr) < 0) usleep(100000); }
+  }
+  if (pid == 0) {
+    close(p[0]);
+    checks = 0; failures = 0;
+    ForkResult r;
+    fn(i, r);
+    const double m[4] = {(double)checks, (double)failures, r.a, r.b};
+    const ssize_t w = write(p[1], m, sizeof m);
+    fflush(stdout);
+    _exit(w == (ssize_t)sizeof m ? 0 : 1);
+  }
+  close(p[1]);
+  if (pid < 0) { close(p[0]); return -1; }
+  return p[0];
+}
+static bool forkCollect(int fd, double* m) {
+  size_t got = 0;
+  while (fd >= 0 && got < 4 * sizeof(double)) {
+    const ssize_t k = read(fd, (char*)m + got, 4 * sizeof(double) - got);
+    if (k < 0 && errno == EINTR) continue;
+    if (k <= 0) break;
+    got += (size_t)k;
+  }
+  if (fd >= 0) close(fd);
+  return got == 4 * sizeof(double);
+}
 template <class F> static void forkEach(int n, F fn, ForkResult* out) {
-  fflush(stdout);
   static const int kMax = 64, kPar = 8;
   int fds[kMax], running = 0;
   if (n > kMax) { CHECK(!"forkEach: too many jobs"); n = kMax; }
   for (int i = 0; i < n; i++) {
     if (running >= kPar) { if (wait(nullptr) > 0) running--; }
-    int p[2];
-    if (pipe(p) != 0) { CHECK(!"pipe"); fds[i] = -1; continue; }
-    const pid_t pid = fork();
-    if (pid == 0) {
-      close(p[0]);
-      checks = 0; failures = 0;
-      ForkResult r;
-      fn(i, r);
-      const double m[4] = {(double)checks, (double)failures, r.a, r.b};
-      const ssize_t w = write(p[1], m, sizeof m);
-      fflush(stdout);
-      _exit(w == (ssize_t)sizeof m ? 0 : 1);
-    }
-    close(p[1]);
-    if (pid < 0) { close(p[0]); fds[i] = -1; CHECK(!"fork"); continue; }
-    fds[i] = p[0];
-    running++;
+    fds[i] = forkSpawn(i, fn);
+    if (fds[i] >= 0) running++;
   }
   for (int i = 0; i < n; i++) {
     double m[4];
-    size_t got = 0;
-    while (fds[i] >= 0 && got < sizeof m) {
-      const ssize_t k = read(fds[i], (char*)m + got, sizeof m - got);
-      if (k <= 0) break;
-      got += (size_t)k;
+    bool ok = forkCollect(fds[i], m);
+    if (!ok) {
+      while (wait(nullptr) > 0) {}                           // let the machine breathe, then once more
+      printf("  note: forked job %d of %d left no report; running it again\n", i, n);
+      ok = forkCollect(forkSpawn(i, fn), m);
     }
-    if (fds[i] >= 0) close(fds[i]);
-    if (got != sizeof m) { printf("  FAIL forked job %d of %d died\n", i, n); checks++; failures++; continue; }
+    if (!ok) { printf("  FAIL forked job %d of %d died twice\n", i, n); checks++; failures++; continue; }
     checks += (int)m[0]; failures += (int)m[1];
     out[i].a = m[2]; out[i].b = m[3];
   }

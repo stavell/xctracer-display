@@ -3,14 +3,14 @@
 #include <Fonts/FreeSansBold18pt7b.h>
 #include <math.h>
 #include <stdio.h>
-#include "apps/games/sim/takeoffs.h"
+#include "platform/gfx3d/takeoffs.h"
 #include "platform/gfx/gray.h"
 #include "platform/gfx/shapes.h"
 #include "platform/version.h"
 
 namespace intro {
 
-using namespace sim;
+using namespace gfx3d;
 
 namespace {
 

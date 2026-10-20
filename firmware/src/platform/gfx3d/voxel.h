@@ -14,10 +14,10 @@
 // row (400 rows = 50 bytes, period 8), so a span is a masked byte at each end and a memset between: the renderer writes
 // whole bytes, never single pixels. Distance fog lightens the shade (toward white = the haze at the horizon).
 #include <stdint.h>
-#include "apps/games/sim/height_cache.h"
+#include "platform/gfx3d/height_cache.h"
 #include "platform/gfx/bitmap1.h"
 
-namespace sim {
+namespace gfx3d {
 
 struct Camera {
   float x = 0, y = 0, z = 0;       // m
@@ -74,4 +74,4 @@ class VoxelView {
   uint8_t pat_[17][8];         // dither byte per level and column phase
 };
 
-}  // namespace sim
+}  // namespace gfx3d

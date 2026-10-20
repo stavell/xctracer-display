@@ -3,7 +3,8 @@ HOT_FILE_O3
 #include "apps/games/sim/topdown.h"
 #include <math.h>
 #include <string.h>
-#include "apps/games/sim/sim_math.h"
+#include "apps/games/sim/gfx3d_use.h"
+#include "platform/gfx3d/sim_math.h"
 #include "platform/gfx/gray.h"
 #include "platform/util/fastmem.h"
 

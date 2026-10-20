@@ -4,7 +4,7 @@
 // leave when it dies or the cloud base is near) that stands for a pilot who knows where the lift is (assist on).
 #include <math.h>
 #include <stdio.h>
-#include "apps/games/sim/world.h"
+#include "platform/gfx3d/world.h"
 
 namespace simreach {
 using namespace sim;

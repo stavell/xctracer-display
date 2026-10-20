@@ -4,7 +4,7 @@
 #include <math.h>
 #include <stdint.h>
 
-namespace sim {
+namespace gfx3d {
 
 constexpr float kPi = 3.14159265f;
 constexpr float kDeg2Rad = kPi / 180.0f;
@@ -74,4 +74,4 @@ inline uint32_t hash32(uint32_t x) {
 inline uint32_t hash3(uint32_t a, uint32_t b, uint32_t c) { return hash32(a * 0x9E3779B1U ^ hash32(b + 0x85EBCA6BU) ^ hash32(c * 0xC2B2AE35U + 7U)); }
 inline float unit(uint32_t h) { return (h >> 8) * (1.0f / 16777216.0f); }   // [0, 1)
 
-}  // namespace sim
+}  // namespace gfx3d

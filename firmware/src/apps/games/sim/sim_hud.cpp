@@ -7,7 +7,8 @@ HOT_FILE_O3
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSansBold24pt7b.h>
-#include "apps/games/sim/sim_math.h"
+#include "apps/games/sim/gfx3d_use.h"
+#include "platform/gfx3d/sim_math.h"
 #include "platform/gfx/gray.h"
 #include "platform/gfx/shapes.h"
 

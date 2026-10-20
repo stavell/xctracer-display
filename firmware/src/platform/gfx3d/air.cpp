@@ -1,6 +1,6 @@
-#include "apps/games/sim/air.h"
+#include "platform/gfx3d/air.h"
 
-namespace sim {
+namespace gfx3d {
 
 namespace {
 constexpr float kSunX = -0.30f, kSunY = -0.954f;     // horizontal direction toward the sun (south, a little west)
@@ -300,9 +300,9 @@ int Air::nearby(float x, float y, float z, float t, float range, ThermalInfo* ou
   return m;
 }
 
-}  // namespace sim
+}  // namespace gfx3d
 
-namespace sim {
+namespace gfx3d {
 
 int Air::columns(float x, float y, float t, float range, ColumnInfo* out, int cap) const {
   Active* act = scratch_;
@@ -334,4 +334,4 @@ void Air::columnPoint(const ColumnInfo& c, float z, float t, float* x, float* y)
   columnCentre(th, z, t, x, y);
 }
 
-}  // namespace sim
+}  // namespace gfx3d

@@ -12,7 +12,8 @@
 //        middle, full authority at the end.
 // Pitch: top away -> speed bar 0..1 (full at 20 degrees), top toward the pilot -> brakes 0..1 (full at 20 degrees),
 //        same deadzone and curve.
-#include "apps/games/sim/sim_math.h"
+#include "apps/games/sim/gfx3d_use.h"
+#include "platform/gfx3d/sim_math.h"
 
 namespace sim {
 
