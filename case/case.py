@@ -19,12 +19,13 @@ import cadquery as cq
 pcb_w = 63.5          # mm - PCB long side (runs along case Y)
 pcb_h = 55.88         # mm - PCB short side (runs along case X)
 pcb_t = 1.6
-glass_t = 2.4         # mm - ASSUMED glass module height above PCB front (measure!)
-pcb_clear = 0.4       # mm - total clearance around PCB
+glass_t = 1.9         # mm - glass module height above PCB front (measured: glass + PCB = 3.5)
+pcb_clear = 0.8       # mm - total clearance around PCB (assembly tolerance)
 
-# Battery 55x40x10, lying with 55 along X, 40 along Y (behind the display)
-batt_x, batt_y, batt_z = 55.0, 40.0, 10.0
-batt_slack = 0.3
+# Battery 55x35x13 (measured), lying with 55 along X, 35 along Y (behind the display)
+batt_x, batt_y, batt_z = 55.0, 35.0, 13.0   # measured 2026-10-22
+batt_slack = 1.5      # mm - battery length tolerance between its stops (cells vary, leads)
+wire_gap = 6.0        # mm - wire channel between the button band and the battery: display, battery and piezo leads to the Feather
 feather_w = 22.86
 feather_l = 50.8
 comp_zone = 3.5       # mm - back-of-display component / solder clearance
@@ -54,14 +55,17 @@ op_clr = 0.3          # opening = head outline + this clearance all round
 fl_ov, fl_t = 1.2, 1.2              # flange overlap beyond the opening, flange thickness
 head_ch = 0.6         # 45 deg chamfer on the cap top edge (prints face down)
 dish_d, dish_r = 0.3, 5.0           # shallow finger dish in the D-pad centre
-nub_h, nub_r = 0.9, 2.0             # D-pad pivot nub (dome) on the flange back; rests on the deck at 0.3 gap
+nub_h, nub_r = 0.95, 2.0            # D-pad pivot nub (dome) on the flange back; 0.25 below the deck = centre-press travel
 boss_h, boss_d = 0.8, 6.0           # A/B travel-limit boss on the flange back
-stub_h, stub_d = 0.8, 3.4           # pressing stubs
+sw_size, sw_body_h, sw_plunger = 6.0, 3.5, 0.7    # TS-061 6x6: 4.2 total measured; body 3.5 ASSUMED, plunger 0.7
+sw_travel = 0.2       # mm - measured: 4.2 free, 4.0 pressed
 plunger_gap = 0.1
+deck_ring = 1.2       # deck ceiling thickness between the flanges and the switch bodies
 z_flange_back = plate_t + fl_t
-z_pt = z_flange_back + stub_h + plunger_gap     # plunger tip rest position
 z_deck = plate_t + 2.4              # deck underside (ceiling): flange back + 1.2
-sw_size, sw_body_h, sw_plunger = 6.0, 3.5, 1.5    # ASSUMED 6x6 tact: body 3.5 + plunger 1.5 (verify!)
+# Stubs reach through the deck's plunger holes: a short plunger (TS-061) needs them longer than the 0.8 minimum.
+stub_h, stub_d = max(0.8, z_deck + deck_ring - sw_plunger - plunger_gap - z_flange_back), 3.4
+z_pt = z_flange_back + stub_h + plunger_gap     # plunger tip rest position
 sw_leg_clear = 3.5    # mm - room behind the switch body for legs + wire solder
 sw_clear = 0.3
 cup_o = 8.6           # cup outer size
@@ -138,11 +142,13 @@ z_bf = z_pt + sw_plunger                        # switch body front face
 z_bb = z_bf + sw_body_h                         # switch body back face
 fe_floor_z = z_bb + sw_leg_clear                # Feather PCB underside
 fe_top_z = fe_floor_z + fe_pcb_t                # Feather component face
-shell_depth = fe_top_z + fe_comp_h + 1.0
+led_top = front_z + comp_zone
+batt_foam = 1.5                                 # free Z behind the battery: foam tape, cell swelling, a wire
+# Depth: the deeper of the Feather stack (button band) and the battery stack (display + 13 mm cell).
+shell_depth = max(fe_top_z + fe_comp_h + 1.0, led_top + batt_z + batt_foam)
 total_depth = shell_depth + lid_t
 seam_z = shell_depth
 skirt_z0 = seam_z - skirt_h
-led_top = front_z + comp_zone
 cup_top = z_bb + 1.0
 assert led_top + batt_z + 0.5 <= shell_depth
 
@@ -265,7 +271,7 @@ for (u, v) in fe_holes:
     shell = shell.union(split_peg(x, y, fe_floor_z - 0.1, fe_top_z))
 
 # --- battery rails + stops ---
-b_y0 = y_band_top + 0.5
+b_y0 = y_band_top + wire_gap
 b_y1 = b_y0 + batt_y + batt_slack
 for sgn in (-1, 1):
     xw = sgn * (inner_w / 2 + 0.2)
@@ -403,7 +409,8 @@ def make_ab_cap():
     head = dished(head, 4.0, 0.25)
     fl = (cq.Workplane("XY").workplane(offset=ab_th).circle(ab_d / 2 + fl_off).extrude(fl_t).faces("<Z").chamfer(0.6))
     z_fb = ab_th + fl_t
-    return head.union(fl).union(cyl(0, 0, z_fb - 0.05, z_fb + boss_h, boss_d))
+    cap = head.union(fl).union(cyl(0, 0, z_fb - 0.05, z_fb + boss_h, boss_d))
+    return cap.union(cyl(0, 0, z_fb + boss_h - 0.05, z_fb + stub_h, stub_d))    # stub past the boss (travel stop)
 
 dp_cap, ab_cap = make_dpad_cap(), make_ab_cap()
 caps_print = (dp_cap.union(ab_cap.translate((fl_off + dp_h + ab_d / 2 + 7.0, 0, 0)))

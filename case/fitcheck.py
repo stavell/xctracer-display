@@ -108,7 +108,11 @@ edge = dp_h + op_clr                                      # contact line distanc
 theta = ng / edge
 stub_travel = theta * (dp_pitch + edge)
 print(f"nub gap {ng:.2f} mm -> tilt {_m.degrees(theta):.2f} deg, stub travel at the limit {stub_travel:.2f} mm "
-      f"(plunger gap {plunger_gap} + actuation ~0.25 -> {plunger_gap + 0.25:.2f}); centre press travel {ng:.2f} mm")
+      f"(plunger gap {plunger_gap} + travel {sw_travel} -> {plunger_gap + sw_travel:.2f}); centre press travel {ng:.2f} mm")
+fire = plunger_gap + sw_travel
+if not (ng < fire <= stub_travel):
+    bad += 1
+    print(f"  <-- ROCKING: need centre travel {ng:.2f} < {fire:.2f} <= arm travel {stub_travel:.2f}")
 for ang, nm in ((0, "up"), (180, "down"), (90, "left"), (270, "right")):
     # axis through the opposite contact line, perpendicular to the pressed arm
     capr = dp_cap.translate((0, 0, -dp_proud)).rotate((0, 0, 0), (0, 0, 1), 0)

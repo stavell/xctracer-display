@@ -8,11 +8,11 @@ Source of truth: `case.py` (CadQuery, all dimensions in PARAMETERS). `python cas
 - Display: Adafruit SHARP Memory 2.7" 400x240 (#4694). PCB 63.5 x 55.88 mm, 4x 2.5 mm holes at 58.42 x 50.8. Glass ~63.5 x 41.2, active 58.8 x 35.3.
   Used in PORTRAIT: the 63.5 side is vertical, the header ear (6.4 mm) ends up on the user's right. Firmware must rotate the content (verify rotation 1 vs 3).
 - MCU: Feather nRF52840 Sense (#4516), 50.8 x 22.86, micro-B at one short end, holes 2.54 / 48.26 x 2.54 / 20.32, Reset SW1 (u 11.1, v 6.22), user SW2 (u 29.93, v 5.85), JST at u~10.8 v~18.
-- Battery: LiPo 55 x 40 x 10 (JST-PH assumed).
-- 6 x 6x6 mm tact switches (assumed body 3.5 + plunger 1.5).
+- Battery: LiPo 55 x 35 x 13 (measured 2026-10-22; JST-PH assumed).
+- 6 x TS-061 6x6 tact switches: 4.2 mm free, 4.0 pressed (0.2 mm travel, measured); body 3.5 assumed, so plunger 0.7.
 
 ## Design (rev 4)
-Outer **66.5 x 95.9 x 23.2 mm** (rev 3: 62.3 x 96.9 x 22.6). Walls 3 mm, 5 mm corner radius, 1.5 mm chamfer front/back (the one chamfer size on all outer edges).
+Outer **66.9 x 96.3 x 24.7 mm** (rev 3: 62.3 x 96.9 x 22.6). Walls 3 mm, 5 mm corner radius, 1.5 mm chamfer front/back (the one chamfer size on all outer edges).
 Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is the user's left (D-pad at +X, A/B at -X).
 
 - **Window centred**: the glass sits off-centre on the breakout PCB (ear + header side), so the PCB is shifted +X by 2.09 mm inside the case (`pcb_dx`); the case grew 4.2 mm in width (62.3 -> 66.5; length 96.9 -> 95.9 as the control band shrank 27 -> 26 mm). Side bezels 15.28 / 15.28 mm; top bezel ~5 mm cannot equal the sides (the active area is only 35.3 mm wide).
@@ -43,9 +43,9 @@ Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is
 - Sliding clearances 0.25 (lid), 0.1-0.3 for caps; pegs 2.4 in 2.5 holes (press/snap). **Pegs are 2.4 mm, below the 2.5 mm upright guideline** because the PCB holes are 2.5: they are short (<= 2.5 mm tall incl. head) and slotted; print the shell slow, check one.
 
 ## Assumptions to verify before printing
-- Glass module height above the PCB: 2.4 mm guessed (`glass_t`). Calipers.
-- Tact switch body/plunger (3.5 + 1.5), plunger diameter 3.5, switch legs (3.5 mm gap under the Feather).
-- Battery real size (+1 mm?), JST polarity vs Feather, battery lead length to the Feather JST (JST sits on the Feather top edge near the USB end).
+- ~~Glass module height above the PCB~~: measured 2026-10-22, glass + PCB = 3.5 mm (`glass_t` 1.9; was guessed 2.4).
+- Tact switch body height alone (3.5 assumed; total 4.2 measured), plunger diameter 3.5, switch legs (3.5 mm gap under the Feather).
+- ~~Battery real size~~ 55 x 35 x 13 measured; JST polarity vs Feather, battery lead length to the Feather JST (JST sits on the Feather top edge near the USB end).
 - Feather tall part height 6 mm (`fe_comp_h`), USB overmold fits 11.5 x 7.
 - PS1240 piezo real size (12.2 x 6.5) and lead position; D-pad nub gap (feel); cap flange eave print quality; deck pin snap fit; inlay colour change; back-of-display component height (3.5 mm zone, assumed).
 - Display PCB orientation: Eagle frame assumed to be the front view; the ear is on the user's right in portrait.
@@ -53,7 +53,7 @@ Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is
 - Press-fit of peg heads through the 2.5 mm holes.
 
 ## TODO
-- [ ] Measure glass height / switch / battery, update `case.py`
+- [ ] Measure switch / battery (glass height done), update `case.py`
 - [ ] Test print: caps feel, wedges retention, tabs, USB alignment, strap lug
 - [ ] Firmware: 6 GPIO pin map, display rotation, piezo anti-phase PWM pins
 
@@ -61,3 +61,12 @@ Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is
 - `case.py` model + export, `fitcheck.py` interference/strain, `render.py` + `make_previews.py` previews
 - `case_shell.*`, `case_lid.*`, `case_buttons.*` (print), `case_assembly.stl` (view only)
 - `preview_*.png`
+
+## Measured parts, tolerances (2026-10-22)
+- Glass + display PCB 3.5 mm (`glass_t` 1.9). Battery 55 x 35 x 13. TS-061 switches 4.2 free / 4.0 pressed.
+- Depth now set by the battery stack, not the Feather: `shell_depth = max(Feather stack, display + 3.5 comp zone + 13 cell + 1.5 foam)`; outer 66.9 x 96.3 x 24.7.
+- Tolerances: display pocket +0.8 (`pcb_clear`), battery 1.5 mm between its stops (`batt_slack`), 1.5 mm behind the cell (`batt_foam`),
+  ~2.5 mm over the Feather parts to the lid.
+- **Wire channel**: the battery starts 6 mm above the button band (`wire_gap`), a full-depth channel across the case for the display, battery and piezo leads to the Feather.
+- Short plunger: the cap stubs are derived (`stub_h` 2.0) and reach through the deck's plunger holes; A/B get a stub past their 0.8 mm boss (still the travel stop, 0.4 mm).
+  0.2 mm travel: D-pad nub gap 0.25 (`nub_h` 0.95) so a centre press (0.25) stays below firing (gap 0.1 + 0.2 = 0.3) and an arm reaches 0.43 at the stop. `fitcheck.py` now fails if that order breaks.
