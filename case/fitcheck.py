@@ -15,7 +15,8 @@ pcb = blk(pcb_dx, disp_cy, z_pcb_front, front_z, disp_w - pcb_clear, disp_l - pc
 for sx in (-1, 1):
     for sy in (-1, 1):
         pcb = pcb.cut(cyl(pcb_dx + sx * peg_xy[1], disp_cy + sy * peg_xy[0], 0, 20, 2.5))
-glass = blk(gl_x, disp_cy, lip_t + 0.1, z_pcb_front, glass_h, glass_w)
+glass = blk(gl_x, disp_cy, lip_t + window_t + 0.1, z_pcb_front, glass_h, glass_w)
+sheet = blk(0, disp_cy, lip_t + 0.05, lip_t + window_t, win_w + 6.0, win_h + 6.0, 1.5) if window_t > 0 else None
 backcomp = blk(pcb_dx, disp_cy, front_z, front_z + comp_zone, 40, 50)
 batt = blk(0, b_y0 + batt_y / 2, led_top, led_top + batt_z, batt_x, batt_y)
 fe = blk(fe_cx, fe_cy, fe_floor_z, fe_top_z, feather_l, feather_w)
@@ -48,6 +49,9 @@ for name, comp in (("display pcb", pcb), ("glass", glass), ("display back comps"
                    ("feather", fe), ("feather comps", fe_comp), ("switches", sws), ("piezo", piezo)):
     chk(f"{name} vs shell+deck+lid", case, comp)
 chk("button caps vs shell+deck+lid", case, caps_asm)
+if sheet is not None:
+    chk(f"clear window sheet {window_t} mm (window + 3 mm) vs shell", case, sheet)
+    chk("window sheet vs glass", sheet, glass)
 chk("deck vs shell", deck, shell)
 chk("battery vs feather+comps", batt, fe.union(fe_comp))
 chk("feather vs display back", fe, backcomp)
@@ -55,6 +59,46 @@ chk("switches vs feather", sws, fe.union(fe_comp))
 chk("caps vs switches", caps_asm, sws)
 chk("piezo vs feather", piezo, fe.union(fe_comp))
 chk("piezo vs display back / battery", piezo, backcomp.union(batt))
+# ---------------- drop safety (rev 5) ----------------
+print("--- drop safety ---")
+foam = blk(0, b_y0 + batt_y / 2, led_top + batt_z, led_top + batt_z + batt_pad, batt_x - 4, batt_y - 4)   # pad stays 2 mm clear of the cell edge (hooks)
+chk("battery foam pad vs shell+deck+lid (ribs)", case, foam)
+chk("wire channel vs lid ribs", lid_asm, blk(0, (y_band_top + b_y0 - stop_t) / 2, led_top, seam_z, 2 * inner_w / 2 - 2, b_y0 - stop_t - y_band_top))
+hooks = None
+for sgn in (-1, 1):
+    for yf, d in ((b_y0, -1), (b_y1, 1)):
+        h_ = hook_post(sgn * (bh_x0 + bh_x1) / 2, yf, d)
+        hooks = h_ if hooks is None else hooks.union(h_)
+v_ret = vol(batt.translate((0, 0, 1.0)).intersect(hooks))
+print(f"battery lifted 1 mm vs the hooks: {v_ret:.2f} mm3 (must be > 0: the hooks retain it)")
+if v_ret < 0.5: bad += 1; print("   <-- HOOKS DO NOT RETAIN")
+L_h = bh_z0 - led_top
+eps_h = 1.5 * stop_t * (bh_prot + 0.2) / L_h ** 2 * 100
+print(f"battery hook: post {stop_t} x {bh_x1 - bh_x0:.2f} mm, free length {L_h:.1f}, overhang {bh_prot} mm flat underside, deflect {bh_prot + 0.2:.1f} mm -> strain {eps_h:.2f} %; "
+      f"overlap over the cell {bh_prot - batt_slack:.2f} .. {bh_prot:.2f} mm; cell top to hook {bh_gap} mm, hook top {bh_top:.2f}, rib bottom {seam_z - rib_low:.2f}")
+if eps_h > 2.0: bad += 1; print("   <-- HOOK STRAIN")
+# the battery goes in and out with the hooks pushed out by their overhang: nothing else in the way
+hooks_out = None
+for sgn in (-1, 1):
+    for yf, d in ((b_y0, -1), (b_y1, 1)):
+        h_ = hook_post(sgn * (bh_x0 + bh_x1) / 2, yf + d * bh_prot, d)
+        hooks_out = h_ if hooks_out is None else hooks_out.union(h_)
+sweep = blk(0, b_y0 + batt_y / 2, led_top, led_top + batt_z + 30, batt_x, batt_y)
+chk("battery path (hooks pushed out) vs hooks", sweep, hooks_out)
+
+# lid tongue: the lid hinges about the outer top rim edge and drops in; flat, the hook sits under the ledge
+Yh = outer_h / 2
+lid_rigid = lid_asm
+for side_, c_ in tabs:      # snap tabs flex while it rotates: their hooks are left out here
+    lid_rigid = lid_rigid.cut(wedge(side_, c_, hook_depth + 0.05, hook_z0 - 0.05, hook_h + 0.1))
+nolid = shell.union(deck)
+for th in (-20, -12, -6, -3, 0):
+    chk(f"lid tilted {-th:2d} deg about the top rim vs shell", lid_rigid.rotate((0, Yh, seam_z), (1, Yh, seam_z), th), nolid)
+v_tg = vol(tongue_hooks.translate((0, 0, 0.8)).intersect(shell))
+print(f"tongue hooks lifted 0.8 mm vs the ledge: {v_tg:.2f} mm3 (must be > 0)")
+if v_tg < 0.5: bad += 1; print("   <-- TONGUE DOES NOT ENGAGE")
+print(f"tongue: 2 x {tg_w} mm wide, hook {tg_prot} out x {tg_h} high, groove {tg_depth} deep, ledge {tg_z - 0.4:.1f} mm; wall left behind the groove {(wall - skirt_t) - tg_depth:.2f} mm")
+print(f"lid plate {lid_t} mm, ribs {rib_w} wide: {rib_h} high free / {rib_low} high over the cell and the Feather, outer face flat; shell depth {shell_depth:.2f}")
 chk("inlay inside shell material", inlay, shell_plain.cut(shell_plain.cut(inlay)), tol=1e9) if False else None
 v_in = vol(inlay)
 print(f"inlay volume {v_in:.1f} mm3; part inside solid shell material {vol(inlay.intersect(shell_plain)):.1f} mm3")

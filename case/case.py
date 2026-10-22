@@ -1,6 +1,7 @@
 import math
-import os
 import cadquery as cq
+from shapely.geometry import box as sbox, LineString, Polygon as SPoly
+from shapely.ops import unary_union
 
 # ============================================================
 # PARAMETERS - Sharp 2.7" memory display (portrait) + Feather nRF52840 Sense (4516) + 55x40x10 LiPo
@@ -22,10 +23,11 @@ pcb_h = 55.88         # mm - PCB short side (runs along case X)
 pcb_t = 1.6
 glass_t = 2.0         # mm - glass module height above PCB front (measured: PCB 1.6, PCB + glass 3.6)
 pcb_clear = 0.8       # mm - total clearance around PCB (assembly tolerance)
+window_t = 0.0        # mm - optional clear window sheet (acrylic / PETG) between the bezel lip and the glass; 0 = off
 
 # Battery 55x35x13 (measured), lying with 55 along X, 35 along Y (behind the display)
 batt_x, batt_y, batt_z = 55.0, 35.0, 13.0   # measured 2026-10-22
-batt_slack = 1.5      # mm - battery length tolerance between its stops (cells vary, leads)
+batt_slack = 1.0      # mm - battery length tolerance between its stops (cells vary, leads)
 wire_gap = 6.0        # mm - wire channel between the button band and the battery: display, battery and piezo leads to the Feather
 feather_w = 22.86
 feather_l = 50.8
@@ -36,7 +38,7 @@ wall = 3.0
 lip_t = 1.2           # bezel lip in front of the glass
 corner_r = 5.0
 front_chamfer = 1.5
-lid_t = 2.0
+lid_t = 2.6           # stiffer than rev 4 (2.0): a bowed lid releases the side tabs
 skirt_h = 7.0
 skirt_t = 1.2         # skirt = snap-tab cantilever thickness
 fit = 0.25            # lid-to-shell sliding clearance
@@ -99,12 +101,19 @@ peg_xy = (29.21, 25.4)
 disp_ear = 6.4
 
 # Lid snap tabs (cantilever = skirt wall, free length = skirt_h)
-tab_w, tab_slit = 10.0, 0.8
+tab_w, tab_slit = 14.0, 0.8     # wide tabs near the stiff corners
 hook_h, hook_depth = 1.2, 0.5      # hook height / depth (flat retaining face + 50 deg lead-in)
 groove_extra = 0.1
 
-# Battery rails and stops
-led_w, stop_t, stop_h = 2.5, 1.2, 5.0
+# Battery rails and hold-down hooks (rev 5 drop safety: the shell holds the cell, not the lid)
+led_w, stop_t = 2.5, 1.2
+bh_prot, bh_gap, bh_tip_t, bh_ramp = 1.5, 0.3, 0.4, 30.0   # hook overhang (flat underside), gap over the cell, tip thickness, lead-in angle
+bh_x0, bh_x1 = 25.65, 29.9      # hook post x range: on the rail, clear of the lid skirt (inner face 30.2)
+batt_pad = 1.0        # mm - foam pad on the cell top (stick it on the cell)
+# Lid ribs (inner face): full height where there is room, low over the cell and the Feather, none over the wire channel and piezo
+rib_w, rib_h, rib_low, rib_pitch, rib_inset = 1.2, 2.5, 1.4, 20.0, 2.5
+# Rigid tongues at the top end of the lid (slide into a groove under a ledge in the top wall); the rest is snap tabs
+tg_w, tg_prot, tg_h, tg_depth, tg_z = 15.0, 0.8, 1.2, 1.0, 3.3   # width, hook out of the skirt, hook height, groove depth, hook top below the seam
 
 # Strap / cord tunnel through the bottom corner
 strap_slot_w, strap_slot_h = 3.2, 10.4
@@ -120,8 +129,8 @@ snd_slots, snd_pitch, snd_w = 5, 2.0, 1.0
 # Front panel (rev 5): one dark screen panel around the window, picture-mat margins measured window edge to panel edge.
 # The side margin (11.4) is set by the display width; the case is made as long as the margins need.
 panel_m = 2.0         # mm - panel edge inside the flat front face (top and sides)
-panel_top = float(os.environ.get("CASE_TOP", 7.0))     # mat above the window (about 0.6 x the sides)
-panel_bot = float(os.environ.get("CASE_BOT", 11.0))    # mat below the window (about the sides: optical weight)
+panel_top = 7.0     # mat above the window (about 0.6 x the sides)
+panel_bot = 11.0    # mat below the window (about the sides: optical weight)
 ctrl_gap = 5.0        # mm - panel to the control openings, and openings to the flat bottom edge: deliberate and equal
 panel_r_big = 11.0    # mm - the Game-Boy nod: bottom corner on the A/B side (front view, bottom right)
 strip_wall = 3.0      # mm - solid wall left between the hollow strips and the display pocket
@@ -150,21 +159,24 @@ inner_h = disp_l + band_h + panel_gap + top_extra
 led_w = (inner_w - (batt_x - 3.7)) / 2          # battery rail width: free gap between rails 51.3 mm
 outer_w = inner_w + 2 * wall
 outer_h = inner_h + 2 * wall
-z_pcb_front = lip_t + glass_t
+z_pcb_front = lip_t + window_t + glass_t
 front_z = z_pcb_front + pcb_t                   # PCB back plane
 z_bf = z_pt + sw_plunger                        # switch body front face
 z_bb = z_bf + sw_body_h                         # switch body back face
 fe_floor_z = z_bb + sw_leg_clear                # Feather PCB underside
 fe_top_z = fe_floor_z + fe_pcb_t                # Feather component face
 led_top = front_z + comp_zone
-batt_foam = 1.5                                 # free Z behind the battery: foam tape, cell swelling, a wire
+bh_z0 = led_top + batt_z + bh_gap               # hook underside
+bh_h_post = bh_tip_t + bh_prot * math.tan(math.radians(bh_ramp))   # hook height at the post
+bh_top = bh_z0 + bh_h_post
 # Depth: the deeper of the Feather stack (button band) and the battery stack (display + 13 mm cell).
-shell_depth = max(fe_top_z + fe_comp_h + 1.0, led_top + batt_z + batt_foam)
+shell_depth = max(fe_top_z + fe_comp_h + 1.0, bh_top + 0.4 + rib_low)
 total_depth = shell_depth + lid_t
 seam_z = shell_depth
 skirt_z0 = seam_z - skirt_h
 cup_top = z_bb + 1.0
 assert led_top + batt_z + 0.5 <= shell_depth
+assert fe_top_z + fe_comp_h + 0.5 <= shell_depth - rib_low
 
 y_bot = -inner_h / 2                            # inner bottom wall face
 y_band_top = y_bot + band_h
@@ -245,8 +257,10 @@ shell = shell.cut(blk(0, disp_cy, -1, z_pcb_front + 0.1, win_w, win_h, win_r))
 bez = (cq.Workplane("XY").workplane(offset=-0.01).center(0, disp_cy).sketch().rect(win_w + 2 * win_ch + 0.02, win_h + 2 * win_ch + 0.02)
        .vertices().fillet(win_r + win_ch).finalize().extrude(win_ch + 0.01, taper=45))
 shell = shell.cut(bez)
-shell = shell.cut(blk(gl_x, disp_cy, lip_t, z_pcb_front + 0.1, glass_h + pcb_clear, pcb_w + pcb_clear))
-shell = shell.cut(blk(-(ffc_y0 + ffc_y1) / 2 + pcb_dx, disp_cy, lip_t, z_pcb_front + 0.1, ffc_y0 - ffc_y1, ffc_w))
+if window_t > 0:        # step for the clear sheet: window + 3 mm overlap all round, 0.2 mm clearance
+    shell = shell.cut(blk(0, disp_cy, lip_t, lip_t + window_t + 0.01, win_w + 6.4, win_h + 6.4, 1.5))
+shell = shell.cut(blk(gl_x, disp_cy, lip_t + window_t, z_pcb_front + 0.1, glass_h + pcb_clear, pcb_w + pcb_clear))
+shell = shell.cut(blk(-(ffc_y0 + ffc_y1) / 2 + pcb_dx, disp_cy, lip_t + window_t, z_pcb_front + 0.1, ffc_y0 - ffc_y1, ffc_w))
 shell = shell.cut(blk(pcb_dx, disp_cy, z_pcb_front, front_z + 0.1, disp_w, disp_l, 1.0))
 
 def split_peg(x, y, z_base, z_top):
@@ -288,7 +302,15 @@ for (u, v) in fe_holes:
     shell = shell.union(cyl(x, y, plate_t - 0.1, fe_floor_z, post_d))
     shell = shell.union(split_peg(x, y, fe_floor_z - 0.1, fe_top_z))
 
-# --- battery rails + stops ---
+def hook_post(xc, yf, d):
+    """hold-down hook of the battery: a 1.2 mm post rising from the rail beside the cell end (inner face at yf, d = +1 above
+    the cell in y, -1 below), a flat-underside hook over the cell top (1.5 mm overhang) with a 30 deg lead-in on top"""
+    t_ = stop_t
+    pts = [(0, led_top - 0.1), (t_, led_top - 0.1), (t_, bh_top), (-bh_prot, bh_z0 + bh_tip_t), (-bh_prot, bh_z0), (0, bh_z0)]
+    pts = [(yf + d * v, z) for v, z in pts]
+    return (cq.Workplane("YZ").polyline(pts).close().extrude((bh_x1 - bh_x0) / 2, both=True).translate((xc, 0, 0)))
+
+# --- battery rails + hold-down hooks (the posts are also the end stops) ---
 b_y0 = y_band_top + wire_gap
 b_y1 = b_y0 + batt_y + batt_slack
 for sgn in (-1, 1):
@@ -297,9 +319,9 @@ for sgn in (-1, 1):
     pts = [(xw, front_z), (xw, led_top), (xw - sgn * (led_w + 0.2), led_top)]
     rail = cq.Workplane("XZ").polyline(pts).close().extrude(L).translate((0, b_y1 + stop_t, 0))
     shell = shell.union(rail)
-    xs = sgn * (inner_w / 2 - led_w / 2 + 0.1)
-    for yy in (b_y0 - stop_t / 2, b_y1 + stop_t / 2):
-        shell = shell.union(blk(xs, yy, led_top - 0.1, led_top + stop_h, led_w + 0.2, stop_t))
+    xs = sgn * (bh_x0 + bh_x1) / 2
+    for yf, d in ((b_y0, -1), (b_y1, 1)):
+        shell = shell.union(hook_post(xs, yf, d))
 
 # --- strap / cord tunnel: solid corner lug + 45 degree rectangular slot (bottom, -X corner) ---
 cxm, cym = -outer_w / 2, -outer_h / 2
@@ -339,13 +361,11 @@ for i in range(snd_slots):
 
 # --- lid snap grooves + pry notches ---
 sk_o_w, sk_o_h = outer_w - 2 * (wall - skirt_t) - 2 * fit, outer_h - 2 * (wall - skirt_t) - 2 * fit
-tabs = [("-Y", -20), ("-Y", 20), ("+Y", -18), ("+Y", 18),
-        ]
-# side tabs: pitch ~21 mm from the control band upward (rev 4 positions relative to the band), as many as fit
-for _side, _y0 in (("-X", 22.0), ("+X", 18.0)):
-    _k = 0
-    while band_cy + _y0 + 21.0 * _k < outer_h / 2 - 14.0:
-        tabs.append((_side, band_cy + _y0 + 21.0 * _k)); _k += 1
+# Snap tabs: fewer and wider, near the stiff corners. Top end: rigid tongues (below). Seam y positions measured in case frame.
+_tab_end = sk_o_h / 2 - 11.3                          # tab centre: 3.5 mm of straight wall left to the corner
+tabs = [("-Y", 0.0),
+        ("-X", -_tab_end), ("-X", _tab_end),
+        ("+X", _tab_end), ("+X", usb_y + usb_hole_w / 2 + 1.5 + tab_w / 2 + tab_slit + 0.5)]   # +X lower tab sits above the USB opening
 hook_z0 = skirt_z0 + 0.3
 def wedge(side, c, depth, z0, h):
     pts = [(0, z0), (0, z0 + h), (depth, z0 + h / 2)]
@@ -356,10 +376,15 @@ def wedge(side, c, depth, z0, h):
     return prof.rotate((0, 0, 0), (0, 0, 1), -90).translate((c, -sk_o_h / 2, 0))
 for side, c in tabs:
     shell = shell.cut(wedge(side, c, hook_depth + groove_extra, hook_z0, hook_h + 0.2))
+tg_xs = (-17.5, 17.5)                                 # tongue centres: either side of the piezo notch in the top skirt
+y_rebate = outer_h / 2 - (wall - skirt_t)             # rebate face of the top wall
+tg_z_top, tg_z_bot = seam_z - tg_z, seam_z - tg_z - tg_h     # hook (lid) z range
+for xc in tg_xs:                                      # groove under a 2.9 mm ledge, 0.4 mm free above and below the hook
+    shell = shell.cut(blk(xc, y_rebate + tg_depth / 2 - 0.05, tg_z_bot - 0.4, tg_z_top + 0.4, tg_w + 0.6, tg_depth + 0.1))
 def pry(lid_or_shell):
     s = lid_or_shell
-    s = s.cut(blk(0, outer_h / 2 - 0.5, seam_z - 1.0, seam_z + 1, 14, 2.0))
-    return s.cut(blk(-outer_w / 2 + 0.5, band_cy + 4.15, seam_z - 1.0, seam_z + 1, 2.0, 14))
+    s = s.cut(blk(0, -outer_h / 2 + 0.5, seam_z - 1.0, seam_z + 1, tab_w, 2.0))               # bottom tab
+    return s.cut(blk(-outer_w / 2 + 0.5, -_tab_end, seam_z - 1.0, seam_z + 1, 2.0, tab_w))   # lower -X tab
 shell = pry(shell)
 
 # ============================================================
@@ -390,7 +415,41 @@ for side, c in tabs:
         for d in (-1, 1):
             lid_asm = lid_asm.cut(blk(c + d * (tab_w / 2 + tab_slit / 2), ys, skirt_z0 - 0.1, seam_z + 0.05, tab_slit, skirt_t + 0.2))
     lid_asm = lid_asm.union(wedge(side, c, hook_depth, hook_z0, hook_h))
+# rigid tongues: hooks out of the (unslotted) top skirt into the grooves of the top wall
+tongue_hooks = None
+for xc in tg_xs:
+    pts = [(0, tg_z_bot), (tg_prot * 0.4, tg_z_bot), (tg_prot, tg_z_bot + 0.4), (tg_prot, tg_z_top), (0, tg_z_top)]   # lower outer corner chamfered
+    pts = [(sk_o_h / 2 - 0.1 + v, z) for v, z in pts]
+    t_ = cq.Workplane("YZ").polyline(pts).close().extrude(tg_w / 2, both=True).translate((xc, 0, 0))
+    tongue_hooks = t_ if tongue_hooks is None else tongue_hooks.union(t_)
+lid_asm = lid_asm.union(tongue_hooks)
 lid_asm = pry(lid_asm)
+
+# --- inner rib grid: full height where there is room, low over the cell and the Feather, none over the wire channel and piezo ---
+def poly_solid(p, z0, z1):
+    out = cq.Workplane("XY").workplane(offset=z0).polyline(list(p.exterior.coords)[:-1]).close().extrude(z1 - z0)
+    for h in p.interiors:
+        out = out.cut(cq.Workplane("XY").workplane(offset=z0 - 1).polyline(list(h.coords)[:-1]).close().extrude(z1 - z0 + 2))
+    return out
+def rib_solids(geom, z0, z1):
+    out = None
+    for p in getattr(geom, "geoms", [geom]):
+        if p.is_empty or p.area < 1.0: continue
+        o = poly_solid(p, z0, z1)
+        out = o if out is None else out.union(o)
+    return out
+_hx, _hy = sk_o_w / 2 - skirt_t - rib_inset, sk_o_h / 2 - skirt_t - rib_inset          # centre line of the frame rib
+_lines = [LineString([(x, -_hy), (x, _hy)]) for x in (-rib_pitch, 0.0, rib_pitch)]
+_lines += [LineString([(-_hx, y), (_hx, y)]) for y in (-2 * rib_pitch, -rib_pitch, 0.0, rib_pitch, 2 * rib_pitch)]
+_lines.append(sbox(-_hx, -_hy, _hx, _hy).exterior)
+grid = unary_union([ln.buffer(rib_w / 2, cap_style=2) for ln in _lines]).buffer(0.6).buffer(-0.6)   # rounded inner joins
+z_lo_zone = unary_union([sbox(-40, -80, 40, y_band_top), sbox(-40, b_y0 - stop_t, 40, b_y1 + stop_t)])
+z_free = unary_union([sbox(-40, y_band_top, 40, b_y0 - stop_t),                                  # wire channel
+                      sbox(-(piezo_d / 2 + 2.4), y_top - piezo_h - 2.0, piezo_d / 2 + 2.4, y_top)])
+ribs_hi = rib_solids(grid.difference(z_lo_zone).difference(z_free), seam_z - rib_h, seam_z + 0.1)
+ribs_lo = rib_solids(grid.intersection(z_lo_zone).difference(z_free), seam_z - rib_low, seam_z + 0.1)
+for r_ in (ribs_hi, ribs_lo):
+    if r_ is not None: lid_asm = lid_asm.union(r_)
 
 # --- lid inlay: wordmark flush in the back face (assembly frame: back face at z = total_depth, read from +Z) ---
 inlay_t = 0.4
@@ -533,6 +592,13 @@ for (u, v) in fe_holes:
     testplate = testplate.union(cyl(x, y, plate_t - 0.1, fe_floor_z, post_d))
 
 # ============================================================
+# SEAM TEST: the top seamtest_h mm of the shell (rim ring with the tab grooves, tongue grooves, pry notches, USB, piezo cradle).
+# Printed like the shell (seam side up, cut face on the bed): fit the lid, pull, drop it before printing the whole shell.
+# ============================================================
+seamtest_h = 8.0
+seamtest = shell.intersect(blk(0, 0, seam_z - seamtest_h, seam_z + 1, outer_w + 2, outer_h + 2))
+
+# ============================================================
 # EXPORT
 # ============================================================
 def stl(shape, name, dz=0.0):
@@ -543,6 +609,7 @@ if __name__ == "__main__":
     stl(lid, "case_lid.stl"); stl(lid_inlay, "case_lid_inlay.stl")
     stl(caps_print, "case_buttons.stl"); stl(caps_inlay, "case_buttons_inlay.stl")
     stl(deck, "case_deck.stl", -z_deck); stl(testplate, "case_testplate.stl")
+    stl(seamtest, "case_seamtest_shell.stl", -(seam_z - seamtest_h))
     stl(shell.union(deck).union(lid_asm).union(caps_asm).union(inlay).union(lid_inlay_asm).union(caps_inlay_asm), "case_assembly.stl")
     for shp, nm in ((shell, "case_shell"), (lid, "case_lid"), (caps_print, "case_buttons"), (deck.translate((0, 0, -z_deck)), "case_deck")):
         cq.exporters.export(shp, nm + ".step")
