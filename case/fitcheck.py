@@ -1,6 +1,6 @@
 """Interference + assembly check of case.py against stand-in parts (run: python fitcheck.py).
 Stand-in parts are reused by make_previews.py."""
-import sys
+import sys, math
 import cadquery as cq
 from case import *
 
@@ -14,14 +14,21 @@ def vol(s):
 pcb = blk(pcb_dx, disp_cy, z_pcb_front, front_z, disp_w - pcb_clear, disp_l - pcb_clear)
 for sx in (-1, 1):
     for sy in (-1, 1):
-        pcb = pcb.cut(cyl(pcb_dx + sx * peg_xy[1], disp_cy + sy * peg_xy[0], 0, 20, 2.5))
+        pcb = pcb.cut(cyl(pcb_dx + sx * peg_xy[1], disp_cy + sy * peg_xy[0], 0, 20, hole_d))
 glass = blk(gl_x, disp_cy, lip_t + window_t + 0.1, z_pcb_front, glass_h, glass_w)
 sheet = blk(0, disp_cy, lip_t + 0.05, lip_t + window_t, win_w + 6.0, win_h + 6.0, 1.5) if window_t > 0 else None
 backcomp = blk(pcb_dx, disp_cy, front_z, front_z + comp_zone, 40, 50)
-batt = blk(0, b_y0 + batt_y / 2, led_top, led_top + batt_z, batt_x, batt_y)
+def batt_at(dx=0.0, dy=0.0, dz=0.0):
+    """the cell: 55 x 35 x 13, long edges (along X) rounded with batt_edge_r (assumed); nominal = flush to the +X tape face, centred in Y"""
+    b = (cq.Workplane("YZ").center(dy, led_top + batt_z / 2 + dz).rect(batt_y, batt_z).extrude(batt_x / 2, both=True)
+         .edges("|X").fillet(batt_edge_r))
+    return b.translate((dx, (cp_y0 + cp_y1) / 2, 0))
+_x_tape = cell_pk_x / 2 - tape_t - batt_x / 2            # centre x with the cell against the tape on the +X end wall
+_x_free = -cell_pk_x / 2 + batt_x / 2                    # centre x with the cell against the -X end wall
+batt = batt_at(_x_tape)
 fe = blk(fe_cx, fe_cy, fe_floor_z, fe_top_z, feather_l, feather_w)
 for (u, v) in fe_holes:
-    fe = fe.cut(cyl(*fe_xy(u, v), 0, 40, 2.5))
+    fe = fe.cut(cyl(*fe_xy(u, v), 0, 40, hole_d))
 def fe_part(u, v, w, l, h):          # (w along case X, l along case Y)
     x, y = fe_xy(u, v)
     return blk(x, y, fe_top_z, fe_top_z + h, w, l)
@@ -59,41 +66,77 @@ chk("switches vs feather", sws, fe.union(fe_comp))
 chk("caps vs switches", caps_asm, sws)
 chk("piezo vs feather", piezo, fe.union(fe_comp))
 chk("piezo vs display back / battery", piezo, backcomp.union(batt))
-# ---------------- drop safety (rev 5) ----------------
-print("--- drop safety ---")
-foam = blk(0, b_y0 + batt_y / 2, led_top + batt_z, led_top + batt_z + batt_pad, batt_x - 4, batt_y - 4)   # pad stays 2 mm clear of the cell edge (hooks)
-chk("battery foam pad vs shell+deck+lid (ribs)", case, foam)
-chk("wire channel vs lid ribs", lid_asm, blk(0, (y_band_top + b_y0 - stop_t) / 2, led_top, seam_z, 2 * inner_w / 2 - 2, b_y0 - stop_t - y_band_top))
-hooks = None
-for sgn in (-1, 1):
-    for yf, d in ((b_y0, -1), (b_y1, 1)):
-        h_ = hook_post(sgn * (bh_x0 + bh_x1) / 2, yf, d)
-        hooks = h_ if hooks is None else hooks.union(h_)
-v_ret = vol(batt.translate((0, 0, 1.0)).intersect(hooks))
-print(f"battery lifted 1 mm vs the hooks: {v_ret:.2f} mm3 (must be > 0: the hooks retain it)")
-if v_ret < 0.5: bad += 1; print("   <-- HOOKS DO NOT RETAIN")
-L_h = bh_z0 - led_top
-eps_h = 1.5 * stop_t * (bh_prot + 0.2) / L_h ** 2 * 100
-print(f"battery hook: post {stop_t} x {bh_x1 - bh_x0:.2f} mm, free length {L_h:.1f}, overhang {bh_prot} mm flat underside, deflect {bh_prot + 0.2:.1f} mm -> strain {eps_h:.2f} %; "
-      f"overlap over the cell {bh_prot - batt_slack:.2f} .. {bh_prot:.2f} mm; cell top to hook {bh_gap} mm, hook top {bh_top:.2f}, rib bottom {seam_z - rib_low:.2f}")
-if eps_h > 2.0: bad += 1; print("   <-- HOOK STRAIN")
-# the battery goes in and out with the hooks pushed out by their overhang: nothing else in the way
-hooks_out = None
-for sgn in (-1, 1):
-    for yf, d in ((b_y0, -1), (b_y1, 1)):
-        h_ = hook_post(sgn * (bh_x0 + bh_x1) / 2, yf + d * bh_prot, d)
-        hooks_out = h_ if hooks_out is None else hooks_out.union(h_)
-sweep = blk(0, b_y0 + batt_y / 2, led_top, led_top + batt_z + 30, batt_x, batt_y)
-chk("battery path (hooks pushed out) vs hooks", sweep, hooks_out)
+# ---------------- battery cradle (rev 6) ----------------
+print("--- battery cradle ---")
+cell_pos = [(dx, dy) for dx in (_x_tape, _x_free) for dy in (-batt_slack_y / 2, batt_slack_y / 2)]
+for dx, dy in cell_pos:
+    chk(f"cell x {dx:+.2f} y {dy:+.2f} vs shell+deck+lid", case, batt_at(dx, dy))
+    chk("   cell dropped in from the back (sweep up 30 mm)", batt_at(dx, dy, 15).union(batt_at(dx, dy, 30)).union(batt_at(dx, dy, 7)).union(batt_at(dx, dy, 22)), case.cut(lid_asm))
+def cradle_touch(name, shape):
+    v = vol(shape.intersect(shell))
+    print(f"{name:55s} {v:8.2f} mm3 (must be > 0: it is stopped)")
+    return v
+for nm, (px, py) in (("+X by 1.0", (_x_tape + 1.0, 0)), ("-X by 0.5", (_x_free - 0.5, 0)), ("+Y by 0.5", (_x_tape, batt_slack_y / 2 + 0.5)), ("-Y by 0.5", (_x_tape, -batt_slack_y / 2 - 0.5))):
+    if cradle_touch(f"cell pushed {nm} hits the cradle", batt_at(px, py)) < 0.5:
+        bad += 1; print("   <-- NOT STOPPED")
+print(f"cell pocket {cell_pk_x:.2f} x {cell_pk_y:.2f} (cell {batt_x} x {batt_y}: slack {batt_slack_x} + tape {tape_t} in length, {batt_slack_y} in width), corner radius {batt_edge_r} (assumed)")
+print(f"shelf under the cell {x_u - sh_over:.2f} .. {cp_hx:.2f} mm from the axis, top {z_sh:.2f}, tape {tape_t}; cell bottom {led_top:.2f}, top {led_top + batt_z:.2f}, rib bottom {seam_z - rib_low:.2f} "
+      f"(gap {seam_z - rib_low - led_top - batt_z:.2f}), cradle top {cr_top:.2f} vs rebate step {skirt_z0:.2f}")
+foam_ok = (seam_z - rib_low) - (led_top + batt_z) >= batt_pad - 1e-6
+if not foam_ok: bad += 1; print("   <-- CELL TOO CLOSE TO THE LID RIBS")
+chk("wire channel (x +-23) vs shell+cradle+lid ribs", case, blk(0, (y_band_top + cp_y0 - cr_wall) / 2, front_z, seam_z, 46, cp_y0 - cr_wall - y_band_top))
+chk("cell (lifted 0.4) vs lid ribs", lid_asm, batt_at(_x_tape, 0, 0.4))
+
+# ---------------- heat stakes (rev 6) ----------------
+print("--- heat stakes ---")
+cap_v = math.pi * head_h * (3 * (head_d / 2) ** 2 + head_h ** 2) / 6          # dome: spherical cap, base dia head_d, height head_h
+boards = pcb.union(fe).union(deck)
+stk_obst = shell.union(deck).union(sws).union(caps_asm).union(backcomp).union(glass).union(piezo)
+holes_cut = None
+for (_, x, y, zs, zt) in all_pins:
+    h_ = cyl(x, y, zt, zt + 40, hole_d)
+    holes_cut = h_ if holes_cut is None else holes_cut.union(h_)
+stk_obst = stk_obst.cut(holes_cut)                                                  # the pins themselves are what gets melted
+tot_bad_before = bad
+for (nm, x, y, zs, zt) in all_pins:
+    pin = stake_pin(x, y, zs, zt + pin_prot)
+    prot = vol(pin.intersect(blk(x, y, zt, zt + 40, 10, 10)))
+    ratio = prot / cap_v
+    through = vol(pin.intersect(boards))                                             # the pin must pass the hole without touching the board
+    env = cyl(x, y, zt, zt + env_h, env_d)
+    iron = cyl(x, y, zt + env_h, zt + env_h + iron_h, iron_d)
+    obst = stk_obst.union(fe_comp) if nm.startswith("feather") else stk_obst
+    v_env, v_iron = vol(env.intersect(obst)), vol(iron.intersect(obst))
+    v_lid = vol(env.intersect(lid_asm.union(batt)))
+    ok = ratio >= 1.2 and through < 0.01 and v_env < 0.01 and v_iron < 0.01 and v_lid < 0.01
+    bad += not ok
+    print(f"{nm:14s} pin above board {prot:5.2f} mm3 = {ratio:4.2f} x head {cap_v:4.2f}; board touch {through:4.2f}; head envelope {v_env:4.2f}, iron access {v_iron:4.2f}, "
+          f"head vs lid ribs / cell {v_lid:4.2f}{'' if ok else '   <-- FAIL'}")
+print(f"head: dome dia {head_d} x {head_h} over a {hole_d} hole = {(head_d - hole_d) / 2:.2f} mm overlap; pin dia {pin_d} (hole {hole_d}), {pin_prot} above the board, "
+      f"tip chamfer {pin_tip_ch}, root fillet {pin_fil} in a dia {rec_d} x {rec_h} recess")
+for (nm, x, y, zs, zt) in disp_pins:
+    gx = min(abs(x - (gl_x - glass_h / 2 - pcb_clear / 2)), abs(x - (gl_x + glass_h / 2 + pcb_clear / 2))) - rec_d / 2
+    chk_ok = vol(stake_pin(x, y, zs, zt + pin_prot).intersect(glass)) < 0.01 and gx > 0.5
+    bad += not chk_ok
+    print(f"{nm:14s} edge of its recess to the glass pocket: {gx:.2f} mm{'' if chk_ok else '   <-- TOO CLOSE TO THE GLASS'}")
+
+# ---------------- strain of the flexing features ----------------
+print("--- flexing features ---")
+for f_ in FLEX:
+    flag = "" if f_["strain"] <= f_["limit"] else "   <-- STRAIN"
+    bad += f_["strain"] > f_["limit"]
+    print(f"{f_['part']:6s} {f_['feature']:90s} {f_['layer']:14s} {f_['strain']:5.2f} % (limit {f_['limit']} %){flag}")
 
 # lid tongue: the lid hinges about the outer top rim edge and drops in; flat, the hook sits under the ledge
 Yh = outer_h / 2
 lid_rigid = lid_asm
-for side_, c_ in tabs:      # snap tabs flex while it rotates: their hooks are left out here
-    lid_rigid = lid_rigid.cut(wedge(side_, c_, hook_depth + 0.05, hook_z0 - 0.05, hook_h + 0.1))
+for side_, c_ in tabs:      # snap fingers flex while it rotates: their hooks are left out here
+    lid_rigid = lid_rigid.cut(side_poly(side_, c_, hook_pts, tab_w + 0.2))
 nolid = shell.union(deck)
-for th in (-20, -12, -6, -3, 0):
-    chk(f"lid tilted {-th:2d} deg about the top rim vs shell", lid_rigid.rotate((0, Yh, seam_z), (1, Yh, seam_z), th), nolid)
+slide = (tg_depth - (tg_prot - 0.1 - (fit - 0.0))) * 0.9            # the lid may slide toward the groove bottom (the groove has slack) while it rotates down
+for th in (-20, -12, -6, -3, -1.5, 0):
+    lid_t_ = lid_rigid.rotate((0, Yh, seam_z), (1, Yh, seam_z), th).translate((0, slide if th else 0, 0))
+    chk(f"lid tilted {-th:4.1f} deg about the top rim (slid {slide if th else 0:.2f}) vs shell", lid_t_, nolid)
 v_tg = vol(tongue_hooks.translate((0, 0, 0.8)).intersect(shell))
 print(f"tongue hooks lifted 0.8 mm vs the ledge: {v_tg:.2f} mm3 (must be > 0)")
 if v_tg < 0.5: bad += 1; print("   <-- TONGUE DOES NOT ENGAGE")
@@ -117,7 +160,7 @@ for kind, cap, th, hd in (("dp", dp_cap, dp_th, "D-pad"), ("ab", ab_cap["A"], ab
     not_passing = vol(head.cut(opening_prism(kind)))
     snug = vol(head.cut(opening_prism(kind, -(op_clr - 0.28))))               # must still be inside the opening - (0.3 - 0.28)
     # retention: flange cross-section well above the chamfer must contain the opening grown by (fl_ov - 0.01)
-    sl = blk(0, 0, th + 0.7, th + 0.8, 80, 80)
+    sl = blk(0, 0, th + 1.12, th + 1.18, 80, 80)
     flange = cap.intersect(sl)
     need = opening_prism(kind, fl_ov - 0.01).intersect(sl)
     missing = vol(need.cut(flange))
@@ -169,7 +212,6 @@ for ang, nm in ((0, "up"), (180, "down"), (90, "left"), (270, "right")):
 
 # ---------------- misc ----------------
 print(f"plunger gap to stub {plunger_gap} mm; deck ring {z_bf - z_deck:.1f} mm; flange-to-deck {z_deck - plate_t - fl_t:.1f} mm")
-print(f"snap tab strain {1.5 * skirt_t * hook_depth / skirt_h**2 * 100:.2f} %  (L {skirt_h} t {skirt_t}, L/t {skirt_h/skirt_t:.1f}), tabs {len(tabs)}")
 print(f"flat lid: {outer_w - 2*front_chamfer:.1f} x {outer_h - 2*front_chamfer:.1f}, no holes (wordmark inlay in the bottom {lid_wm_y + outer_h/2 + lid_cap_h/2:.1f} mm)")
 print(f"bezel (case edge to window): left {outer_w/2 - win_w/2:.2f} mm, right {outer_w/2 - win_w/2:.2f} mm; "
       f"window centre x = 0, D-pad centre x = {dp_cx:.2f}, A/B pair centre x = {pair_cx:.2f}")

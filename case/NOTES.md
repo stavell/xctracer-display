@@ -1,6 +1,6 @@
 # Enclosure notes / progress
 
-Status: **Rev 5** (see the section at the end; the text below is rev 4 unless it says otherwise). Rev 4: (rocker D-pad + A/B Game-Boy-style caps, switch deck, centred window, front inlay, PS1240 buzzer). Fitcheck passes. Not printed yet.
+Status: **Rev 6** (see the last section; rev 5 text follows) (see the section at the end; the text below is rev 4 unless it says otherwise). Rev 4: (rocker D-pad + A/B Game-Boy-style caps, switch deck, centred window, front inlay, PS1240 buzzer). Fitcheck passes. Not printed yet.
 Source of truth: `case.py` (CadQuery, all dimensions in PARAMETERS). `python case.py` regenerates the STL/STEP files,
 `python fitcheck.py` checks interference with stand-in parts, `python make_previews.py` redraws the PNGs (own numpy renderer, no OpenGL).
 
@@ -94,3 +94,43 @@ Reasoning first, then the numbers.
 - **Clear window** (`window_t`, default 0): step 0.2 mm bigger than window + 3 mm per side, display moves back by window_t; fitcheck passes with 1.0 (depth 28.3). Not printed.
 - **Colours** in the README. The previews use Forest (cream body, forest green panel and wordmark, orange caps with cream legends).
 - **3MF projects** (`export_3mf.py`): written in the layout of a Bambu Studio 2.x file. The Bambu Studio CLI segfaults on any 3MF here (even Bambu's own example), so they were checked with OrcaSlicer 2.0: Bambu's custom G-code macros and the prime tower were blanked for that test; layers 1-2 use both extruders. Open them in the GUI to confirm the part names.
+
+## Rev 6: no hooks inside the shell, heat stakes, cradle, one snap joint (2026-10-22)
+Print rules (owner): Bambu A1, PETG, 0.4 nozzle, 0.2 layers, NO supports. Every layer's perimeters must sit on the layer below or span a bridge between two supports: cantilevers only as slopes <= 45 deg from vertical, a flat free ledge <= 0.4 mm, bridges <= 10 mm. `printcheck.py` checks the STL files in their print orientation (shell / seam test / test plate front down, deck ceiling down, lid outer face down, caps head down); it also prints the strain table (`FLEX` in `case.py`; limits 1.0 % across layers, 2.0 % in the layer plane).
+
+### Why the old retention was dropped
+- **Split pegs** (display 4, Feather 4, deck 2): the head's underside is a catch face pointing at the bed (an overhang in the air), and the split legs flex across the layers. Replaced by printed stake pins melted over with an iron: nothing flexes, nothing overhangs.
+- **Battery hooks** (1.2 mm posts, 1.5 mm flat overhang over the cell): a 1.5 mm free ledge, a 1.7 % strain cantilever across layers, and the cell inertia still ended in the lid. Replaced by a cradle (rounded surfaces, 45 deg undersides, end walls) and foam tape.
+- **Wall hooks** (50 deg symmetric wedge, 0.5 mm, 1.84 % strain across layers): the lid fingers are now 9.8 mm long, tapered 1.6 -> 0.8 mm, hook 0.35 mm with a 45 deg catch face: 0.92 %.
+- The compression stack (lid clamping the cell) and hot glue were rejected by the owner.
+
+### Numbers
+- Stake: pin 2.2 in a 2.5 hole, 3.5 above the board top, tip chamfer 0.3, root fillet 0.5 inside a dia 3.25 x 0.5 recess. Pin volume above the board 13.0 mm3; formed head (dome dia 4.2 x 1.2) 9.2 mm3: ratio 1.41 (>= 1.2). Head overlap round the hole 0.85 mm. Display pins: recess edge to the glass pocket 1.8 mm (-X side) / 3.7 mm (+X).
+- Cradle: pocket 57.3 x 35.5 (cell 55 x 35, `batt_edge_r` 6.0 ASSUMED), tape 0.8 on the +X end face + shelves (0.4 thick lip, 0.2 flat overhang). Cell top to lid ribs 0.9 mm. The corner blocks leave the middle of the wire channel open (blocks 7 mm in from each side wall).
+- Lid: shell depth 23.6 (rev 5: 24.7; the hooks no longer set it, the Feather stack + low ribs do), total 26.2. Rebate 10.0 deep, lid skirt 9.8 (the lid seats on the rim top). Finger: L 9.8, t 1.6 -> 0.8 (outer face 0.2 proud so the rim gap is 0.05), hook 0.35 beyond the rim face, catch 45 deg, lead-in 36 deg, root fillet 0.5, slit 1.0 with a round end reaching 0.5 into the plate, rim relief 0.6. Strain = beam integration with the load at the catch face, deflection 0.35 + 0.10 margin = 0.92 %. The Feather end edge sits 0.05 from the skirt, so the skirt has a notch at the +X wall over the Feather.
+- Tongues: flat lip 0.2 then 45 deg (hook and groove roof), groove 0.75 deep, 0.3 slack. Their retention is partly a wedge (the top skirt flexes to release): the five fingers do the holding.
+- Switch deck wedge: lip 0.25 (was 0.35), cup walls 0.8 (cup_o 7.9): 0.93 % across layers; a drop of CA is still the real retention.
+- Strap: outer bar 5.0 (was 2.7), tunnel inner edges and mouths r 1.0, tunnel bottom z 2.0 (roof 1.0 under the lug top).
+- Piezo cradle arms stop 3.2 mm above the axis (31 deg): higher, the bore is a roof steeper than 45 deg.
+- Cap flange chamfer 1.1 (flat left 0.4).
+
+### Audit (part | feature | print orientation | load | stress vs layers | strain / overhang | mitigation)
+| Part | Feature | Print orientation | Load | Stress vs layers | Strain / overhang | Mitigation |
+|---|---|---|---|---|---|---|
+| lid | 5 snap fingers | face down, skirt rises | assembly, opening; drop only through the hooks | bending across layers (weak) | 0.92 % (limit 1.0); catch 45 deg | 9.8 mm long, tapered 1.6 -> 0.8, root fillet 0.5, round slit ends, hook 0.35 |
+| lid | 2 rigid tongues | face down | lid lift at the top edge | shear of the hook across layers | flat lip 0.2 + 45 deg; no flex | 15 mm wide, groove behind a 2.9 mm ledge |
+| lid | rib grid, skirt | face down | bow in a drop | in-plane | none | ribs rise from the plate |
+| shell | 12 stake pins | front down, pins rise | board inertia (display about 15 g, Feather 6 g) | shear across layers | none (rigid, melted head) | dia 2.2, root fillet in a recess, 4 pins per board |
+| shell | battery cradle blocks, end walls, shelves | front down | cell lateral inertia (40 g) | compression / shear | undersides 45 deg, shelf lip 0.2 flat | tape carries the lift, walls only locate |
+| shell | strap lug | front down | strap pull | bending of the 5 mm outer bar across layers | tunnel roof = bridge 4.7 mm | bar 5.0 (strength ~ t^2), r 1 edges |
+| shell | USB opening | front down | none | - | roof flat 6.5 = bridge, 45 deg sides | as before |
+| shell | piezo cradle | front down | glue only | - | underside 45 deg, arms 31 deg above axis | arms trimmed |
+| shell | sound slots | front down | none | - | 1.0 mm bridges | - |
+| shell | tab grooves | front down | hook catch | compression | roof 45 deg | parallel to the catch face |
+| shell | tongue grooves | front down | tongue catch | compression | lip 0.2 flat + 45 deg | - |
+| deck | 12 switch wedges | ceiling down | switch insertion | bending of the cup wall across layers | 0.93 %; wedge underside 0.25 flat | cup wall 0.8, lip 0.25, CA drop |
+| deck | stake holes | ceiling down | none | - | - | 2.5 mm holes |
+| caps | flange | head down | pull-out against the plate | shear | chamfer 45 deg, flat 0.4 | 1.1 mm chamfer |
+| all | inlay pockets (0.4 deep, bed side) | - | - | - | roof filled by the 2nd colour | reported "inlay pocket (filled)" |
+
+`printcheck.py` results (all PASS), regions near a limit: cradle shelf lip 0.40 (flat 0.2 + the 45 deg step), cap flange 0.40, tongue-groove roof 0.39 / 0.29, sound slots 0.46 (1 mm bridges), USB roof 3.4 (6.5 mm bridge), strap tunnel roof 1.4 (4.7 mm bridge).
