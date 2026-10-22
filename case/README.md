@@ -19,7 +19,7 @@ Print the feel-test plate first (below). See `NOTES.md` for what to measure.
 
 ## Features
 
-- Outer **66.9 x 96.3 x 24.7 mm** (ratio 1 : 1.44), 3 mm walls, 5 mm outer corners, one 1.5 mm chamfer on all outer edges.
+- Outer **66.9 x 96.3 x 24.8 mm** (ratio 1 : 1.44), 3 mm walls, 5 mm outer corners, one 1.5 mm chamfer on all outer edges.
 - Display window **centred on the case axis** (side bezels 15.28 mm each); the PCB sits off-centre inside (the glass is off-centre on the breakout). 0.6 mm 45 deg bezel chamfer in the window.
 - **Controls, Game-Boy style:** one 22 mm rocker D-pad (arms 7.5 mm, stands 2.5 mm proud) on the user's left, A and B (9.5 mm, 2.0 mm proud,
   14 mm apart, tilted 25 deg, B lower-left of A) on the right. D-pad centre and A/B pair centre are mirrored about the case axis (x = +-17.3 mm).

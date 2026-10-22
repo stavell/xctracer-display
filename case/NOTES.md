@@ -12,7 +12,7 @@ Source of truth: `case.py` (CadQuery, all dimensions in PARAMETERS). `python cas
 - 6 x TS-061 6x6 tact switches: 4.2 mm free, 4.0 pressed (0.2 mm travel, measured); body 3.5 assumed, so plunger 0.7.
 
 ## Design (rev 4)
-Outer **66.9 x 96.3 x 24.7 mm** (rev 3: 62.3 x 96.9 x 22.6). Walls 3 mm, 5 mm corner radius, 1.5 mm chamfer front/back (the one chamfer size on all outer edges).
+Outer **66.9 x 96.3 x 24.8 mm** (rev 3: 62.3 x 96.9 x 22.6). Walls 3 mm, 5 mm corner radius, 1.5 mm chamfer front/back (the one chamfer size on all outer edges).
 Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is the user's left (D-pad at +X, A/B at -X).
 
 - **Window centred**: the glass sits off-centre on the breakout PCB (ear + header side), so the PCB is shifted +X by 2.09 mm inside the case (`pcb_dx`); the case grew 4.2 mm in width (62.3 -> 66.5; length 96.9 -> 95.9 as the control band shrank 27 -> 26 mm). Side bezels 15.28 / 15.28 mm; top bezel ~5 mm cannot equal the sides (the active area is only 35.3 mm wide).
@@ -64,7 +64,7 @@ Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is
 
 ## Measured parts, tolerances (2026-10-22)
 - Display PCB 1.6, with the glass 3.6 mm (`glass_t` 2.0). Battery 55 x 35 x 13. TS-061 switches 4.2 free / 4.0 pressed.
-- Depth now set by the battery stack, not the Feather: `shell_depth = max(Feather stack, display + 3.5 comp zone + 13 cell + 1.5 foam)`; outer 66.9 x 96.3 x 24.7.
+- Depth now set by the battery stack, not the Feather: `shell_depth = max(Feather stack, display + 3.5 comp zone + 13 cell + 1.5 foam)`; outer 66.9 x 96.3 x 24.8.
 - Tolerances: display pocket +0.8 (`pcb_clear`), battery 1.5 mm between its stops (`batt_slack`), 1.5 mm behind the cell (`batt_foam`),
   ~2.5 mm over the Feather parts to the lid.
 - **Wire channel**: the battery starts 6 mm above the button band (`wire_gap`), a full-depth channel across the case for the display, battery and piezo leads to the Feather.
