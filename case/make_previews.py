@@ -1,5 +1,5 @@
 """Regenerates the preview PNGs: python make_previews.py   (runs fitcheck first, because it needs the stand-in parts)"""
-import tempfile, os
+import tempfile, os, subprocess, sys
 import trimesh
 import fitcheck as f
 import render
@@ -17,6 +17,9 @@ shell_m, lid_m, caps_m = mesh(shell, "s.stl"), mesh(lid_asm, "l.stl"), mesh(caps
 inlay_m, lid_inlay_m, caps_inlay_m = mesh(inlay, "i.stl"), mesh(lid_inlay_asm, "li.stl"), mesh(caps_inlay_asm, "ci.stl")
 two = [shell_m, lid_m, caps_m, inlay_m, lid_inlay_m, caps_inlay_m]
 two_c = [BODY, BODY, ACC, ACC, ACC, BODY]                 # cap legends are body colour, the lid wordmark accent
+if os.environ.get("ALT"):                                  # alternative proportions (CASE_TOP / CASE_BOT), front view only
+    render.render(two, two_c, "front", 1000, "preview_front_alt.png")
+    sys.exit(0)
 for view, name in (("front", "preview_front.png"), ("back", "preview_back.png"), ("isoback", "preview_iso_back.png"),
                    ("iso", "preview_iso_front.png")):
     render.render(two, two_c, view, 1000, name)
@@ -44,3 +47,6 @@ def cutaway(x_plane, name, extra=()):
     render.render(ms, cs, "side", 1000, name)
 cutaway(dp_cx, "preview_cutaway.png")
 cutaway(buttons["A"][0], "preview_cutaway_ab.png")
+
+# alternative for comparison: top mat = side mat (11.4), bottom 13
+subprocess.run([sys.executable, "make_previews.py"], env=dict(os.environ, ALT="1", CASE_TOP="11.4", CASE_BOT="13"), check=True)

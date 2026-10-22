@@ -1,4 +1,5 @@
 import math
+import os
 import cadquery as cq
 
 # ============================================================
@@ -116,11 +117,14 @@ piezo_cup_h = 3.0     # cradle depth along the body axis (the rest is glue + lea
 buz_z = 15.0          # axis height: clear of the display back components below and of the lid plate above
 snd_slots, snd_pitch, snd_w = 5, 2.0, 1.0
 
-# Front panel (rev 5): the dark screen panel around the window sits this far below the window, and the case grew by
-# the same strip between the display and the control band, so the panel clears the D-pad opening by 3.5 mm.
-panel_gap = 3.5       # mm - extra case length between the control band and the display (mat below the window)
+# Front panel (rev 5): one dark screen panel around the window, picture-mat margins measured window edge to panel edge.
+# The side margin (11.4) is set by the display width; the case is made as long as the margins need.
 panel_m = 2.0         # mm - panel edge inside the flat front face (top and sides)
-panel_r_big = 9.0     # mm - the Game-Boy nod: bottom corner on the A/B side (front view, bottom right)
+panel_top = float(os.environ.get("CASE_TOP", 9.0))     # mat above the window (about 0.8 x the sides)
+panel_bot = float(os.environ.get("CASE_BOT", 12.5))    # mat below the window (about 1.1 x the sides)
+ctrl_gap = 7.0        # mm - panel to the control openings, and openings to the flat bottom edge: deliberate and equal
+panel_r_big = 11.0    # mm - the Game-Boy nod: bottom corner on the A/B side (front view, bottom right)
+strip_wall = 3.0      # mm - solid wall left between the hollow strips and the display pocket
 
 # ============================================================
 # DERIVED
@@ -131,12 +135,18 @@ cup_oy = sw_pocket_y + (cup_o - sw_pocket)      # same wall thickness on the leg
 disp_w = pcb_h + pcb_clear                      # display pocket along X
 disp_l = pcb_w + pcb_clear                      # display pocket along Y
 dp_fl_half = dp_len / 2 + op_clr + fl_ov        # D-pad flange half length (12.5)
-band_h = 2 * dp_fl_half + 1.0                   # control band inner height
+band_core = 2 * dp_fl_half + 1.0                # what the caps and the deck need
+band_h = 2 * (ctrl_gap + dp_len / 2 + op_clr - front_chamfer)    # control band inner height: opening to the flat bottom edge = ctrl_gap
+assert band_h >= band_core
 # Window centred on the case axis: the display PCB is shifted +X by pcb_dx (its glass sits off-centre on the PCB).
 win_x_pcb = -(pcb_h / 2 - disp_ear - 1.8 - active_h / 2)    # active-area centre on the PCB, case X (PCB centred)
 pcb_dx = -win_x_pcb
 inner_w = disp_w + 2 * abs(pcb_dx)
-inner_h = disp_l + band_h + panel_gap
+_win_half = (active_w + 2 * win_margin) / 2 + 0.6      # window half height on the front face (with its chamfer)
+panel_gap = ctrl_gap + dp_len / 2 + op_clr + panel_bot - band_h / 2 + (_win_half - disp_l / 2)   # strip between band and display
+top_extra = panel_top + 0.5 - (disp_l / 2 - _win_half)   # empty length above the display pocket
+assert top_extra > 0
+inner_h = disp_l + band_h + panel_gap + top_extra
 led_w = (inner_w - (batt_x - 3.7)) / 2          # battery rail width: free gap between rails 51.3 mm
 outer_w = inner_w + 2 * wall
 outer_h = inner_h + 2 * wall
@@ -214,9 +224,13 @@ cav_r = max(0.1, corner_r - wall)
 cav_disp = (cq.Workplane("XY").workplane(offset=front_z)
             .center(0, y_band_top + (inner_h / 2 - y_band_top) / 2)
             .rect(inner_w, inner_h / 2 - y_band_top).extrude(shell_depth).edges("|Z and >Y").fillet(cav_r))
-cav_band = (cq.Workplane("XY").workplane(offset=plate_t).center(0, band_cy)
-            .rect(inner_w, band_h).extrude(shell_depth).edges("|Z and <Y").fillet(cav_r))
-cavity = cav_disp.union(cav_band)
+# the strips above and below the display pocket are hollow down to the plate (leaves a strip_wall around the pocket)
+y_strip_top = disp_cy + disp_l / 2 + strip_wall
+cav_top = (cq.Workplane("XY").workplane(offset=plate_t).center(0, (y_strip_top + inner_h / 2) / 2)
+           .rect(inner_w, inner_h / 2 - y_strip_top).extrude(shell_depth).edges("|Z and >Y").fillet(cav_r))
+cav_band = (cq.Workplane("XY").workplane(offset=plate_t).center(0, y_bot + (band_h + panel_gap - strip_wall) / 2)
+            .rect(inner_w, band_h + panel_gap - strip_wall).extrude(shell_depth).edges("|Z and <Y").fillet(cav_r))
+cavity = cav_disp.union(cav_band).union(cav_top)
 rebate = (cq.Workplane("XY").workplane(offset=shell_depth - skirt_h)
           .box(outer_w - 2 * (wall - skirt_t), outer_h - 2 * (wall - skirt_t), skirt_h + 1, centered=(True, True, False))
           .edges("|Z").fillet(max(0.1, corner_r - (wall - skirt_t))))
@@ -326,7 +340,12 @@ for i in range(snd_slots):
 # --- lid snap grooves + pry notches ---
 sk_o_w, sk_o_h = outer_w - 2 * (wall - skirt_t) - 2 * fit, outer_h - 2 * (wall - skirt_t) - 2 * fit
 tabs = [("-Y", -20), ("-Y", 20), ("+Y", -18), ("+Y", 18),
-        ("-X", 32), ("-X", 10), ("-X", -10), ("+X", 32), ("+X", 10), ("+X", -14)]
+        ]
+# side tabs: pitch ~21 mm from the control band upward (rev 4 positions relative to the band), as many as fit
+for _side, _y0 in (("-X", 22.0), ("+X", 18.0)):
+    _k = 0
+    while band_cy + _y0 + 21.0 * _k < outer_h / 2 - 14.0:
+        tabs.append((_side, band_cy + _y0 + 21.0 * _k)); _k += 1
 hook_z0 = skirt_z0 + 0.3
 def wedge(side, c, depth, z0, h):
     pts = [(0, z0), (0, z0 + h), (depth, z0 + h / 2)]
@@ -340,7 +359,7 @@ for side, c in tabs:
 def pry(lid_or_shell):
     s = lid_or_shell
     s = s.cut(blk(0, outer_h / 2 - 0.5, seam_z - 1.0, seam_z + 1, 14, 2.0))
-    return s.cut(blk(-outer_w / 2 + 0.5, -28, seam_z - 1.0, seam_z + 1, 2.0, 14))
+    return s.cut(blk(-outer_w / 2 + 0.5, band_cy + 4.15, seam_z - 1.0, seam_z + 1, 2.0, 14))
 shell = pry(shell)
 
 # ============================================================
@@ -464,7 +483,7 @@ for k in ("A", "B"):
 # ============================================================
 tri_big = (cq.Workplane("XY").workplane(offset=z_deck - 1)
            .polyline([(cxm, cym), (cxm + fill + 1.0, cym), (cxm, cym + fill + 1.0)]).close().extrude(z_bf - z_deck + 2))
-deck = blk(0, band_cy, z_deck, z_bf, inner_w - 2 * deck_fit, band_h - 2 * deck_fit, 2.0)
+deck = blk(0, band_cy, z_deck, z_bf, inner_w - 2 * deck_fit, band_core - 2 * deck_fit, 2.0)
 for (u, v) in fe_holes:
     x, y = fe_xy(u, v)
     deck = deck.cut(cyl(x, y, z_deck - 1, z_bf + 1, post_d + 0.6))
@@ -491,7 +510,7 @@ for name, (bx, by) in buttons.items():
 flat_hw, flat_hh = outer_w / 2 - front_chamfer, outer_h / 2 - front_chamfer     # flat front face half sizes
 pn_x, pn_top = flat_hw - panel_m, flat_hh - panel_m
 win_open_bot = disp_cy - win_h / 2 - win_ch          # window edge on the front face (with its chamfer)
-pn_bot = win_open_bot - 3.5                            # mat below the window (top is 1.4 mm: fixed by the case)
+pn_bot = win_open_bot - panel_bot                      # mat below the window
 pn_r = max(1.0, corner_r - front_chamfer - panel_m)   # concentric with the outer corners (1.5)
 panel = blk(0, (pn_top + pn_bot) / 2, 0, inlay_t, 2 * pn_x, pn_top - pn_bot)
 for (cx_, cy_, r_) in ((pn_x, pn_top, pn_r), (-pn_x, pn_top, pn_r),
@@ -506,7 +525,7 @@ shell = shell.cut(inlay.union(inlay.translate((0, 0, -0.5))))
 # ============================================================
 # FEEL-TEST PLATE: the control band of the front plate with openings, pins, rails, Feather posts (deck + caps go with it)
 # ============================================================
-tp_w, tp_h = outer_w, band_h + 10.0
+tp_w, tp_h = outer_w, band_core + 10.0
 testplate = (blk(0, band_cy, 0, plate_t, tp_w, tp_h, 4.0).faces("<Z").edges().chamfer(0.8))
 testplate = plate_controls(testplate)
 for (u, v) in fe_holes:

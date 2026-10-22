@@ -22,9 +22,9 @@ Print the feel-test plate first (below). See `NOTES.md` for what to measure.
 
 ## Features
 
-- Outer **66.9 x 99.8 x 24.8 mm** (ratio 1 : 1.49), 3 mm walls, 5 mm outer corners, one 1.5 mm chamfer on all outer edges.
-- **Front, two colours:** a dark screen panel (accent, 0.4 mm inlay) around the window, 2.0 mm inside the flat front face on top and sides, concentric corners (r 1.5), 3.5 mm below the window, bottom corner on the A/B side r 9 (the Game-Boy nod). It runs right to the glass (its edge follows the 0.6 mm window chamfer, no body-colour sliver). No text on the front; the control band is plain body colour.
-  The case is 3.5 mm longer than rev 4 (`panel_gap`): without it the D-pad opening was only 3.5 mm below the window and the panel could not end above it. The panel now ends 3.5 mm above the D-pad opening.
+- Outer **66.9 x 123.7 x 24.8 mm** (ratio 1 : 1.85), 3 mm walls, 5 mm outer corners, one 1.5 mm chamfer on all outer edges.
+- **Front, two colours:** a dark screen panel (accent, 0.4 mm inlay) around the window, 2.0 mm inside the flat front face on top and sides (corners r 1.5, concentric), bottom corner on the A/B side r 11 (the Game-Boy nod). Picture-mat margins, window edge to panel edge: sides 11.4, top 9.0 (0.8x), bottom 12.5 (1.1x). It runs right to the glass (its edge follows the 0.6 mm window chamfer). No text on the front; the control band is plain body colour. `preview_front_alt.png` shows the alternative (top 11.4, bottom 13).
+  Panel to the D-pad opening and D-pad opening to the flat bottom edge are both 7.0 mm (`ctrl_gap`); the case is as long as these margins need (`panel_top`, `panel_bot`, `ctrl_gap` in `case.py`). The strips above and below the display pocket are hollow down to the 2 mm plate. Side tabs: one every 21 mm.
 - Display window **centred on the case axis** (side bezels 15.28 mm each); the PCB sits off-centre inside (the glass is off-centre on the breakout). 0.6 mm 45 deg bezel chamfer in the window.
 - **Controls, Game-Boy style:** one 22 mm rocker D-pad (arms 7.5 mm, stands 2.5 mm proud, flat top, four outward arrows as body-colour legends) on the user's left, A and B (9.5 mm, 2.0 mm proud, flat top, body-colour letters 4.5 mm cap height,
   14 mm apart, tilted 25 deg, B lower-left of A) on the right. D-pad centre and A/B pair centre are mirrored about the case axis (x = +-17.3 mm).
@@ -34,7 +34,7 @@ Print the feel-test plate first (below). See `NOTES.md` for what to measure.
   The opposite arm lifts away, it never presses its switch. 6 GPIO + GND to the Feather.
 - All electronics are in the shell: Feather on 4 posts with split snap pegs, battery on rails with stops, display on 4 split pegs. The lid is a plain plate.
 - **Switch deck** (separate part): carries the 6 switch cups and snaps onto two pins over the caps.
-- **Flat lid, no holes** (63.9 x 96.8 mm flat), wordmark "XC DISPLAY" (accent inlay, 4.2 mm cap height) in the bottom 8 mm; the rest is free for velcro. No access to the Feather reset or user switch from the back: the six front keys replace them, reset needs the lid off.
+- **Flat lid, no holes** (63.9 x 120.7 mm flat), wordmark "XC DISPLAY" (accent inlay, 4.2 mm cap height) in the bottom 8 mm; the rest is free for velcro. No access to the Feather reset or user switch from the back: the six front keys replace them, reset needs the lid off.
 - Strap tunnel through the bottom corner (3.2 x 10.4 mm, 10 mm strap or cord). USB opening aligned with the Feather micro-B.
 - **Piezo** (PS1240-type, 12.2 x 6.5 mm) glued in a cradle on the inside of the TOP wall, grille of 5 slots centred on the axis.
 - Lid snaps on with 10 skirt tabs (1.8 % strain). No screws, bolts or inserts.
