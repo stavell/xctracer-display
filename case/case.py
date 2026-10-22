@@ -385,7 +385,7 @@ def text_solid(txt, cap_h, z0=0.0):
     bb = t.val().BoundingBox()          # centre on the ink: halign uses the advance width (side bearings), B sat off-centre
     return t.translate(((-(bb.xmin + bb.xmax) / 2), -(bb.ymin + bb.ymax) / 2, 0))
 
-lid_cap_h = 3.5
+lid_cap_h = 4.2                                    # stems ~0.8 mm = 2 lines of the 0.4 nozzle
 lid_wm_y = -outer_h / 2 + front_chamfer + 5.0       # text centre 5 mm above the flat edge: spans 3.25 .. 6.75 mm
 lid_inlay_asm = text_solid("XC DISPLAY", lid_cap_h, total_depth - inlay_t).translate((0, lid_wm_y, 0))
 lid_asm = lid_asm.cut(lid_inlay_asm.union(lid_inlay_asm.translate((0, 0, 0.5))))

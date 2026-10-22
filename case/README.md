@@ -34,7 +34,7 @@ Print the feel-test plate first (below). See `NOTES.md` for what to measure.
   The opposite arm lifts away, it never presses its switch. 6 GPIO + GND to the Feather.
 - All electronics are in the shell: Feather on 4 posts with split snap pegs, battery on rails with stops, display on 4 split pegs. The lid is a plain plate.
 - **Switch deck** (separate part): carries the 6 switch cups and snaps onto two pins over the caps.
-- **Flat lid, no holes** (63.9 x 96.8 mm flat), wordmark "XC DISPLAY" (accent inlay, 3.5 mm cap height) in the bottom 8 mm; the rest is free for velcro. No access to the Feather reset or user switch from the back: the six front keys replace them, reset needs the lid off.
+- **Flat lid, no holes** (63.9 x 96.8 mm flat), wordmark "XC DISPLAY" (accent inlay, 4.2 mm cap height) in the bottom 8 mm; the rest is free for velcro. No access to the Feather reset or user switch from the back: the six front keys replace them, reset needs the lid off.
 - Strap tunnel through the bottom corner (3.2 x 10.4 mm, 10 mm strap or cord). USB opening aligned with the Feather micro-B.
 - **Piezo** (PS1240-type, 12.2 x 6.5 mm) glued in a cradle on the inside of the TOP wall, grille of 5 slots centred on the axis.
 - Lid snaps on with 10 skirt tabs (1.8 % strain). No screws, bolts or inserts.
