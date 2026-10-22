@@ -380,8 +380,10 @@ CAP_RATIO = 0.72                                    # Helvetica Bold cap height 
 
 def text_solid(txt, cap_h, z0=0.0):
     """bold text centred on the origin, reads normally seen from +Z, from z0 to z0 + inlay_t"""
-    return (cq.Workplane("XY").workplane(offset=z0)
-            .text(txt, cap_h / CAP_RATIO, inlay_t, font=INLAY_FONT, kind="bold", halign="center", valign="center"))
+    t = (cq.Workplane("XY").workplane(offset=z0)
+         .text(txt, cap_h / CAP_RATIO, inlay_t, font=INLAY_FONT, kind="bold", halign="center", valign="center"))
+    bb = t.val().BoundingBox()          # centre on the ink: halign uses the advance width (side bearings), B sat off-centre
+    return t.translate(((-(bb.xmin + bb.xmax) / 2), -(bb.ymin + bb.ymax) / 2, 0))
 
 lid_cap_h = 3.5
 lid_wm_y = -outer_h / 2 + front_chamfer + 5.0       # text centre 5 mm above the flat edge: spans 3.25 .. 6.75 mm
