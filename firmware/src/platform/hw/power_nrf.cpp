@@ -59,7 +59,7 @@ void PowerNrf::fullOff() {
   sleepNow(pin_);
 }
 
-// The switch wakes the sleeping loop task (the GPIOTE interrupt calls this).
+// The switch wakes the sleeping loop task (the EGU3 interrupt below calls this, or the GPIOTE one in the fallback).
 static TaskHandle_t sleeper = nullptr;
 static volatile uint32_t switchIrqs = 0;   // edges seen by the switch interrupt (ring below)
 static void onSwitch() {
@@ -69,6 +69,45 @@ static void onSwitch() {
   portYIELD_FROM_ISR(woken);
 }
 
+// The switch's wake-up in the sleep without a GPIOTE IN channel (what attachInterrupt uses): an IN channel adds about
+// 20 uA in System ON (measured by CircuitPython on this chip family, adafruit/circuitpython#9534), the PORT event of the
+// pin's SENSE about none. The core's GPIOTE_IRQHandler ignores PORT events (enabled there, they would never be cleared),
+// so the event goes over a PPI channel to EGU3, whose interrupt is ours. Neither is used anywhere else in the firmware or
+// the core (S140 leaves PPI 0-16 and SWI3 to the application). Falls back to attachInterrupt if the SoftDevice refuses.
+static constexpr uint8_t kWakePpi = 15;
+static bool wakeViaPort = false;
+extern "C" void SWI3_EGU3_IRQHandler() {
+  NRF_EGU3->EVENTS_TRIGGERED[0] = 0;
+  (void)NRF_EGU3->EVENTS_TRIGGERED[0];   // the write must land before the return, or the IRQ fires again
+  onSwitch();
+}
+static void switchWakeOn(uint8_t pin) {
+  const uint32_t p = g_ADigitalPinMap[pin];
+  nrf_gpio_cfg_sense_input(p, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
+  NRF_GPIOTE->EVENTS_PORT = 0;
+  NRF_EGU3->EVENTS_TRIGGERED[0] = 0;
+  NRF_EGU3->INTENSET = EGU_INTENSET_TRIGGERED0_Msk;
+  wakeViaPort = sd_ppi_channel_assign(kWakePpi, &NRF_GPIOTE->EVENTS_PORT, &NRF_EGU3->TASKS_TRIGGER[0]) == NRF_SUCCESS &&
+                sd_ppi_channel_enable_set(1UL << kWakePpi) == NRF_SUCCESS;
+  if (wakeViaPort) {
+    NVIC_ClearPendingIRQ(SWI3_EGU3_IRQn);
+    NVIC_SetPriority(SWI3_EGU3_IRQn, 3);   // as the core's GPIOTE: FreeRTOS FromISR calls allowed
+    NVIC_EnableIRQ(SWI3_EGU3_IRQn);
+  } else {
+    NRF_EGU3->INTENCLR = EGU_INTENCLR_TRIGGERED0_Msk;
+    nrf_gpio_cfg_input(p, NRF_GPIO_PIN_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(pin), onSwitch, FALLING);
+  }
+}
+static void switchWakeOff(uint8_t pin) {
+  if (!wakeViaPort) { detachInterrupt(digitalPinToInterrupt(pin)); return; }
+  sd_ppi_channel_enable_clr(1UL << kWakePpi);
+  NVIC_DisableIRQ(SWI3_EGU3_IRQn);
+  NRF_EGU3->INTENCLR = EGU_INTENCLR_TRIGGERED0_Msk;
+  nrf_gpio_cfg_input(g_ADigitalPinMap[pin], NRF_GPIO_PIN_PULLUP);   // SENSE off (System OFF sets it again itself)
+  NRF_GPIOTE->EVENTS_PORT = 0;
+}
+
 // A ring of what the sleep loop did (wake reason, draws), printed as "slp ..." lines whenever a terminal is attached while
 // it sleeps (plug in the cable, open the port) and again after the wake. For the bug "the sleeping clock does not advance":
 // the ring says whether the loop woke, why, and whether it drew. About 0.4 kB of RAM.
@@ -76,14 +115,14 @@ namespace {
 constexpr uint32_t kRing = 8;                       // small on purpose: the diag image has only ~300 bytes of heap to spare
 struct SleepEv { uint32_t ms; int16_t minute; uint8_t ask64; char what; };   // what: E enter, T timeout, S switch, D draw, X exit
 SleepEv ring[kRing];
-uint32_t ringN = 0, nFeed = 0;                      // nFeed: the plain 4 s watchdog wake-ups (not logged one by one)
+uint32_t ringN = 0, nFeed = 0;                      // nFeed: the plain once-a-second wake-ups (not logged one by one)
 void ringAdd(char what, uint32_t ms, uint32_t asked, int minute) {
   if (what == 'T' && asked >= 1000) { nFeed++; return; }   // the plain once-a-second VCOM / watchdog wake-ups
   SleepEv& e = ring[ringN++ % kRing];
   e.ms = ms; e.ask64 = (uint8_t)(asked / 64 > 255 ? 255 : asked / 64); e.minute = (int16_t)minute; e.what = what;
 }
 void ringDump() {
-  Serial.printf("slp ring n=%lu feeds=%lu irqs=%lu now=%lu\n", (unsigned long)ringN, (unsigned long)nFeed, (unsigned long)switchIrqs, (unsigned long)millis());
+  Serial.printf("slp ring n=%lu feeds=%lu irqs=%lu port=%d now=%lu\n", (unsigned long)ringN, (unsigned long)nFeed, (unsigned long)switchIrqs, (int)wakeViaPort, (unsigned long)millis());
   for (uint32_t i = ringN > kRing ? ringN - kRing : 0; i < ringN; i++) {
     const SleepEv& e = ring[i % kRing];
     Serial.printf("slp %c ms=%lu ask=%u min=%d\n", e.what, (unsigned long)e.ms, (unsigned)e.ask64 * 64, (int)e.minute);
@@ -102,8 +141,7 @@ void PowerNrf::clockSleep() {
   if (deps_.buttons) deps_.buttons->pause();
   if (deps_.pack && !deps_.pack->loading()) deps_.pack->flash().powerDown();
   sleeper = xTaskGetCurrentTaskHandle();
-  pinMode(pin_, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(pin_), onSwitch, FALLING);
+  switchWakeOn(pin_);
   ClockSleep sm;
   sm.begin();
   ringN = 0;
@@ -149,7 +187,7 @@ void PowerNrf::clockSleep() {
     } else if (st.act == SLEEP_WAKE) {
       break;
     } else if (st.act == SLEEP_OFF) {
-      detachInterrupt(digitalPinToInterrupt(pin_));
+      switchWakeOff(pin_);
       sleeper = nullptr;
       fullOff();                                           // does not return (the button timer stays stopped: a wake is a reset)
     } else {
@@ -160,7 +198,7 @@ void PowerNrf::clockSleep() {
       ringAdd(n ? 'S' : 'T', millis(), ms, in.localMinute);
     }
   }
-  detachInterrupt(digitalPinToInterrupt(pin_));
+  switchWakeOff(pin_);
   sleeper = nullptr;
   ringAdd('X', millis(), 0, -1);
   if (Serial) ringDump();

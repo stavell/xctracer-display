@@ -311,9 +311,12 @@ loop restarts the start-up app, with the intro (`PowerNrf::takeResumed()` -> `st
   SoftDevice waits forever) and could bring a link up during the sleep (`sd_ble_gap_connect_cancel` in `disconnect()`,
   `pause()` and the 8 s timeout; `onConnect` drops a link while paused); (3) VCOM: the wiring has EXTCOMIN on the MI pad, which
   the panel ignores unless the breakout's EXTMODE pin is high, and then VCOM flipped only with each frame (once a minute in the
-  sleep): `SharpPanel::vcomPulse()` sends the 2-byte VCOM command each second. Still open: `attachInterrupt` uses a GPIOTE IN
-  channel (`WInterrupts.c`: CONFIG MODE_Event), not the PORT event this note used to claim; an IN channel may cost about
-  20 uA (datasheet value from memory, check it, and measure).
+  sleep): `SharpPanel::vcomPulse()` sends the 2-byte VCOM command each second. (4) the switch interrupt was a GPIOTE IN channel
+  (`attachInterrupt`, `WInterrupts.c`: CONFIG MODE_Event), not the PORT event this note used to claim; CircuitPython measured
+  about 20 uA for that against about 2 uA with SENSE (adafruit/circuitpython#9534). The sleep now wakes on the pin's SENSE:
+  GPIOTE PORT event -> PPI 15 (`sd_ppi_*`) -> EGU3 -> `SWI3_EGU3_IRQHandler` (the core's GPIOTE handler never clears PORT
+  events, so it cannot be used); `attachInterrupt` stays as the fallback, and the `slp ring` line prints `port=1` when the
+  SENSE path is active. None of the four is measured (no current meter): guesses from the datasheets and that PR.
 - Vario-only image: `enableClockSleep()` is never called, `shutdown()` is System OFF exactly as before.
 - Emulator: `Box::tick()` turns `MockPower::requests` into the same state machine (`Box::sleep`); the PC player shows it
   (hold `off`, then hold the switch 1 s, or press R to restart).
