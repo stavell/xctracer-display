@@ -30,7 +30,7 @@ fe_comp = (fe_part(0, fe_usb_v, 6.0, 8.0, 2.8)
            .union(fe_part(*fe_user, 2.8, 4.6, fe_sw_h)))
 sws = None
 for name, (bx, by) in buttons.items():
-    s_ = blk(bx, by, z_bf, z_bb, sw_size, sw_size).union(cyl(bx, by, z_pt, z_bf, 3.5))
+    s_ = blk(bx, by, z_bf, z_bb, sw_size, sw_leg_w).union(cyl(bx, by, z_pt, z_bf, 3.5))
     sws = s_ if sws is None else sws.union(s_)
 # PS1240-type piezo: body axis along Y, sound face on the top wall
 piezo = (cq.Workplane("XZ").center(buz_x, buz_z).circle(piezo_d / 2).extrude(-piezo_h).translate((0, y_top - piezo_h, 0)))

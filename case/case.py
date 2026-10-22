@@ -68,7 +68,8 @@ stub_h, stub_d = max(0.8, z_deck + deck_ring - sw_plunger - plunger_gap - z_flan
 z_pt = z_flange_back + stub_h + plunger_gap     # plunger tip rest position
 sw_leg_clear = 4.5    # mm - room behind the switch body: legs 3.5 (drawing) + 1.0 for solder and wire
 sw_clear = 0.3
-cup_o = 8.6           # cup outer size
+cup_o = 8.6           # cup outer size (wedge sides, case X)
+sw_leg_w = 6.5        # mm - switch across its legs (legs bent flush), case Y
 plunger_hole_d = 4.0
 lip_p, lip_len, lip_w = 0.35, 0.9, 3.0   # switch retention wedge
 deck_fit = 0.3        # deck outline clearance to the walls
@@ -124,6 +125,8 @@ reset_hole_d, user_hole_d = 1.8, 3.4
 # DERIVED
 # ============================================================
 sw_pocket = sw_size + sw_clear
+sw_pocket_y = sw_leg_w + sw_clear              # the legs side
+cup_oy = sw_pocket_y + (cup_o - sw_pocket)      # same wall thickness on the legs side
 disp_w = pcb_h + pcb_clear                      # display pocket along X
 disp_l = pcb_w + pcb_clear                      # display pocket along Y
 dp_fl_half = dp_len / 2 + op_clr + fl_ov        # D-pad flange half length (12.5)
@@ -433,9 +436,9 @@ for sy in (-1, 1):
     deck = deck.cut(cyl(0.0, band_cy + sy * deck_peg_y, z_deck - 1, z_bf + 1, peg_d + 0.2))
 deck = deck.cut(tri_big)
 for name, (bx, by) in buttons.items():
-    deck = deck.union(blk(bx, by, z_bf - 0.1, cup_top, cup_o, cup_o))
+    deck = deck.union(blk(bx, by, z_bf - 0.1, cup_top, cup_o, cup_oy))
     deck = deck.cut(cyl(bx, by, z_deck - 1, z_bf + 0.1, plunger_hole_d))
-    deck = deck.cut(blk(bx, by, z_bf, cup_top + 1, sw_pocket, sw_pocket))
+    deck = deck.cut(blk(bx, by, z_bf, cup_top + 1, sw_pocket, sw_pocket_y))
     for sgn in (-1, 1):                       # retention wedges, flat underside just behind the body
         xw = bx + sgn * sw_pocket / 2
         za = z_bb + 0.1
@@ -443,7 +446,7 @@ for name, (bx, by) in buttons.items():
         w = cq.Workplane("XZ").polyline(pts).close().extrude(lip_w).translate((0, by + lip_w / 2, 0))
         deck = deck.union(w)
     # leg slots: the legs kink out to 7.9 mm from 0.7 mm behind the body; they leave on the case +-Y sides (wedges are on +-X)
-    deck = deck.cut(blk(bx, by, z_bb, cup_top + 1, sw_pocket, cup_o + 1))
+    deck = deck.cut(blk(bx, by, z_bb, cup_top + 1, sw_pocket, cup_oy + 1))
 
 # ============================================================
 # FRONT INLAY (2 layers = 0.4 mm, flush with the front face, same frame as the shell)

@@ -71,4 +71,4 @@ Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is
 - Short plunger: the cap stubs are derived (`stub_h` 2.0) and reach through the deck's plunger holes; A/B get a stub past their 0.8 mm boss (still the travel stop, 0.4 mm).
   0.2 mm travel: D-pad nub gap 0.25 (`nub_h` 0.95) so a centre press (0.25) stays below firing (gap 0.1 + 0.2 = 0.3) and an arm reaches 0.43 at the stop. `fitcheck.py` now fails if that order breaks.
 - Generic 6x6 drawing (user, 2026-10-22): actuator 3.5 mm diameter (the 3.4 stub presses the actuator only), legs 3.5 mm behind the body, kinking out to 7.9 mm from 0.7 mm behind it.
-  The cups have leg slots on the case +-Y sides above the body (wedges stay on +-X): switches go in legs up/down. Leg room under the Feather 4.5 (legs + solder).
+  The legs make the switch 6.5 mm across on their side even bent flush: cup pockets are 6.3 (X, wedges) x 6.8 (Y, legs), leg slots above the body on +-Y. Switches go in legs up/down. Leg room under the Feather 4.5 (legs + solder).
