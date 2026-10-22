@@ -18,6 +18,7 @@ Not yet verified on the device:
 - Intro cloud-front fps (measured 31.8 fps before the puff cut; re-measure).
 - Clock-sleep current with a PPK2 (the estimate of 50-250 uA is from datasheets), including the QSPI deep power-down.
 - The six front buttons are not wired (`platform/hw/pins.h`: `PIN_KEY_*` undefined); case test plate not printed.
+- Case rev 5 has no back access to the user switch or reset: once the six buttons are wired, the front keys must wake from System OFF (GPIO sense on a key), and A+B held 6 s must power off; reset needs the back off.
 - Loader speed-up (pump the loader in a tight loop during a pack load).
 - Gyro ground test with `host/logdl.py` and `build.sh logeval` (README, "Flight log").
 - Compass bus recovery (`cmp ... rec=N`): a frozen compass was seen once and not reproduced; whether the recovery heals it is unconfirmed.

@@ -18,7 +18,8 @@ def rot(view):
     Rx = np.array([[1, 0, 0], [0, np.cos(pitch), -np.sin(pitch)], [0, np.sin(pitch), np.cos(pitch)]])
     return Rx @ Ry @ (FRONT if view == "iso" else BACK)
 
-def render(meshes, colors, view, size, path, zoom=1.0):
+def render(meshes, colors, view, size, path, zoom=1.0, focus=None):
+    """focus = (x, y) in view coordinates: centre of a close-up (default: the bounding box centre)"""
     R = rot(view)
     tris, cols = [], []
     for m, c in zip(meshes, colors):
@@ -28,7 +29,9 @@ def render(meshes, colors, view, size, path, zoom=1.0):
     light = np.array([0.35, 0.55, 0.75]); light /= np.linalg.norm(light)
     shade = 0.30 + 0.70 * np.abs(n @ light)
     lo, hi = T.reshape(-1, 3).min(0), T.reshape(-1, 3).max(0)
-    ctr = (lo + hi) / 2; S = 2; W = H = size * S
+    ctr = (lo + hi) / 2
+    if focus is not None: ctr = np.array([focus[0], focus[1], ctr[2]])
+    S = 2; W = H = size * S
     scale = zoom * W * 0.92 / max(hi[0] - lo[0], hi[1] - lo[1])
     img = np.full((H, W, 3), 255, np.uint8); zb = np.full((H, W), -1e9)
     P = np.empty_like(T)

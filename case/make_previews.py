@@ -11,18 +11,23 @@ def mesh(shape, name):
     cq.exporters.export(shape, p, tolerance=0.02, angularTolerance=0.2)
     return trimesh.load(p)
 
-SH, LID, CAP, INL, DECK = (205, 207, 212), (140, 152, 170), (235, 120, 40), (25, 95, 150), (120, 170, 130)
+BODY, ACC = (226, 226, 220), (52, 54, 60)               # the two filaments: light body, charcoal accent
+SH, LID, CAP, INL, DECK = BODY, BODY, ACC, ACC, (120, 170, 130)
 shell_m, lid_m, caps_m = mesh(shell, "s.stl"), mesh(lid_asm, "l.stl"), mesh(caps_asm, "c.stl")
-inlay_m = mesh(inlay, "i.stl")
+inlay_m, lid_inlay_m, caps_inlay_m = mesh(inlay, "i.stl"), mesh(lid_inlay_asm, "li.stl"), mesh(caps_inlay_asm, "ci.stl")
+two = [shell_m, lid_m, caps_m, inlay_m, lid_inlay_m, caps_inlay_m]
+two_c = [BODY, BODY, ACC, ACC, ACC, BODY]                 # cap legends are body colour, the lid wordmark accent
 for view, name in (("front", "preview_front.png"), ("back", "preview_back.png"), ("isoback", "preview_iso_back.png"),
                    ("iso", "preview_iso_front.png")):
-    render.render([shell_m, lid_m, caps_m, inlay_m], [SH, LID, CAP, INL], view, 1000, name)
+    render.render(two, two_c, view, 1000, name)
+# close-up of the control band and the panel's lower edge (front view: x is mirrored)
+render.render(two, two_c, "front", 1000, "preview_front_closeup.png", zoom=2.3, focus=(0, band_cy + 12))
 
 # open shell with stand-in parts: display PCB, battery, Feather, switches, piezo, deck
 PCB, BAT, FE, SW = (40, 120, 70), (70, 110, 200), (200, 60, 60), (240, 200, 60)
 parts = [(f.pcb, PCB), (f.batt, BAT), (f.fe.union(f.fe_comp), FE), (f.sws, SW), (f.piezo, (230, 230, 230)), (deck, DECK)]
-meshes = [shell_m, caps_m, inlay_m] + [mesh(p, f"p{i}.stl") for i, (p, c) in enumerate(parts)]
-cols = [SH, CAP, INL] + [c for p, c in parts]
+meshes = [shell_m, caps_m, inlay_m, caps_inlay_m] + [mesh(p, f"p{i}.stl") for i, (p, c) in enumerate(parts)]
+cols = [SH, CAP, INL, BODY] + [c for p, c in parts]
 render.render(meshes, cols, "back", 1000, "preview_open.png")
 render.render(meshes, cols, "isoback", 1000, "preview_open_iso.png")
 

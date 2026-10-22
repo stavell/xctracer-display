@@ -55,10 +55,6 @@ chk("switches vs feather", sws, fe.union(fe_comp))
 chk("caps vs switches", caps_asm, sws)
 chk("piezo vs feather", piezo, fe.union(fe_comp))
 chk("piezo vs display back / battery", piezo, backcomp.union(batt))
-for (u, v), d in ((fe_reset, reset_hole_d), (fe_user, user_hole_d)):
-    x, y = fe_xy(u, v)
-    pin = cyl(x, y, sw_top_z, total_depth + 1, d * 0.9)
-    chk(f"access pin path ({d} mm)", case, pin)
 chk("inlay inside shell material", inlay, shell_plain.cut(shell_plain.cut(inlay)), tol=1e9) if False else None
 v_in = vol(inlay)
 print(f"inlay volume {v_in:.1f} mm3; part inside solid shell material {vol(inlay.intersect(shell_plain)):.1f} mm3")
@@ -72,7 +68,7 @@ def opening_prism(kind, grow=0.0):
     if kind == "dp":
         return cross(dp_h + op_clr + grow, dp_w + op_clr + grow, -1, 40, dp_r + op_clr + grow)
     return cyl(0, 0, -1, 40, ab_d + 2 * (op_clr + grow))
-for kind, cap, th, hd in (("dp", dp_cap, dp_th, "D-pad"), ("ab", ab_cap, ab_th, "A/B")):
+for kind, cap, th, hd in (("dp", dp_cap, dp_th, "D-pad"), ("ab", ab_cap["A"], ab_th, "A"), ("ab", ab_cap["B"], ab_th, "B")):
     head = cap.intersect(blk(0, 0, -1, th - 0.01, 60, 60))                    # everything in front of the flange
     not_passing = vol(head.cut(opening_prism(kind)))
     snug = vol(head.cut(opening_prism(kind, -(op_clr - 0.28))))               # must still be inside the opening - (0.3 - 0.28)
@@ -130,12 +126,14 @@ for ang, nm in ((0, "up"), (180, "down"), (90, "left"), (270, "right")):
 # ---------------- misc ----------------
 print(f"plunger gap to stub {plunger_gap} mm; deck ring {z_bf - z_deck:.1f} mm; flange-to-deck {z_deck - plate_t - fl_t:.1f} mm")
 print(f"snap tab strain {1.5 * skirt_t * hook_depth / skirt_h**2 * 100:.2f} %  (L {skirt_h} t {skirt_t}, L/t {skirt_h/skirt_t:.1f}), tabs {len(tabs)}")
-ys = [fe_xy(*fe_reset)[1], fe_xy(*fe_user)[1]]
-y_free0 = max(ys) + 4
-print(f"flat lid: full {outer_w - 2*front_chamfer:.1f} x {outer_h - 2*front_chamfer:.1f}; hole-free above y={y_free0:.1f}: "
-      f"{outer_w - 2*front_chamfer:.1f} x {outer_h/2 - front_chamfer - y_free0:.1f} mm")
+print(f"flat lid: {outer_w - 2*front_chamfer:.1f} x {outer_h - 2*front_chamfer:.1f}, no holes (wordmark inlay in the bottom {lid_wm_y + outer_h/2 + lid_cap_h/2:.1f} mm)")
 print(f"bezel (case edge to window): left {outer_w/2 - win_w/2:.2f} mm, right {outer_w/2 - win_w/2:.2f} mm; "
       f"window centre x = 0, D-pad centre x = {dp_cx:.2f}, A/B pair centre x = {pair_cx:.2f}")
+pn_gap = pn_bot - (band_cy + dp_h + op_clr)
+print(f"panel bottom to the D-pad opening: {pn_gap:.2f} mm; to A: {pn_bot - (buttons['A'][1] + ab_d / 2 + op_clr):.2f} mm")
+if pn_gap < 3.0:
+    bad += 1
+    print("   <-- PANEL TOO CLOSE TO THE D-PAD")
 print("RESULT:", "FAIL" if bad else "PASS")
 if __name__ == "__main__":
     sys.exit(1 if bad else 0)

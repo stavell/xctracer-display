@@ -54,7 +54,6 @@ ab_shift = -1.0       # A/B pair centre offset from the band centre (keeps A cle
 op_clr = 0.3          # opening = head outline + this clearance all round
 fl_ov, fl_t = 1.2, 1.2              # flange overlap beyond the opening, flange thickness
 head_ch = 0.6         # 45 deg chamfer on the cap top edge (prints face down)
-dish_d, dish_r = 0.3, 5.0           # shallow finger dish in the D-pad centre
 nub_h, nub_r = 0.95, 2.0            # D-pad pivot nub (dome) on the flange back; 0.25 below the deck = centre-press travel
 boss_h, boss_d = 0.8, 6.0           # A/B travel-limit boss on the flange back
 sw_size, sw_body_h, sw_plunger = 6.0, 4.0, 0.2    # TS-061 6x6, measured: body 3.9-4.0, actuator 0.2 above it (4.2 free)
@@ -117,9 +116,11 @@ piezo_cup_h = 3.0     # cradle depth along the body axis (the rest is glue + lea
 buz_z = 15.0          # axis height: clear of the display back components below and of the lid plate above
 snd_slots, snd_pitch, snd_w = 5, 2.0, 1.0
 
-# Lid access holes
-tube_od = 4.6
-reset_hole_d, user_hole_d = 1.8, 3.4
+# Front panel (rev 5): the dark screen panel around the window sits this far below the window, and the case grew by
+# the same strip between the display and the control band, so the panel clears the D-pad opening by 3.5 mm.
+panel_gap = 3.5       # mm - extra case length between the control band and the display (mat below the window)
+panel_m = 2.0         # mm - panel edge inside the flat front face (top and sides)
+panel_r_big = 9.0     # mm - the Game-Boy nod: bottom corner on the A/B side (front view, bottom right)
 
 # ============================================================
 # DERIVED
@@ -135,7 +136,7 @@ band_h = 2 * dp_fl_half + 1.0                   # control band inner height
 win_x_pcb = -(pcb_h / 2 - disp_ear - 1.8 - active_h / 2)    # active-area centre on the PCB, case X (PCB centred)
 pcb_dx = -win_x_pcb
 inner_w = disp_w + 2 * abs(pcb_dx)
-inner_h = disp_l + band_h
+inner_h = disp_l + band_h + panel_gap
 led_w = (inner_w - (batt_x - 3.7)) / 2          # battery rail width: free gap between rails 51.3 mm
 outer_w = inner_w + 2 * wall
 outer_h = inner_h + 2 * wall
@@ -158,7 +159,7 @@ assert led_top + batt_z + 0.5 <= shell_depth
 y_bot = -inner_h / 2                            # inner bottom wall face
 y_band_top = y_bot + band_h
 band_cy = y_bot + band_h / 2
-disp_cy = y_band_top + disp_l / 2
+disp_cy = y_band_top + panel_gap + disp_l / 2
 
 # ============================================================
 # HELPERS
@@ -356,16 +357,6 @@ skirt_in = (cq.Workplane("XY").workplane(offset=lid_t)
 lid = lid_plate.union(skirt_out.cut(skirt_in))
 lid_asm = lid.rotate((0, 0, 0), (1, 0, 0), 180).translate((0, 0, total_depth))
 
-# access tubes + holes over the Feather reset / user switches (not in the flat velcro area)
-sw_top_z = fe_top_z + fe_sw_h
-access = []
-for (u, v), d in ((fe_reset, reset_hole_d), (fe_user, user_hole_d)):
-    x, y = fe_xy(u, v)
-    access.append((x, y, d))
-    lid_asm = lid_asm.union(cyl(x, y, sw_top_z + 0.8, seam_z + 0.1, tube_od))
-for x, y, d in access:
-    lid_asm = lid_asm.cut(cyl(x, y, sw_top_z, total_depth + 1, d))
-
 # notches in the skirt: USB plug, piezo disc
 lid_asm = lid_asm.cut(usb_cut)
 lid_asm = lid_asm.cut(blk(buz_x, y_top + 0.5, skirt_z0 - 0.1, seam_z + 0.1, cr_w + 2.0, 6))
@@ -381,14 +372,41 @@ for side, c in tabs:
             lid_asm = lid_asm.cut(blk(c + d * (tab_w / 2 + tab_slit / 2), ys, skirt_z0 - 0.1, seam_z + 0.05, tab_slit, skirt_t + 0.2))
     lid_asm = lid_asm.union(wedge(side, c, hook_depth, hook_z0, hook_h))
 lid_asm = pry(lid_asm)
-lid = lid_asm.rotate((0, 0, 0), (1, 0, 0), 180).translate((0, 0, total_depth))
+
+# --- lid inlay: wordmark flush in the back face (assembly frame: back face at z = total_depth, read from +Z) ---
+inlay_t = 0.4
+INLAY_FONT = "Helvetica"
+CAP_RATIO = 0.72                                    # Helvetica Bold cap height / font size (measured)
+
+def text_solid(txt, cap_h, z0=0.0):
+    """bold text centred on the origin, reads normally seen from +Z, from z0 to z0 + inlay_t"""
+    return (cq.Workplane("XY").workplane(offset=z0)
+            .text(txt, cap_h / CAP_RATIO, inlay_t, font=INLAY_FONT, kind="bold", halign="center", valign="center"))
+
+lid_cap_h = 3.5
+lid_wm_y = -outer_h / 2 + front_chamfer + 5.0       # text centre 5 mm above the flat edge: spans 3.25 .. 6.75 mm
+lid_inlay_asm = text_solid("XC DISPLAY", lid_cap_h, total_depth - inlay_t).translate((0, lid_wm_y, 0))
+lid_asm = lid_asm.cut(lid_inlay_asm.union(lid_inlay_asm.translate((0, 0, 0.5))))
+def to_lid_print(shape):
+    return shape.rotate((0, 0, 0), (1, 0, 0), 180).translate((0, 0, total_depth))
+lid = to_lid_print(lid_asm)
+lid_inlay = to_lid_print(lid_inlay_asm)             # printed face down: mirrored here, reads right from the back
 
 # ============================================================
 # BUTTON CAPS (Game-Boy style: head through the opening, flange behind the plate; printed head down)
 # ============================================================
-def dished(head, r_dish, d, z0=0.0):
-    R = (r_dish ** 2 + d ** 2) / (2 * d)
-    return head.cut(cq.Workplane("XY").sphere(R).translate((0, 0, z0 + d - R)))
+def front_text(txt, cap_h, x, y):
+    """bold text readable from the FRONT (case +X is on the viewer's left), centred at case (x, y), upright"""
+    return text_solid(txt, cap_h).translate((-x, y, 0)).mirror("YZ")
+
+def arrow(tip, direction, s=2.2, r=0.4):
+    """solid triangle pointing along direction (dx, dy), outer tip at distance tip from the origin.
+    Minkowski sum of an equilateral triangle (side s) and a disc r: 3.0 wide, 2.7 long, rounded corners (min stroke)."""
+    dx, dy = direction
+    t = tip - r
+    pts = [(0, t), (-s / 2, t - s * math.sqrt(3) / 2), (s / 2, t - s * math.sqrt(3) / 2)]
+    pr = [(px * dy + py * dx, -px * dx + py * dy) for px, py in pts]
+    return cq.Workplane("XY").polyline(pr).close().offset2D(r).extrude(inlay_t)
 
 fl_off = op_clr + fl_ov                      # flange outline beyond the head outline
 dp_th = dp_proud + plate_t                   # D-pad head length (front tip z = 0 in cap coordinates)
@@ -396,7 +414,6 @@ ab_th = ab_proud + plate_t
 
 def make_dpad_cap():
     head = cross(dp_h, dp_w, 0, dp_th, dp_r).faces("<Z").chamfer(head_ch)
-    head = dished(head, dish_r, dish_d)
     fl = cross(dp_h + fl_off, dp_w + fl_off, dp_th, dp_th + fl_t, dp_r + fl_off).faces("<Z").chamfer(0.6)
     z_fb = dp_th + fl_t
     R = (nub_r ** 2 + nub_h ** 2) / (2 * nub_h)
@@ -409,18 +426,35 @@ def make_dpad_cap():
 
 def make_ab_cap():
     head = cq.Workplane("XY").circle(ab_d / 2).extrude(ab_th).faces("<Z").chamfer(head_ch)
-    head = dished(head, 4.0, 0.25)
     fl = (cq.Workplane("XY").workplane(offset=ab_th).circle(ab_d / 2 + fl_off).extrude(fl_t).faces("<Z").chamfer(0.6))
     z_fb = ab_th + fl_t
     cap = head.union(fl).union(cyl(0, 0, z_fb - 0.05, z_fb + boss_h, boss_d))
     return cap.union(cyl(0, 0, z_fb + boss_h - 0.05, z_fb + stub_h, stub_d))    # stub past the boss (travel stop)
 
-dp_cap, ab_cap = make_dpad_cap(), make_ab_cap()
-caps_print = (dp_cap.union(ab_cap.translate((fl_off + dp_h + ab_d / 2 + 7.0, 0, 0)))
-              .union(ab_cap.translate((fl_off + dp_h + ab_d / 2 + 7.0 + ab_d + 2 * fl_off + 2.0, 0, 0))))
+# Legends (coaster style): BODY-colour inlay 0.4 mm deep, flush in the flat cap top, same print frame as the cap.
+cap_letter_h = 4.5                                   # cap height of A / B on the 9.5 mm caps
+arrow_inset = 2.5                                    # arrow tip to the arm end
+def dp_legend():
+    out = None
+    for d in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        a = arrow(dp_h - arrow_inset, d)
+        out = a if out is None else out.union(a)
+    return out
+def pocketed(cap, legend):
+    return cap.cut(legend.union(legend.translate((0, 0, -0.5))))
+
+dp_leg, ab_leg = dp_legend(), {k: front_text(k, cap_letter_h, 0, 0) for k in ("A", "B")}
+dp_cap, ab_cap_plain = pocketed(make_dpad_cap(), dp_leg), make_ab_cap()
+ab_cap = {k: pocketed(ab_cap_plain, ab_leg[k]) for k in ("A", "B")}
+ab_x1 = fl_off + dp_h + ab_d / 2 + 7.0               # print frame: D-pad at the origin, A and B beside it
+ab_x2 = ab_x1 + ab_d + 2 * fl_off + 2.0
+caps_print = dp_cap.union(ab_cap["A"].translate((ab_x1, 0, 0))).union(ab_cap["B"].translate((ab_x2, 0, 0)))
+caps_inlay = dp_leg.union(ab_leg["A"].translate((ab_x1, 0, 0))).union(ab_leg["B"].translate((ab_x2, 0, 0)))
 caps_asm = dp_cap.translate((dp_cx, band_cy, -dp_proud))
+caps_inlay_asm = dp_leg.translate((dp_cx, band_cy, -dp_proud))
 for k in ("A", "B"):
-    caps_asm = caps_asm.union(ab_cap.translate((buttons[k][0], buttons[k][1], -ab_proud)))
+    caps_asm = caps_asm.union(ab_cap[k].translate((buttons[k][0], buttons[k][1], -ab_proud)))
+    caps_inlay_asm = caps_inlay_asm.union(ab_leg[k].translate((buttons[k][0], buttons[k][1], -ab_proud)))
 
 # ============================================================
 # SWITCH DECK (snaps onto the two pins over the caps and traps the flanges; carries the six switch cups)
@@ -450,30 +484,22 @@ for name, (bx, by) in buttons.items():
 
 # ============================================================
 # FRONT INLAY (2 layers = 0.4 mm, flush with the front face, same frame as the shell)
+# One dark screen panel around the window, DMG style. No text, no lines.
 # ============================================================
-inlay_t = 0.4
-INLAY_FONT = "Helvetica"
-
-def front_text(txt, size, x, y, rot=0.0):
-    """bold text readable from the FRONT, centred at case (x, y); rot = counter-clockwise as seen from the front"""
-    t = cq.Workplane("XY").text(txt, size, inlay_t, font=INLAY_FONT, kind="bold", halign="center", valign="center")
-    t = t.rotate((0, 0, 0), (0, 0, 1), rot).translate((-x, y, 0))
-    return t.mirror("YZ")
-
-frame_gap, frame_line = 1.7, 1.0
-fw_i, fh_i = win_w + 2 * frame_gap, win_h + 2 * frame_gap
-fr_r = win_r + frame_gap
-inlay = (blk(0, disp_cy, 0, inlay_t, fw_i + 2 * frame_line, fh_i + 2 * frame_line, fr_r + frame_line)
-         .cut(blk(0, disp_cy, -1, inlay_t + 1, fw_i, fh_i, fr_r)))
-lab = 5.0                                           # font size -> cap height ~ 3.6 mm
-ax, ay = buttons["A"]
-bx_, by_ = buttons["B"]
-inlay = inlay.union(front_text("A", lab, ax, ay + ab_d / 2 + 4.2))
-inlay = inlay.union(front_text("B", lab, bx_ - ab_d / 2 - 3.6, by_))
-x_wm = -(fw_i / 2 + frame_line + (outer_w / 2 - front_chamfer)) / 2     # centred in the right-hand bezel (front view)
-inlay = inlay.union(front_text("XC DISPLAY", 4.6, x_wm, disp_cy, 90))
+flat_hw, flat_hh = outer_w / 2 - front_chamfer, outer_h / 2 - front_chamfer     # flat front face half sizes
+pn_x, pn_top = flat_hw - panel_m, flat_hh - panel_m
+win_open_bot = disp_cy - win_h / 2 - win_ch          # window edge on the front face (with its chamfer)
+pn_bot = win_open_bot - 3.5                            # mat below the window (top is 1.4 mm: fixed by the case)
+pn_r = max(1.0, corner_r - front_chamfer - panel_m)   # concentric with the outer corners (1.5)
+panel = blk(0, (pn_top + pn_bot) / 2, 0, inlay_t, 2 * pn_x, pn_top - pn_bot)
+for (cx_, cy_, r_) in ((pn_x, pn_top, pn_r), (-pn_x, pn_top, pn_r),
+                       (pn_x, pn_bot, pn_r),                       # front-left (case +X)
+                       (-pn_x, pn_bot, panel_r_big)):              # front-right (case -X): the nod
+    panel = panel.edges(cq.selectors.NearestToPointSelector((cx_, cy_, inlay_t / 2))).fillet(r_)
+# the panel runs right to the glass: its edge follows the window chamfer (a straight cut would leave a body-colour sliver)
+inlay = panel.cut(bez).cut(blk(0, disp_cy, -1, inlay_t + 1, win_w, win_h, win_r))
 shell_plain = shell
-shell = shell.cut(inlay.translate((0, 0, 0.0)).union(inlay.translate((0, 0, -0.5))))
+shell = shell.cut(inlay.union(inlay.translate((0, 0, -0.5))))
 
 # ============================================================
 # FEEL-TEST PLATE: the control band of the front plate with openings, pins, rails, Feather posts (deck + caps go with it)
@@ -493,9 +519,10 @@ def stl(shape, name, dz=0.0):
 
 if __name__ == "__main__":
     stl(shell, "case_shell.stl"); stl(inlay, "case_shell_inlay.stl")
-    stl(lid, "case_lid.stl"); stl(caps_print, "case_buttons.stl")
+    stl(lid, "case_lid.stl"); stl(lid_inlay, "case_lid_inlay.stl")
+    stl(caps_print, "case_buttons.stl"); stl(caps_inlay, "case_buttons_inlay.stl")
     stl(deck, "case_deck.stl", -z_deck); stl(testplate, "case_testplate.stl")
-    stl(shell.union(deck).union(lid_asm).union(caps_asm).union(inlay), "case_assembly.stl")
+    stl(shell.union(deck).union(lid_asm).union(caps_asm).union(inlay).union(lid_inlay_asm).union(caps_inlay_asm), "case_assembly.stl")
     for shp, nm in ((shell, "case_shell"), (lid, "case_lid"), (caps_print, "case_buttons"), (deck.translate((0, 0, -z_deck)), "case_deck")):
         cq.exporters.export(shp, nm + ".step")
     print(f"Outer {outer_w:.1f} x {outer_h:.1f} x {total_depth:.1f} mm (shell {shell_depth:.1f}); band_h {band_h:.1f}")
