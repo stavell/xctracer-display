@@ -57,8 +57,8 @@ head_ch = 0.6         # 45 deg chamfer on the cap top edge (prints face down)
 dish_d, dish_r = 0.3, 5.0           # shallow finger dish in the D-pad centre
 nub_h, nub_r = 0.95, 2.0            # D-pad pivot nub (dome) on the flange back; 0.25 below the deck = centre-press travel
 boss_h, boss_d = 0.8, 6.0           # A/B travel-limit boss on the flange back
-sw_size, sw_body_h, sw_plunger = 6.0, 3.5, 0.7    # TS-061 6x6: 4.2 total measured; body 3.5 ASSUMED, plunger 0.7
-sw_travel = 0.2       # mm - measured: 4.2 free, 4.0 pressed
+sw_size, sw_body_h, sw_plunger = 6.0, 4.0, 0.2    # TS-061 6x6, measured: body 3.9-4.0, actuator 0.2 above it (4.2 free)
+sw_travel = 0.2       # mm - measured: 4.2 free, 4.0 pressed (actuator goes flush with the body)
 plunger_gap = 0.1
 deck_ring = 1.2       # deck ceiling thickness between the flanges and the switch bodies
 z_flange_back = plate_t + fl_t
