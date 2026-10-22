@@ -120,9 +120,9 @@ snd_slots, snd_pitch, snd_w = 5, 2.0, 1.0
 # Front panel (rev 5): one dark screen panel around the window, picture-mat margins measured window edge to panel edge.
 # The side margin (11.4) is set by the display width; the case is made as long as the margins need.
 panel_m = 2.0         # mm - panel edge inside the flat front face (top and sides)
-panel_top = float(os.environ.get("CASE_TOP", 9.0))     # mat above the window (about 0.8 x the sides)
-panel_bot = float(os.environ.get("CASE_BOT", 12.5))    # mat below the window (about 1.1 x the sides)
-ctrl_gap = 7.0        # mm - panel to the control openings, and openings to the flat bottom edge: deliberate and equal
+panel_top = float(os.environ.get("CASE_TOP", 7.0))     # mat above the window (about 0.6 x the sides)
+panel_bot = float(os.environ.get("CASE_BOT", 11.0))    # mat below the window (about the sides: optical weight)
+ctrl_gap = 5.0        # mm - panel to the control openings, and openings to the flat bottom edge: deliberate and equal
 panel_r_big = 11.0    # mm - the Game-Boy nod: bottom corner on the A/B side (front view, bottom right)
 strip_wall = 3.0      # mm - solid wall left between the hollow strips and the display pocket
 
