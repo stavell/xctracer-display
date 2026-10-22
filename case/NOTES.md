@@ -43,7 +43,7 @@ Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is
 - Sliding clearances 0.25 (lid), 0.1-0.3 for caps; pegs 2.4 in 2.5 holes (press/snap). **Pegs are 2.4 mm, below the 2.5 mm upright guideline** because the PCB holes are 2.5: they are short (<= 2.5 mm tall incl. head) and slotted; print the shell slow, check one.
 
 ## Assumptions to verify before printing
-- ~~Glass module height above the PCB~~: measured 2026-10-22, glass + PCB = 3.5 mm (`glass_t` 1.9; was guessed 2.4).
+- ~~Glass module height above the PCB~~: measured 2026-10-22, PCB 1.6, PCB + glass 3.6 mm (`glass_t` 2.0; was guessed 2.4).
 - Tact switch body height alone (3.5 assumed; total 4.2 measured), plunger diameter 3.5, switch legs (3.5 mm gap under the Feather).
 - ~~Battery real size~~ 55 x 35 x 13 measured; JST polarity vs Feather, battery lead length to the Feather JST (JST sits on the Feather top edge near the USB end).
 - Feather tall part height 6 mm (`fe_comp_h`), USB overmold fits 11.5 x 7.
@@ -63,7 +63,7 @@ Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is
 - `preview_*.png`
 
 ## Measured parts, tolerances (2026-10-22)
-- Glass + display PCB 3.5 mm (`glass_t` 1.9). Battery 55 x 35 x 13. TS-061 switches 4.2 free / 4.0 pressed.
+- Display PCB 1.6, with the glass 3.6 mm (`glass_t` 2.0). Battery 55 x 35 x 13. TS-061 switches 4.2 free / 4.0 pressed.
 - Depth now set by the battery stack, not the Feather: `shell_depth = max(Feather stack, display + 3.5 comp zone + 13 cell + 1.5 foam)`; outer 66.9 x 96.3 x 24.7.
 - Tolerances: display pocket +0.8 (`pcb_clear`), battery 1.5 mm between its stops (`batt_slack`), 1.5 mm behind the cell (`batt_foam`),
   ~2.5 mm over the Feather parts to the lid.

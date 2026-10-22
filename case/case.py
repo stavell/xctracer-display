@@ -19,7 +19,7 @@ import cadquery as cq
 pcb_w = 63.5          # mm - PCB long side (runs along case Y)
 pcb_h = 55.88         # mm - PCB short side (runs along case X)
 pcb_t = 1.6
-glass_t = 1.9         # mm - glass module height above PCB front (measured: glass + PCB = 3.5)
+glass_t = 2.0         # mm - glass module height above PCB front (measured: PCB 1.6, PCB + glass 3.6)
 pcb_clear = 0.8       # mm - total clearance around PCB (assembly tolerance)
 
 # Battery 55x35x13 (measured), lying with 55 along X, 35 along Y (behind the display)
