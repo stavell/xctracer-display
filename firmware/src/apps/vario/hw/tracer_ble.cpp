@@ -62,8 +62,13 @@ void TracerBle::onScan(ble_gap_evt_adv_report_t* r) {
   Bluefruit.Scanner.resume();
 }
 
+// A connect that is still pending when the box goes quiet would otherwise complete later (the SoftDevice waits forever) and
+// keep a link up through the clock sleep. Harmless when none is pending.
+static void cancelConnect() { sd_ble_gap_connect_cancel(); }
+
 void TracerBle::onConnect(uint16_t h) {
   if (!self) return;
+  if (self->paused_) { Bluefruit.disconnect(h); return; }   // a connect that raced pause()
   // A new link supersedes a disconnect the loop has not processed yet (e.g. the old link dropped when a
   // new tracer was picked from the list): without this, update() would demote the fresh link.
   self->rescan_ = false;
@@ -161,6 +166,7 @@ void TracerBle::update(uint32_t now) {
     if (!connectingSince_) connectingSince_ = now;
     if (now - connectingSince_ > 8000) {
       connectingSince_ = 0;
+      cancelConnect();
       link_ = cfg_.hasSaved() ? ViewModel::LINK_SEARCHING : ViewModel::LINK_NONE;
       if (!listMode_) startScan(SCAN_FAST_RECONNECT, now);
     }
@@ -232,6 +238,7 @@ bool TracerBle::listConnect(int i) {
 }
 
 void TracerBle::disconnect() {
+  if (link_ == ViewModel::LINK_CONNECTING) cancelConnect();   // power off mid-connect (update() rescans after a wake)
   if (conn_ != BLE_CONN_HANDLE_INVALID) Bluefruit.disconnect(conn_);
 }
 
@@ -243,6 +250,7 @@ void TracerBle::pause() {
   listMode_ = false;
   Bluefruit.Scanner.stop();
   scanMode_ = SCAN_OFF;
+  if (link_ == ViewModel::LINK_CONNECTING) cancelConnect();
   connectingSince_ = 0;
   if (conn_ != BLE_CONN_HANDLE_INVALID) Bluefruit.disconnect(conn_);   // the callback only sets rescan_
   link_ = ViewModel::LINK_NONE;

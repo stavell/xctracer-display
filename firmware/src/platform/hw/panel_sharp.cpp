@@ -159,6 +159,21 @@ void SharpPanel::showRaw(const uint8_t* frame) {
   refresh();
 }
 
+// The two-byte "display" command (M0 = 0: no write, M2 = 0: no clear) carrying only the VCOM bit. With EXTMODE low
+// on the breakout the EXTCOMIN pin is ignored and the panel flips VCOM only on this bit, so a picture left alone for a
+// minute (the clock sleep) would sit under DC. Works whichever way EXTMODE is strapped.
+void SharpPanel::vcomPulse() {
+  waitIdle();                          // gTx must not change under the DMA
+  if (!ready_) return;
+  gTx[0] = vcomBit_;
+  gTx[1] = 0x00;
+  vcomBit_ = vcomBit_ ? 0x00 : SHARPMEM_BIT_VCOM;
+  nrfx_spim_xfer_desc_t xfer = NRFX_SPIM_XFER_TX(gTx, 2);
+  gStartCyc = cycNow();
+  gDone = false;
+  if (nrfx_spim_xfer(&spim, &xfer, 0) != NRFX_SUCCESS) gDone = true;
+}
+
 void SharpPanel::stopVcom() {
   waitIdle();
   vcom_.stop();

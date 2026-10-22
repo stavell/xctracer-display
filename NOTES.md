@@ -301,9 +301,19 @@ loop restarts the start-up app, with the intro (`PowerNrf::takeResumed()` -> `st
   Hero time in round-capped stroke numerals (`platform/gfx/strokes.h`: a disc stamped along lines and arcs, geometric sans, 13 px stroke, 44 x 99 px per numeral, tabular cells, colon = two dots); `--:--` as dashes when the time is unknown or older than 12 h (staleness rule of `clock.h`). Battery: outline with a level, no digits.
   Small text uses the shared Font1 cache (Sans 9, SansBold 12, and SansBold 18 built by this screen only).
 - Device wait (`power_nrf.cpp`): `ulTaskNotifyTake` with a timeout on the loop task, woken by a GPIOTE interrupt on the switch
-  (`attachInterrupt`, PORT-event based, no hi-accuracy). The CPU sleeps in FreeRTOS tickless idle (the core's RTC1 keeps
-  `millis()`), so the only regular wake-ups are the panel's 1 Hz VCOM timer, the watchdog feed (every 4 s: the 8 s WDT runs
-  in sleep) and the minute redraw. While the switch is down it polls every 20 ms (at most 1 s).
+  (`attachInterrupt`). The CPU sleeps in FreeRTOS tickless idle (the core's RTC1 keeps `millis()`), so the only regular
+  wake-ups are the panel's 1 Hz EXTCOMIN timer, the loop once a second (a VCOM flip over SPI + the watchdog feed) and the
+  minute redraw. While the switch is down it polls every 20 ms (at most 1 s).
+- Power review 2026-10-22 (user: the weather screen seemed to use too much power). All sensors were already idle between
+  the minute reads (IMU + magnetometer off, BMP280 forced, SHT30 single shot, QSPI deep power-down, APDS9960 and the mic
+  never started). Found and fixed: (1) the button's 10 ms sampling timer kept running through the sleep, 100 wake-ups a
+  second (`ButtonGpio::pause/resume` around the sleep); (2) a tracer connect pending at power off was never cancelled (the
+  SoftDevice waits forever) and could bring a link up during the sleep (`sd_ble_gap_connect_cancel` in `disconnect()`,
+  `pause()` and the 8 s timeout; `onConnect` drops a link while paused); (3) VCOM: the wiring has EXTCOMIN on the MI pad, which
+  the panel ignores unless the breakout's EXTMODE pin is high, and then VCOM flipped only with each frame (once a minute in the
+  sleep): `SharpPanel::vcomPulse()` sends the 2-byte VCOM command each second. Still open: `attachInterrupt` uses a GPIOTE IN
+  channel (`WInterrupts.c`: CONFIG MODE_Event), not the PORT event this note used to claim; an IN channel may cost about
+  20 uA (datasheet value from memory, check it, and measure).
 - Vario-only image: `enableClockSleep()` is never called, `shutdown()` is System OFF exactly as before.
 - Emulator: `Box::tick()` turns `MockPower::requests` into the same state machine (`Box::sleep`); the PC player shows it
   (hold `off`, then hold the switch 1 s, or press R to restart).

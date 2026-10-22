@@ -2,6 +2,7 @@
 #include <bluefruit.h>
 #include "platform/hw/watchdog.h"
 #include "platform/hw/pins.h"
+#include "platform/hw/input_button.h"
 #include "platform/hw/pack_service.h"
 #include "platform/clock.h"
 #include "platform/power/clock_view.h"
@@ -77,7 +78,7 @@ struct SleepEv { uint32_t ms; int16_t minute; uint8_t ask64; char what; };   // 
 SleepEv ring[kRing];
 uint32_t ringN = 0, nFeed = 0;                      // nFeed: the plain 4 s watchdog wake-ups (not logged one by one)
 void ringAdd(char what, uint32_t ms, uint32_t asked, int minute) {
-  if (what == 'T' && asked >= 4000) { nFeed++; return; }
+  if (what == 'T' && asked >= 1000) { nFeed++; return; }   // the plain once-a-second VCOM / watchdog wake-ups
   SleepEv& e = ring[ringN++ % kRing];
   e.ms = ms; e.ask64 = (uint8_t)(asked / 64 > 255 ? 255 : asked / 64); e.minute = (int16_t)minute; e.what = what;
 }
@@ -91,12 +92,14 @@ void ringDump() {
 }  // namespace
 
 // Clock sleep, System ON; the radios are already off. The CPU sleeps in FreeRTOS's tickless idle (the RTC keeps
-// millis() running) until the next minute, a press of the switch, or the watchdog's feed time. The panel keeps its
-// picture and its 1 Hz VCOM toggle (a FreeRTOS timer: the only regular wake-up). No polling except the 20 ms steps
-// while the switch is down.
+// millis() running) until the next minute, a press of the switch, or the next second. The panel keeps its picture;
+// each second the loop sends it a VCOM flip over SPI (vcomPulse) besides the EXTCOMIN timer, and feeds the watchdog.
+// The button's 10 ms sampling timer is stopped (it woke the CPU 100 times a second). No polling except the 20 ms
+// steps while the switch is down.
 void PowerNrf::clockSleep() {
-  static const uint32_t kFeedMs = 4000;                      // the watchdog (8 s) keeps running in sleep
+  static const uint32_t kPulseMs = 1000;                     // VCOM at about 1 Hz; also feeds the watchdog (8 s)
   if (deps_.compass) deps_.compass->enable(false);
+  if (deps_.buttons) deps_.buttons->pause();
   if (deps_.pack && !deps_.pack->loading()) deps_.pack->flash().powerDown();
   sleeper = xTaskGetCurrentTaskHandle();
   pinMode(pin_, INPUT_PULLUP);
@@ -108,9 +111,11 @@ void PowerNrf::clockSleep() {
   switchIrqs = 0;
   ringAdd('E', millis(), 0, -1);
   bool term = false;
+  uint32_t pulseAt = millis();
   for (;;) {
     watchdog::feed();
     const uint32_t now = millis();
+    if (now - pulseAt >= kPulseMs) { pulseAt = now; panel_.vcomPulse(); }
     const bool t = Serial;                                   // a terminal was attached meanwhile: show what happened so far
     if (t && !term) ringDump();
     term = t;
@@ -146,11 +151,11 @@ void PowerNrf::clockSleep() {
     } else if (st.act == SLEEP_OFF) {
       detachInterrupt(digitalPinToInterrupt(pin_));
       sleeper = nullptr;
-      fullOff();                                           // does not return
+      fullOff();                                           // does not return (the button timer stays stopped: a wake is a reset)
     } else {
       uint32_t ms = st.wakeAtMs - now;
       if ((int32_t)ms < 0) ms = 0;
-      if (ms > kFeedMs) ms = kFeedMs;
+      if (ms > kPulseMs) ms = kPulseMs;
       const uint32_t n = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(ms));
       ringAdd(n ? 'S' : 'T', millis(), ms, in.localMinute);
     }
@@ -160,6 +165,7 @@ void PowerNrf::clockSleep() {
   ringAdd('X', millis(), 0, -1);
   if (Serial) ringDump();
   waitRelease(pin_);                                         // the hold that woke us must not reach the app as a press
+  if (deps_.buttons) deps_.buttons->resume();
   radios_.resume();
   resumed_ = true;
 }

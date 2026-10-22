@@ -61,7 +61,7 @@ class TracerBle : public ITracer {
   std::atomic<bool> rescan_{false};
   volatile uint16_t conn_ = BLE_CONN_HANDLE_INVALID;
   bool listMode_ = false;
-  bool paused_ = false;
+  volatile bool paused_ = false;   // read by onConnect (callback)
   ScanMode scanMode_ = SCAN_OFF;
   uint32_t fastUntil_ = 0;
   uint32_t lastNow_ = 0;        // the `now` of the latest update(), for calls that get no time

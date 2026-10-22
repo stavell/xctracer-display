@@ -25,6 +25,17 @@ class ButtonGpio : public IInput {
     timer_.begin(SAMPLE_MS, onTimer);
     timer_.start();
   }
+  // The clock sleep: no 100 Hz sampling while it waits (its own switch interrupt and 20 ms polls take over). resume()
+  // starts from a released switch and empty queues, so the hold that ended the sleep never reaches the app.
+  void pause() { timer_.stop(); }
+  void resume() {
+    fsm_ = ButtonFsm();
+    mainDown_ = false;
+    for (int i = 0; i < KEY_PIN_COUNT; i++) deb_[i] = KeyDebounce();
+    held_.store(false, std::memory_order_release);
+    flush();
+    timer_.start();
+  }
   ButtonEvent poll(uint32_t) override {
     ButtonEvent e = BTN_NONE;
     events_.pop(e);

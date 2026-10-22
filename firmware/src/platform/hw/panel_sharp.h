@@ -20,6 +20,7 @@ class SharpPanel : public IPanel {
   void showRaw(const uint8_t* frame) override;
   bool ready() override;                  // the previous transfer is done: present() will not wait
   void stopVcom();
+  void vcomPulse();                       // VCOM flip over SPI, no data (the clock sleep, once a second)
   // Blocks until the in-flight transfer has finished (aborts it after 50 ms). Call before anything
   // that stops or powers down the panel.
   void waitIdle();

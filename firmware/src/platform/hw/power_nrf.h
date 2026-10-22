@@ -9,6 +9,7 @@ class BoxSettings;
 namespace retained { class Retention; }
 class WallClock;
 class PackService;
+class ButtonGpio;
 
 // What an app has to quiet before the board powers down (BLE links, scans, advertising).
 class IRadios {
@@ -31,6 +32,7 @@ struct ClockSleepDeps {
   IThermo* thermo;            // single-shot reads, once per redraw
   IBaro* baro;
   retained::Retention* retention;   // saved while the clock sleeps and before System OFF (null: nothing is retained)
+  ButtonGpio* buttons;        // its 10 ms sampling timer is stopped for the sleep (null: left running)
 };
 
 // Power off. System OFF: blank the panel, stop radios and VCOM, wake on the user switch (a wake is a reset).
