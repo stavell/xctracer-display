@@ -44,7 +44,7 @@ Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is
 
 ## Assumptions to verify before printing
 - ~~Glass module height above the PCB~~: measured 2026-10-22, PCB 1.6, PCB + glass 3.6 mm (`glass_t` 2.0; was guessed 2.4).
-- ~~Tact switch body height~~ measured 3.9-4.0 + 0.2 actuator; actuator diameter (3.5 assumed, the 3.4 stub must not be wider), switch legs (3.5 mm gap under the Feather).
+- ~~Tact switch body height~~ measured 3.9-4.0 + 0.2 actuator; actuator diameter (3.5 assumed, the 3.4 stub must not be wider), switch legs: 3.5 mm per the generic 6x6 drawing, 4.5 mm left under the Feather (`sw_leg_clear`).
 - ~~Battery real size~~ 55 x 35 x 13 measured; JST polarity vs Feather, battery lead length to the Feather JST (JST sits on the Feather top edge near the USB end).
 - Feather tall part height 6 mm (`fe_comp_h`), USB overmold fits 11.5 x 7.
 - PS1240 piezo real size (12.2 x 6.5) and lead position; D-pad nub gap (feel); cap flange eave print quality; deck pin snap fit; inlay colour change; back-of-display component height (3.5 mm zone, assumed).
@@ -70,3 +70,5 @@ Case frame: Z=0 front; X/Y as seen from the BACK. Seen from the front case +X is
 - **Wire channel**: the battery starts 6 mm above the button band (`wire_gap`), a full-depth channel across the case for the display, battery and piezo leads to the Feather.
 - Short plunger: the cap stubs are derived (`stub_h` 2.0) and reach through the deck's plunger holes; A/B get a stub past their 0.8 mm boss (still the travel stop, 0.4 mm).
   0.2 mm travel: D-pad nub gap 0.25 (`nub_h` 0.95) so a centre press (0.25) stays below firing (gap 0.1 + 0.2 = 0.3) and an arm reaches 0.43 at the stop. `fitcheck.py` now fails if that order breaks.
+- Generic 6x6 drawing (user, 2026-10-22): actuator 3.5 mm diameter (the 3.4 stub presses the actuator only), legs 3.5 mm behind the body, kinking out to 7.9 mm from 0.7 mm behind it.
+  The cups have leg slots on the case +-Y sides above the body (wedges stay on +-X): switches go in legs up/down. Leg room under the Feather 4.5 (legs + solder).

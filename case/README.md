@@ -61,7 +61,7 @@ drop in the caps, snap the deck on, clip in six real tact switches: feel the spa
 ## Assembly (shell face down on the bench)
 1. Shell front face down. **Drop the three caps in from the inside** (heads go through the openings, the flanges stop against the plate; they rock freely).
 2. Press the **deck** onto the two pins (cups face the back). The deck traps the flanges. The shell must stay face down until this step is done, a loose cap would fall out.
-3. **Clip the six tact switches** into the deck cups from the back (the plunger enters the hole, the 0.35 mm wedges catch the body). A drop of CA glue on each switch body where it sits in its cup (only if the wedges are loose).
+3. **Clip the six tact switches** into the deck cups from the back, **legs toward the top and bottom of the case** (into the leg slots; the wedges are on the other two sides) (the plunger enters the hole, the 0.35 mm wedges catch the body). A drop of CA glue on each switch body where it sits in its cup (only if the wedges are loose).
    **Never put glue near a cap**: the caps must move freely.
 4. Solder 6 GPIO wires + one common GND to the switch legs (see NOTES for the pin map to decide) and route them over the cup walls toward the Feather.
 5. Snap the display onto its 4 pegs, press the Feather onto its 4 posts (components toward the back), connect the wires and the battery.

@@ -66,7 +66,7 @@ z_deck = plate_t + 2.4              # deck underside (ceiling): flange back + 1.
 # Stubs reach through the deck's plunger holes: a short plunger (TS-061) needs them longer than the 0.8 minimum.
 stub_h, stub_d = max(0.8, z_deck + deck_ring - sw_plunger - plunger_gap - z_flange_back), 3.4
 z_pt = z_flange_back + stub_h + plunger_gap     # plunger tip rest position
-sw_leg_clear = 3.5    # mm - room behind the switch body for legs + wire solder
+sw_leg_clear = 4.5    # mm - room behind the switch body: legs 3.5 (drawing) + 1.0 for solder and wire
 sw_clear = 0.3
 cup_o = 8.6           # cup outer size
 plunger_hole_d = 4.0
@@ -442,6 +442,8 @@ for name, (bx, by) in buttons.items():
         pts = [(xw + sgn * 0.1, za), (xw - sgn * lip_p, za), (xw + sgn * 0.1, za + lip_len)]
         w = cq.Workplane("XZ").polyline(pts).close().extrude(lip_w).translate((0, by + lip_w / 2, 0))
         deck = deck.union(w)
+    # leg slots: the legs kink out to 7.9 mm from 0.7 mm behind the body; they leave on the case +-Y sides (wedges are on +-X)
+    deck = deck.cut(blk(bx, by, z_bb, cup_top + 1, sw_pocket, cup_o + 1))
 
 # ============================================================
 # FRONT INLAY (2 layers = 0.4 mm, flush with the front face, same frame as the shell)
