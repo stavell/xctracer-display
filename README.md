@@ -318,13 +318,15 @@ internal flash filesystem (28 kB) would hold only 3 minutes, which is why the QS
 | DI (MOSI) | MO | 25 | P0.13 |
 | CS (active high) | RX | 1 | P0.24 |
 | EXTCOMIN | not wired (the MI pad is free) | | |
-| DISP, EXTMODE | not recorded | ? | ? |
+| DISP, EXTMODE | not wired (breakout defaults) | | |
+| VIN, GND | 3V, GND | | |
 | User switch | on board | 7 (`PIN_BUTTON1`) | P1.02, active low |
 
 - Display: Adafruit SHARP Memory Display breakout, 2.7" 400x240 monochrome (product 4694), used in
   portrait. Pins are defined only in `firmware/src/platform/hw/pins.h`. `DISPLAY_ROTATION` is 1; 3 flips the picture
   180 degrees (to be confirmed once the box is mounted).
-- Where DISP and EXTMODE are wired was never recorded. The display works, so they are presumably tied high.
+- Only SCLK, MOSI, CS and power go to the display (checked 2026-10-23). DISP, EXTMODE and EXTCOMIN are left on the breakout's
+  defaults; the display works, so the picture is on and VCOM follows the SPI bit.
 - VCOM is the bit in each SPI command: every frame flips it, and on a still screen the loop sends a 2-byte VCOM command once a second (`SharpPanel::keepVcom`).
 - Only the user switch is wired. The case has six front buttons (D-pad + A / B, 6 GPIO + GND): define `PIN_KEY_UP/DOWN/LEFT/RIGHT/A/B` in `pins.h` (`platform/hw/keymap.h` is the table) to switch them on.
 - On-board sensors: I2C 0x1C LIS3MDL magnetometer, 0x6A LSM6DS33 accelerometer and gyro (compass and tilt, through `MotionService`), 0x44 SHT30 (temperature, humidity), 0x77 BMP280 (pressure).
