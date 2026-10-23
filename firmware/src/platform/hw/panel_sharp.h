@@ -4,8 +4,8 @@
 #include "platform/hw/fast_sharp.h"
 #include "platform/ports.h"
 
-// The 400x240 Sharp memory display: SPI refresh, change detection, and the 1 Hz VCOM toggle that
-// keeps the liquid crystal from degrading.
+// The 400x240 Sharp memory display: SPI refresh, change detection, and the VCOM flip (at least once a second) that
+// keeps the liquid crystal from degrading. EXTCOMIN is not wired: VCOM is the bit in each SPI command.
 class SharpPanel : public IPanel {
  public:
   SharpPanel();
@@ -19,8 +19,9 @@ class SharpPanel : public IPanel {
   void refresh() override;
   void showRaw(const uint8_t* frame) override;
   bool ready() override;                  // the previous transfer is done: present() will not wait
-  void stopVcom();
+  void stopVcom();                        // last transfer done, no more VCOM flips (before System OFF)
   void vcomPulse();                       // VCOM flip over SPI, no data (the clock sleep, once a second)
+  void keepVcom(uint32_t nowMs);          // from the loop: a VCOM flip when nothing was sent for a second
   // Blocks until the in-flight transfer has finished (aborts it after 50 ms). Call before anything
   // that stops or powers down the panel.
   void waitIdle();
@@ -40,7 +41,8 @@ class SharpPanel : public IPanel {
   int lastLines_ = 0;
   uint8_t vcomBit_ = SHARPMEM_BIT_VCOM;   // mirror of the library's private _sharpmem_vcom
   FastSharp display_;
-  SoftwareTimer vcom_;
+  uint32_t lastTxMs_ = 0;                 // last transfer of any kind (frame or VCOM flip)
+  bool vcomStopped_ = false;
   uint8_t* snap_ = nullptr;
   bool dirty_ = true;
   bool ready_ = false;                    // SPIM2 initialised

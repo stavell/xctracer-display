@@ -18,7 +18,6 @@ static void waitRelease(uint8_t pin) {
 }
 
 void PowerNrf::sleepNow(uint8_t pin) {
-  digitalWrite(PIN_DISP_EXTCOMIN, LOW);
   digitalWrite(PIN_DISP_CS, LOW);
   waitRelease(pin);
   retention_hw::prepareSystemOff();  // the retained history stays powered
@@ -132,7 +131,7 @@ void ringDump() {
 
 // Clock sleep, System ON; the radios are already off. The CPU sleeps in FreeRTOS's tickless idle (the RTC keeps
 // millis() running) until the next minute, a press of the switch, or the next second. The panel keeps its picture;
-// each second the loop sends it a VCOM flip over SPI (vcomPulse) besides the EXTCOMIN timer, and feeds the watchdog.
+// each second the loop sends it a VCOM flip over SPI (vcomPulse, EXTCOMIN is not wired), and feeds the watchdog.
 // The button's 10 ms sampling timer is stopped (it woke the CPU 100 times a second). No polling except the 20 ms
 // steps while the switch is down.
 void PowerNrf::clockSleep() {
@@ -214,7 +213,6 @@ void PowerNrf::gateOnWake(uint8_t pin, uint32_t holdMs) {
   uint32_t t0 = millis();
   while (digitalRead(pin) == LOW && millis() - t0 < holdMs) delay(10);
   if (digitalRead(pin) == LOW) { waitRelease(pin); return; }
-  pinMode(PIN_DISP_EXTCOMIN, OUTPUT);
   pinMode(PIN_DISP_CS, OUTPUT);
   sleepNow(pin);
 }

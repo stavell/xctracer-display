@@ -328,6 +328,10 @@ loop restarts the start-up app, with the intro (`PowerNrf::takeResumed()` -> `st
   current, typically 0.5-1 mA for this LED type (not checked for this part), is likely more than the whole rest of the clock
   sleep. The user cuts its 3.3 V trace; the firmware holds its data pin low from boot (and so in System OFF), so it is not
   powered through its input. The 3.3 V regulator (AP2112K on Feathers, about 55 uA quiescent) is the next fixed floor.
+  (9) EXTCOMIN: the user checked, the MI pad is not wired at all. So the 1 Hz EXTCOMIN timer drove nothing (and woke the CPU
+  twice a second), and an awake still screen (launcher, Settings, a vario page with nothing changing) flipped VCOM only when a
+  frame changed. The timer is gone; `SharpPanel::keepVcom(now)` in both loops sends the 2-byte VCOM command after a second
+  with no transfer (as the clock sleep does). The MI pad (pin 24) is free for a front key.
 - Vario-only image: `enableClockSleep()` is never called, `shutdown()` is System OFF exactly as before.
 - Emulator: `Box::tick()` turns `MockPower::requests` into the same state machine (`Box::sleep`); the PC player shows it
   (hold `off`, then hold the switch 1 s, or press R to restart).

@@ -378,6 +378,7 @@ void loop() {
   }
 #endif
   pack.service(now);
+  panel.keepVcom(millis());                   // VCOM flips at least once a second on a still screen
   { static bool pwrDone = false; if (!pwrDone && Serial && Serial.availableForWrite() >= 200) pwrDone = pwrlog_hw::dumpStep(); }   // `pwr` lines, once per terminal
   retention.tick(now, weather, wallClock);         // bridges the restored history when the time is known; saves the block
   {

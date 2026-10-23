@@ -33,14 +33,9 @@ static void onSpim(nrfx_spim_evt_t const*, void*) {
   gDone = true;
 }
 
-static void vcomToggle(TimerHandle_t) { digitalToggle(PIN_DISP_EXTCOMIN); }
-
 SharpPanel::SharpPanel() : display_(&SPI, PIN_DISP_CS, 400, 240, SPI_HZ) {}
 
 void SharpPanel::begin() {
-  pinMode(PIN_DISP_EXTCOMIN, OUTPUT);
-  vcom_.begin(500, vcomToggle);        // 500 ms toggle = 1 Hz VCOM
-  vcom_.start();
   cycEnable();
   // The library allocates the frame buffer and sets up CS (and brings up SPIM3 on the SPI pins); we
   // then give SPIM3 back and own the pins with SPIM2. Nothing may use SPI, refresh() or
@@ -129,6 +124,7 @@ void SharpPanel::send(const uint8_t* idx, int n) {
     }
   }
   nrfx_spim_xfer_desc_t xfer = NRFX_SPIM_XFER_TX(gTx, len);
+  lastTxMs_ = millis();
   gStartCyc = cycNow();
   gDone = false;
   if (nrfx_spim_xfer(&spim, &xfer, 0) != NRFX_SUCCESS) {
@@ -159,9 +155,9 @@ void SharpPanel::showRaw(const uint8_t* frame) {
   refresh();
 }
 
-// The two-byte "display" command (M0 = 0: no write, M2 = 0: no clear) carrying only the VCOM bit. With EXTMODE low
-// on the breakout the EXTCOMIN pin is ignored and the panel flips VCOM only on this bit, so a picture left alone for a
-// minute (the clock sleep) would sit under DC. Works whichever way EXTMODE is strapped.
+// The two-byte "display" command (M0 = 0: no write, M2 = 0: no clear) carrying only the VCOM bit. EXTCOMIN is not wired
+// (the MI pad is free), so the panel flips VCOM only on this bit: a picture left alone (a still screen, the clock sleep)
+// would otherwise sit under DC.
 void SharpPanel::vcomPulse() {
   waitIdle();                          // gTx must not change under the DMA
   if (!ready_) return;
@@ -169,13 +165,17 @@ void SharpPanel::vcomPulse() {
   gTx[1] = 0x00;
   vcomBit_ = vcomBit_ ? 0x00 : SHARPMEM_BIT_VCOM;
   nrfx_spim_xfer_desc_t xfer = NRFX_SPIM_XFER_TX(gTx, 2);
+  lastTxMs_ = millis();
   gStartCyc = cycNow();
   gDone = false;
   if (nrfx_spim_xfer(&spim, &xfer, 0) != NRFX_SUCCESS) gDone = true;
 }
 
+void SharpPanel::keepVcom(uint32_t nowMs) {
+  if (!vcomStopped_ && nowMs - lastTxMs_ >= 1000 && ready()) vcomPulse();   // never waits on a frame still in flight
+}
+
 void SharpPanel::stopVcom() {
   waitIdle();
-  vcom_.stop();
-  digitalWrite(PIN_DISP_EXTCOMIN, LOW);
+  vcomStopped_ = true;
 }

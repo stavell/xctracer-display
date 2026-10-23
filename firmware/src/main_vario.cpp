@@ -102,6 +102,7 @@ void loop() {
   watchdog::feed();
   uint32_t now = millis();
   pack.service(now);
+  panel.keepVcom(millis());                   // VCOM flips at least once a second on a still screen
   uint32_t t0 = fastMicros();
   host.tick(now);
   uint32_t dt = fastMicros() - t0;   // not micros(): it once gave -67 s here (a 4.2e9 us 'worst tick')
