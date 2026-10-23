@@ -30,19 +30,27 @@ void Bitmap1::toNative(int x, int y, int& nx, int& ny) const {
 void Bitmap1::nativeRect(int nx0, int ny0, int nx1, int ny1, DrawMode m) const {
   GFX_TALLY(span, 1);
   GFX_TALLY(rows, ny1 - ny0 + 1);
-  int b0 = nx0 >> 3, b1 = nx1 >> 3;
-  uint8_t first = (uint8_t)(0xFFu << (nx0 & 7));
-  uint8_t last = (uint8_t)(0xFFu >> (7 - (nx1 & 7)));
-  for (int y = ny0; y <= ny1; y++) {
-    uint8_t* row = buf + (size_t)y * stride;
-    if (b0 == b1) { applyMask(row[b0], first & last, m); continue; }
+  const int b0 = nx0 >> 3, b1 = nx1 >> 3;
+  const uint8_t first = (uint8_t)(0xFFu << (nx0 & 7));
+  const uint8_t last = (uint8_t)(0xFFu >> (7 - (nx1 & 7)));
+  const int mid = b1 - b0 - 1;                              // whole bytes between the two masked ones
+  uint8_t* row = buf + (size_t)ny0 * stride;
+  // The mode is fixed for the rectangle: one loop per mode. Short runs (a HUD box is 3 - 4 bytes per native row in portrait) are
+  // written inline; the call into fastFill only pays off for long ones.
+  if (b0 == b1) {
+    const uint8_t k = first & last;
+    for (int y = ny0; y <= ny1; y++, row += stride) applyMask(row[b0], k, m);
+    return;
+  }
+  for (int y = ny0; y <= ny1; y++, row += stride) {
     applyMask(row[b0], first, m);
-    if (b1 - b0 > 1) {
-      if (m == DRAW_CLEAR) fastFill(row + b0 + 1, 0x00, (size_t)(b1 - b0 - 1));
-      else if (m == DRAW_INVERT) for (int i = b0 + 1; i < b1; i++) row[i] ^= 0xFF;
-      else fastFill(row + b0 + 1, 0xFF, (size_t)(b1 - b0 - 1));
-    }
     applyMask(row[b1], last, m);
+    if (mid <= 0) continue;
+    uint8_t* p = row + b0 + 1;
+    if (m == DRAW_INVERT) { for (int i = 0; i < mid; i++) p[i] ^= 0xFF; continue; }
+    const uint8_t v = m == DRAW_CLEAR ? 0x00 : 0xFF;
+    if (mid >= 16) fastFill(p, v, (size_t)mid);
+    else for (int i = 0; i < mid; i++) p[i] = v;
   }
 }
 
@@ -59,7 +67,26 @@ void Bitmap1::rectIncl(int x0, int y0, int x1, int y1, DrawMode m) const {
 }
 
 void Bitmap1::hline(int x0, int x1, int y, DrawMode m) const { rectIncl(x0, y, x1, y, m); }
-void Bitmap1::vline(int x, int y0, int y1, DrawMode m) const { rectIncl(x, y0, x, y1, m); }
+// The panel's portrait layout (rotation 1): a screen column is part of one native row, so a vertical line is one masked run of
+// bits. The sprites, quads and grown lines call this hundreds of times a frame; the general path (clip, two rotation switches,
+// nativeRect) cost about 300 cycles per call on the device. Same pixels and counts as rectIncl.
+void Bitmap1::vline(int x, int y0, int y1, DrawMode m) const {
+  if ((rotation & 3) != 1) { rectIncl(x, y0, x, y1, m); return; }
+  if ((unsigned)x >= (unsigned)h) return;
+  if (y0 < 0) y0 = 0;
+  if (y1 >= w) y1 = w - 1;
+  if (y0 > y1) return;
+  GFX_TALLY(span, 1);
+  GFX_TALLY(rows, 1);
+  uint8_t* row = buf + (size_t)x * stride;
+  const int nx0 = w - 1 - y1, nx1 = w - 1 - y0;
+  const int b0 = nx0 >> 3, b1 = nx1 >> 3;
+  const uint8_t first = (uint8_t)(0xFFu << (nx0 & 7)), last = (uint8_t)(0xFFu >> (7 - (nx1 & 7)));
+  if (b0 == b1) { applyMask(row[b0], first & last, m); return; }
+  applyMask(row[b0], first, m);
+  for (int i = b0 + 1; i < b1; i++) applyMask(row[i], 0xFF, m);
+  applyMask(row[b1], last, m);
+}
 
 uint8_t Bitmap1::getPixel(int x, int y) const {
   if (x < 0 || y < 0 || x >= width() || y >= height()) return 0;

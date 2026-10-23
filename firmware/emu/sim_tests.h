@@ -687,6 +687,40 @@ static void topdown() {
         }
       CHECK(n > 1000 && diff == 0);
     }
+  // Smooth scrolling across re-renders: flying on, each frame must be the previous one moved by whole pixels, the same amount a
+  // fixed ground point moved, also on the frames where a new picture is swapped in (its origin snapped to the pixel grid, the
+  // dither fixed to the ground).
+  static TopDownView sv;
+  static uint8_t prev[50 * 240];
+  sv.reset();
+  sv.renderNow(gCache, 0, 0, 0.0f, 40.0f);
+  float px0 = 0, py0 = 0;
+  int swaps = 0, mism = 0, frames = 0;
+  uint32_t lastRenders = sv.renders();
+  for (int fr = 0; fr < 400; fr++) {
+    const float gx2 = 13.7f * fr, gy2 = 9.1f * fr;             // about 0.34 and 0.23 px per frame
+    sv.update(gCache, gx2, gy2, 0.0f, 40.0f, 6000);
+    memset(fb, 0xFF, sizeof fb);
+    sv.blit(bm, gx2, gy2);
+    float wx, wy;
+    sv.worldToScreen(0.0f, 0.0f, &wx, &wy);                    // a point on the pictures' pixel grid
+    if (fr > 0) {
+      const int dX = (int)lroundf(wx - px0), dY = (int)lroundf(wy - py0);
+      for (int x = 12; x < 228; x += 3)
+        for (int y = TopDownView::kTopY + 12; y < 388; y += 2)
+          mism += Bitmap1{fb, 400, 240, 50, 1}.getPixel(x, y) != Bitmap1{prev, 400, 240, 50, 1}.getPixel(x - dX, y - dY);
+      frames++;
+      CHECK(abs(dX) <= 1 && abs(dY) <= 1);
+    }
+    if (sv.renders() != lastRenders) { swaps++; lastRenders = sv.renders(); }
+    px0 = wx; py0 = wy;
+    memcpy(prev, fb, sizeof fb);
+  }
+  CHECK(swaps >= 8 && frames == 399);
+  // About 13000 pixels are compared per frame. Before (origin and dither tied to the picture) a swap changed about 3500 of them; now
+  // only float rounding at contour edges remains (a few per swap).
+  CHECK(mism <= swaps * 20);
+  if (mism > swaps * 20) printf("  scroll: %d mismatching pixels over %d frames, %d swaps\n", mism, frames, swaps);
 }
 
 // ---- game mode of the host

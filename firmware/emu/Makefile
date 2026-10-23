@@ -54,7 +54,7 @@ LIBSRC_SAN := $(VARIO) $(GFX) $(TETRIS) $(SIM) $(INTRO) $(COMPASS3D) $(LEVEL) $(
 LIBSRC_O2 := $(SIM) $(INTRO) $(COMPASS3D) $(GFX) $(VARIO) $(SETTINGS) $(TETRIS) $(LAUNCHER) $(TERRAIN) $(GFXHOST)
 
 $(eval $(call RULES,san,$(LIBSRC_SAN) emu_main.cpp tests.cpp,SAN_F))
-$(eval $(call RULES,o2,$(LIBSRC_O2) sim_bench.cpp sim_tests_main.cpp sim_demo.cpp play.cpp,O2_F))
+$(eval $(call RULES,o2,$(LIBSRC_O2) sim_bench.cpp sim_tests_main.cpp sim_demo.cpp play.cpp voxel_digest.cpp,O2_F))
 $(eval $(call RULES,o2n,$(SIM) $(GFX) $(TERRAIN) $(GFXHOST) terrain_demo.cpp sim_reach.cpp,O2N_F))
 $(eval $(call RULES,ld,$(STORAGE) $V/core/flight_log.cpp $P/terrain/crc32.cpp loader_sim.cpp,LD_F))
 
@@ -73,6 +73,8 @@ out/tests: $(call objs,san,$(LIBSRC_SAN) tests.cpp)
 out/sim_demo: $(call objs,o2,$(SIM) $(GFX) $(TERRAIN) $(GFXHOST) sim_demo.cpp)
 	$(CXX) $(O2_F) $^ -o $@
 out/sim_bench: $(call objs,o2,$(LIBSRC_O2) sim_bench.cpp)
+	$(CXX) $(O2_F) $^ -o $@
+out/voxel_digest: $(call objs,o2,$(LIBSRC_O2) voxel_digest.cpp)
 	$(CXX) $(O2_F) $^ -o $@
 out/sim_tests: $(call objs,o2,$(LIBSRC_O2) sim_tests_main.cpp)
 	$(CXX) $(O2_F) $^ -o $@

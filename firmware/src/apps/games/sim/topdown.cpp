@@ -58,7 +58,7 @@ void TopDownView::renderColumn(const HeightCache& hc, const Params& p, uint8_t* 
     const float sh = (sa + (sb - sa) * tx) * (1.0f - ty) + (sc + (sd - sc) * tx) * ty;
     int lvl = (int)(sh + 3.0f + 0.5f);
     if (lvl > 16) lvl = 16;
-    uint8_t white = bayer8(px, y) < 4 * lvl ? 1 : 0;
+    uint8_t white = bayer8((px + p.gr) & 7, (y - p.gf) & 7) < 4 * lvl ? 1 : 0;   // dither fixed to the ground, not to the picture
     const int8_t band = (int8_t)((int)(h * (1.0f / kContour) + 64.0f) - 64);      // floor for h > -12800 m, without the libm call
     band_[y] = band;
     int boundary = -99999;                                   // contour boundary index between this pixel and a neighbour
@@ -91,7 +91,13 @@ int TopDownView::update(const HeightCache& hc, float x, float y, float heading, 
       stale = sqrtf(dx * dx + dy * dy) / shown_.m > kStalePx || angDiffDeg(heading, shown_.heading) > kStaleDeg;
     }
     if (!stale) return 0;
-    making_ = Params{x, y, heading, mPerPx};
+    // The picture's origin snapped to its own pixel grid (along its right and forward axes): every picture then samples the same
+    // world points, so when a new one is swapped in the terrain stays exactly where the old one showed it. Unsnapped, each swap
+    // moved the ground by up to a pixel, often backwards, every few pixels of travel: the map scrolled in visible jolts.
+    const float sn = sinf(heading), cs = cosf(heading);
+    const float gr = roundf((x * cs - y * sn) / mPerPx), gf = roundf((x * sn + y * cs) / mPerPx);
+    const float r = mPerPx * gr, f = mPerPx * gf;
+    making_ = Params{r * cs + f * sn, f * cs - r * sn, heading, mPerPx, (int)gr, (int)gf};
     busy_ = true;
     col_ = 0;
     for (int i = 0; i < kPH; i++) prevBand_[i] = kNoBand;

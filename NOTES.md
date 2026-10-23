@@ -48,6 +48,7 @@ Contents (sections in file order; the date, where a section has one, is in its t
 - Wrap-up: platform/gfx3d, sim test robustness, diag heap (2026-10-20)
 - Device pass: frozen compass, self power-off, retention (2026-10-20, box image on the board)
 - Planning history moved from PLAN.md (2026-10-20)
+- 3D view to 50 fps, smooth map scrolling (2026-10-23, device, SIM_BENCH image)
 
 Sections are a log: later ones can supersede earlier ones, and a superseded section says so in its first line.
 
@@ -1548,3 +1549,43 @@ PLAN.md is now a short status page. What the older plan held that is not recorde
 - **Thermal assistant review** is in `docs/thermal_review.md`; the user observed that the tracer's vario reacts instantly on the box, so a
   local BMP280 + accelerometer vario was dropped (the onboard sensors remain a candidate for gyro circle phase only).
 - **Terrain steps (2026-10-16 to 18):** map pack format and writer, pure terrain code, AGL and map page, QSPI pack storage; the XIP option was not taken (the reader uses the QSPI driver).
+
+## 3D view to 50 fps, smooth map scrolling (2026-10-23, device, SIM_BENCH image)
+
+Method: `PLATFORMIO_BUILD_FLAGS=-DSIM_BENCH scripts/flash.sh feather_sense_box`, averages of the `gm` lines with view=3d over 60-100 s
+(the bench flies at x3 time and restarts the flight twice). Every change keeps the pixels: `build.sh voxdigest --save/--cmp` (new,
+`emu/voxel_digest.cpp`: 288 cameras over the Sopot pack, every picture and the depth buffer) reported 0 / 0, and all 131 emulator
+screens were byte-identical before and after the drawing-primitive changes.
+
+| 3D, ms (avg) | before | after |
+|---|---|---|
+| fps (avg over the run) | 41.8 | 48.9 (50.0 in steady flight; see below) |
+| draw | 20.2 | 14.6 |
+| voxel | 11.6 | 6.9 |
+| sprite (glider) | 3.3 | 2.3 |
+| HUD | 2.8 | 2.5 |
+| sky | 2.7-4.5 | 3.1 (unchanged code; scene-dependent) |
+
+- Voxel, column writing (11.6 -> 7.4): a frame had about 6400 spans of about 2 bytes each, every one a masked read-modify-write. The
+  runs of a ray (terrain spans, then sky bands) cover its column without gaps, so `VoxelView::compose` builds the ray's 4 native rows
+  as 32-bit words from the bit-0 end (one store per word, unaligned, fine on the M4); the four rows share the boundaries, only the
+  dither phase differs. Writing alone now costs about 1.8 ms; stepping about 5 ms.
+- Voxel, stepping (7.4 -> 6.7-6.9): the near (bilinear) and far (nearest) steps are separate loops walked in pairs (no parity test
+  for the depth buffer), ymin is kept as a float (the visibility test converted it every step), bounds are one unsigned compare per
+  axis with the float bias folded in, and the far step loads the shade only when the sample shows. Same arithmetic, same pixels.
+- `Bitmap1::vline` fast path for rotation 1 (one masked run in one native row, no clip/rotation switch/nativeRect): the glider's
+  quads and grown lines are ~500 vlines a frame; sprite 3.4 -> 2.4 ms. `nativeRect` writes short runs inline (the HUD boxes are 3-4
+  bytes per native row) and `Atlas::draw` blits a glyph row as one 64-bit value: HUD 2.8 -> 2.5 ms.
+- Probe (temporary sub-laps, not kept): HUD = top strip 0.7, vario bar 0.1, wind dial 0.6-0.7, time + AGL boxes 1.1 ms; glider = halo
+  pass 1.2-1.8, ink pass 1.2-1.5, shadow 0. The whole 3D frame draws only ~600 single pixels and ~550 spans (GFX counters on the PC), so
+  what is left in sprite/HUD is per-call overhead and float work, not pixels.
+- Remaining dips (44-48 fps for a few seconds after each restart): the height cache's warm-up decodes map tiles, about 5 ms each and at
+  most one per frame (`warmStep` already stops after a decode); a frame with a decode is over 20 ms whatever the cell budget (64
+  instead of 128 was tried: no change, reverted). Steady flight has no decodes and holds 50.0. Next if needed: faster tile decode, or
+  decoding in the panel-DMA wait.
+- Map view (2D) scrolled in jolts: every re-render (each 4 px of travel) sampled the terrain around the glider's exact position and
+  dithered in picture coordinates, so at each swap the ground moved up to a pixel (often back) and the whole grey texture re-phased.
+  `TopDownView::update` now snaps the picture origin to its own pixel grid and the dither is fixed to the ground (`bayer8(px + gr,
+  y - gf)`): a swap changes 1-10 of ~13000 compared pixels (was ~3500); test `sim_topdown` checks every frame of a 400-frame flight
+  against the previous one moved by the same whole pixels as a ground point.
+

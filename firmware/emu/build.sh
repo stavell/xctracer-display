@@ -16,6 +16,7 @@
 #                                   fixture; --pack none for a box without terrain)
 #   ./build.sh loadtest [PACK]      host/load_pack.py against the loader code over an in-memory flash (clean and with damaged frames)
 #   ./build.sh simbench [PACK]      flight sim frame timing on the PC, scaled to the device (see sim_bench.cpp)
+#   ./build.sh voxdigest --save|--cmp FILE [PACK]  3D renderer pictures + depth buffer against a saved set (voxel_digest.cpp)
 #   ./build.sh simreach [PACK] [seeds] [t0..]  reachability of thermals from every takeoff + scripted-pilot climb (sim_reach.cpp)
 #   ./build.sh smoke               headless run of the whole box: renders the launcher, vario pages, Tetris
 #                                   started from the launcher and the way back (emu/out/box_*.png)
@@ -90,6 +91,12 @@ if [ "$1" = "loadtest" ]; then
   echo "LOGTEST OK"
   echo "LOADTEST OK"
   exit 0
+fi
+if [ "$1" = "voxdigest" ]; then
+  # 3D renderer regression oracle: --save FILE before a change, --cmp FILE after (voxel_digest.cpp)
+  mk out/voxel_digest
+  shift
+  exec out/voxel_digest "$@"
 fi
 if [ "$1" = "simbench" ]; then
   # Frame timing of the flight sim, calibrated against vario pages of known device time (no sanitizers, -O2).

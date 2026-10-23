@@ -1,3 +1,5 @@
+#include "platform/util/hot.h"
+HOT_FILE_O3
 #include "platform/gfx/atlas.h"
 #include <string.h>
 
@@ -71,6 +73,28 @@ void Atlas::draw(const Bitmap1& dst, int x, int y, DrawMode m) const {
   if (ny0 + sy0 + rows > dst.h) rows = dst.h - (ny0 + sy0);
   if (cols <= 0 || rows <= 0) return;
   const int dx0 = nx0 + sx0, dx1 = dx0 + cols - 1;
+  if (stride <= 7 && cols + (dx0 & 7) <= 64) {
+    // Whole native row at once: the glyph row (at most 7 bytes) as one 64-bit value, shifted to the destination bit and applied
+    // byte by byte. Same bits as the loop below, without a bit fetch per byte (text is most of the sim HUD's time).
+    const uint64_t keep = cols >= 64 ? ~0ull : ((1ull << cols) - 1);
+    const int sh = dx0 & 7, nb = (dx1 >> 3) - (dx0 >> 3) + 1;
+    for (int j = 0; j < rows; j++) {
+      const uint8_t* srow = data + (size_t)(sy0 + j) * stride;
+      uint64_t v = 0;
+      for (int k = 0; k < stride; k++) v |= (uint64_t)srow[k] << (8 * k);
+      v = ((v >> sx0) & keep) << sh;
+      if (!v) continue;
+      uint8_t* d = dst.buf + (size_t)(ny0 + sy0 + j) * dst.stride + (dx0 >> 3);
+      for (int k = 0; k < nb; k++, v >>= 8) {
+        const uint8_t pm = (uint8_t)v;
+        if (!pm) continue;
+        if (m == DRAW_CLEAR) d[k] &= (uint8_t)~pm;
+        else if (m == DRAW_INVERT) d[k] ^= pm;
+        else d[k] |= pm;
+      }
+    }
+    return;
+  }
   for (int j = 0; j < rows; j++) {
     const uint8_t* srow = data + (size_t)(sy0 + j) * stride;
     uint8_t* drow = dst.buf + (size_t)(ny0 + sy0 + j) * dst.stride;

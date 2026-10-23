@@ -44,29 +44,14 @@ VoxelView::VoxelView() {
       for (int k = 0; k < 8; k++)
         if (bayer8(x, 7 - k) < 4 * l) b |= (uint8_t)(1u << k);
       pat_[l][x] = b;
+      pat32_[l][x] = b * 0x01010101u;
     }
 }
 
-// Rows y0..y1 (inclusive, 0 <= y0 <= y1 < 400, top = 0) of one column: native bits 399 - y1 .. 399 - y0.
-void VoxelView::fillSpan(uint8_t* row, int y0, int y1, uint8_t pat) const {
-  const int a = 399 - y1, b = 399 - y0;
-  const int ba = a >> 3, bb = b >> 3;
-  const uint8_t lm = (uint8_t)(0xFFu << (a & 7)), rm = (uint8_t)(0xFFu >> (7 - (b & 7)));
-  if (ba == bb) {
-    const uint8_t m = lm & rm;
-    row[ba] = (uint8_t)((row[ba] & ~m) | (pat & m));
-    return;
-  }
-  row[ba] = (uint8_t)((row[ba] & ~lm) | (pat & lm));
-  row[bb] = (uint8_t)((row[bb] & ~rm) | (pat & rm));
-  const int mid = bb - ba - 1;                    // whole bytes between the two masked ones
-  if (mid >= 12) fastFill(row + ba + 1, pat, (size_t)mid);
-  else for (int i = 1; i <= mid; i++) row[ba + i] = pat;
-}
-
-void VoxelView::sky(uint8_t* row, int x, int hy, int ymin) {
+// The sky above the terrain of one ray (rows ymin - 1 up to 0) as runs: bands of 48 rows that lighten upward from the horizon hy,
+// and haze below it where the terrain ended early.
+int VoxelView::skyRuns(int ns, int hy, int ymin) {
   int y = ymin - 1;
-  const int xm = x & 7;
   while (y >= 0) {
     const int d = hy - y;
     int lvl, top;
@@ -79,10 +64,47 @@ void VoxelView::sky(uint8_t* row, int x, int hy, int ymin) {
       top = hy - (k + 1) * 48 + 1;
     }
     if (top < 0) top = 0;
-    fillSpan(row, top, y, pat_[lvl][xm]);
-    stats_.spans++;
+    spans_[ns].y0 = (int16_t)top;
+    spans_[ns].y1 = (int16_t)y;
+    spans_[ns].lvl = (uint8_t)lvl;
+    ns++;
     y = top - 1;
   }
+  return ns;
+}
+
+// Writes the kColStep (4) native rows of one ray. The runs cover the column without gaps from the bottom (y 399 = native bit 0) to
+// the top, so each row is built in 32-bit words from the bit-0 end and stored once: no per-span read-modify-write. The four rows share
+// the run boundaries and differ only in their dither phase (pat32_[lvl][xm0 + c]; x is a multiple of 4, so xm0 is 0 or 4). Rows are
+// 50 bytes: 12 whole words (unaligned stores, fine on the M4) and a final half word.
+void VoxelView::compose(uint8_t* row, int stride, int n, int xm0) const {
+  static_assert(kColStep == 4, "compose writes four rows");
+  uint8_t* r1 = row + stride;
+  uint8_t* r2 = r1 + stride;
+  uint8_t* r3 = r2 + stride;
+  uint32_t a0 = 0, a1 = 0, a2 = 0, a3 = 0;
+  int w = 0;
+  for (int k = 0; k < n; k++) {
+    int lo = 399 - spans_[k].y1;
+    const int hi = 399 - spans_[k].y0;
+    const uint32_t* P = pat32_[spans_[k].lvl] + xm0;
+    const uint32_t p0 = P[0], p1 = P[1], p2 = P[2], p3 = P[3];
+    for (;;) {
+      const int wEnd = (w << 5) | 31;
+      const int h = hi < wEnd ? hi : wEnd;
+      const uint32_t m = (0xFFFFFFFFu << (lo & 31)) & (0xFFFFFFFFu >> (31 - (h & 31)));
+      a0 |= p0 & m; a1 |= p1 & m; a2 |= p2 & m; a3 |= p3 & m;
+      if (h != wEnd) break;                       // the run ends inside this word
+      const int o = w << 2;
+      memcpy(row + o, &a0, 4); memcpy(r1 + o, &a1, 4); memcpy(r2 + o, &a2, 4); memcpy(r3 + o, &a3, 4);
+      a0 = a1 = a2 = a3 = 0;
+      w++;
+      if (h == hi) break;
+      lo = h + 1;
+    }
+  }
+  const uint16_t b0 = (uint16_t)a0, b1 = (uint16_t)a1, b2 = (uint16_t)a2, b3 = (uint16_t)a3;   // bits 384..399
+  memcpy(row + 48, &b0, 2); memcpy(r1 + 48, &b1, 2); memcpy(r2 + 48, &b2, 2); memcpy(r3 + 48, &b3, 2);
 }
 
 void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& cam) {
@@ -100,6 +122,13 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
   const float cxk = cam.x * HeightCache::kInv + kBias, cyk = cam.y * HeightCache::kInv + kBias;
   const float camZ = cam.z;
   int walked = 0, bilin = 0, lastSpans = 0;
+  // Cell bounds as one unsigned compare each, with the float bias folded in: a near (bilinear) step needs cells ix and ix + 1 inside
+  // [x0, x1), a far step cell ix. A window too small gives 0: every step is outside, as before.
+  const int bx = x0 + (int)kBias, by = y0 + (int)kBias;
+  const unsigned limBx = x1 - x0 - 1 > 0 ? (unsigned)(x1 - x0 - 1) : 0u, limBy = y1 - y0 - 1 > 0 ? (unsigned)(y1 - y0 - 1) : 0u;
+  const unsigned limNx = x1 - x0 > 0 ? (unsigned)(x1 - x0) : 0u, limNy = y1 - y0 > 0 ? (unsigned)(y1 - y0) : 0u;
+  static_assert(kBilinearSteps % 2 == 0 && kBilinearSteps / 2 <= kYBins, "the near steps are walked in pairs");
+  const int nBil = n < kBilinearSteps ? (n & ~1) : kBilinearSteps;
 
   // One ray per pair of screen columns (kColStep), through the middle of the pair; its spans are written to both rows,
   // each with its own dither phase, so the picture keeps its full dither detail and only the silhouette is two pixels coarse.
@@ -109,42 +138,15 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
     const float dxk = (fx + rx * u) * HeightCache::kInv, dyk = (fy + ry * u) * HeightCache::kInv;
     const float hyf = horizon - (xc - kCx) * tanRoll;
     int ymin = kH, ns = 0, i = 0;
+    float yminF = (float)kH;                                 // ymin as a float: the visibility test needs no conversion per step
     int16_t* yb = yb_[x / kColStep];
-    for (; i < n; i++) {
-      if (!(i & 1) && i) yb[(i >> 1) - 1 < kYBins ? (i >> 1) - 1 : kYBins - 1] = (int16_t)ymin;
-      const float s = s_[i];
-      const float pxk = cxk + s * dxk, pyk = cyk + s * dyk;
-      float h, sh = 0;
-      int s00 = 0, s10 = 0, s01 = 0, s11 = 0;
-      float tx = 0, ty = 0;
-      if (i < kBilinearSteps) {
-        const int ix = (int)pxk, iy = (int)pyk;
-        tx = pxk - (float)ix; ty = pyk - (float)iy;
-        const int cx0 = ix - (int)kBias, cy0 = iy - (int)kBias;
-        if (cx0 < x0 || cx0 + 1 >= x1 || cy0 < y0 || cy0 + 1 >= y1) break;
-        s00 = HeightCache::slot(cx0, cy0); s10 = HeightCache::slot(cx0 + 1, cy0);
-        s01 = HeightCache::slot(cx0, cy0 + 1); s11 = HeightCache::slot(cx0 + 1, cy0 + 1);
-        const float a = H[s00], b = H[s10], c = H[s01], d = H[s11];
-        h = (a + (b - a) * tx) * (1.0f - ty) + (c + (d - c) * tx) * ty;
-      } else {
-        const int cx0 = (int)(pxk + 0.5f) - (int)kBias, cy0 = (int)(pyk + 0.5f) - (int)kBias;
-        if (cx0 < x0 || cx0 >= x1 || cy0 < y0 || cy0 >= y1) break;
-        const int sl = HeightCache::slot(cx0, cy0);
-        h = H[sl];
-        sh = S[sl];
-        s00 = -1;
-      }
-      const float yf = hyf + (camZ - h) * fs_[i];
-      if (yf >= (float)ymin) continue;
+    // A sample that rises above ymin becomes a span. Returns false when the ray ends (the top of the screen is reached).
+    auto span = [&](int si, float h, float sh, float yf) -> bool {
       const int yi = yf < 0 ? 0 : (int)yf;
-      if (yi >= ymin) continue;
-      if (s00 >= 0) {                                       // the shade is only needed where the terrain shows
-        const float sa = S[s00], sb = S[s10], sc = S[s01], sd = S[s11];
-        sh = (sa + (sb - sa) * tx) * (1.0f - ty) + (sc + (sd - sc) * tx) * ty;
-      }
+      if (yi >= ymin) return true;
       // Tone and fog folded into one multiply-add per step; alternate 25 m height bands one grey step apart: the terraces
       // show the lie of the land and give the ground a texture that streams past.
-      int lvl = (int)(sh * ka_[i] + kb_[i]) + ((((int)(h * (1.0f / 25.0f))) & 1) ? (i < 30 ? 2 : 1) : 0);
+      int lvl = (int)(sh * ka_[si] + kb_[si]) + ((((int)(h * (1.0f / 25.0f))) & 1) ? (si < 30 ? 2 : 1) : 0);
       if (lvl > 16) lvl = 16;
       if (lvl < 3) lvl = 3;
       spans_[ns].y0 = (int16_t)yi;
@@ -152,19 +154,58 @@ void VoxelView::render(const Bitmap1& bm, const HeightCache& hc, const Camera& c
       spans_[ns].lvl = (uint8_t)lvl;
       ns++;
       ymin = yi;
-      if (yi == 0) break;
+      yminF = (float)yi;
+      return yi != 0;
+    };
+    // Near steps: bilinear height; the shade (also bilinear) only where the terrain shows. False: the ray ends at this step.
+    auto bilinear = [&](int si) -> bool {
+      const float s = s_[si];
+      const float pxk = cxk + s * dxk, pyk = cyk + s * dyk;
+      const int ix = (int)pxk, iy = (int)pyk;
+      if ((unsigned)(ix - bx) >= limBx || (unsigned)(iy - by) >= limBy) return false;   // the 2 x 2 cells must be inside
+      const float tx = pxk - (float)ix, ty = pyk - (float)iy;
+      const int s00 = HeightCache::slot(ix, iy), s10 = HeightCache::slot(ix + 1, iy);   // the bias is a multiple of N
+      const int s01 = HeightCache::slot(ix, iy + 1), s11 = HeightCache::slot(ix + 1, iy + 1);
+      const float a = H[s00], b = H[s10], c = H[s01], d = H[s11];
+      const float h = (a + (b - a) * tx) * (1.0f - ty) + (c + (d - c) * tx) * ty;
+      const float yf = hyf + (camZ - h) * fs_[si];
+      if (yf >= yminF) return true;
+      const float sa = S[s00], sb = S[s10], sc = S[s01], sd = S[s11];
+      const float sh = (sa + (sb - sa) * tx) * (1.0f - ty) + (sc + (sd - sc) * tx) * ty;
+      return span(si, h, sh, yf);
+    };
+    // Far steps: the nearest cell.
+    auto nearest = [&](int si) -> bool {
+      const float s = s_[si];
+      const float pxk = cxk + s * dxk, pyk = cyk + s * dyk;
+      const int ix = (int)(pxk + 0.5f), iy = (int)(pyk + 0.5f);
+      if ((unsigned)(ix - bx) >= limNx || (unsigned)(iy - by) >= limNy) return false;
+      const int sl = HeightCache::slot(ix, iy);
+      const float h = H[sl];
+      const float yf = hyf + (camZ - h) * fs_[si];
+      if (yf >= yminF) return true;
+      return span(si, h, S[sl], yf);
+    };
+    // Steps in pairs: the depth buffer takes ymin before every even step (bin b after steps 0 .. 2b + 1).
+    for (; i < nBil; i += 2) {
+      if (i) yb[(i >> 1) - 1] = (int16_t)ymin;
+      if (!bilinear(i)) goto done;
+      if (!bilinear(i + 1)) { i++; goto done; }
     }
+    for (; i < n; i += 2) {
+      yb[(i >> 1) - 1 < kYBins ? (i >> 1) - 1 : kYBins - 1] = (int16_t)ymin;
+      if (!nearest(i)) goto done;
+      if (i + 1 < n && !nearest(i + 1)) { i++; goto done; }
+    }
+    i = n;
+  done:
     for (int b = (i >> 1) < kYBins ? (i >> 1) : kYBins; b < kYBins; b++) yb[b] = (int16_t)ymin;
     walked += i;
     bilin += i < kBilinearSteps ? i : kBilinearSteps;
     const int hyi = hyf < -2000.0f ? -2000 : (hyf > 2000.0f ? 2000 : (int)floorf(hyf));
-    for (int c = 0; c < kColStep; c++) {
-      uint8_t* row = bm.buf + (size_t)(x + c) * bm.stride;
-      const int xm = (x + c) & 7;
-      for (int k = 0; k < ns; k++) fillSpan(row, spans_[k].y0, spans_[k].y1, pat_[spans_[k].lvl][xm]);
-      if (ymin > 0) sky(row, x + c, hyi, ymin);
-    }
-    stats_.spans += ns * kColStep;
+    const int nr = ymin > 0 ? skyRuns(ns, hyi, ymin) : ns;
+    compose(bm.buf + (size_t)x * bm.stride, bm.stride, nr, x & 7);
+    stats_.spans += nr * kColStep;
     lastSpans += ns;
     if (ymin == 0) stats_.early++;
     stats_.columns += kColStep;

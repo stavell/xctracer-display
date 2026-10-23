@@ -54,7 +54,7 @@ class TopDownView {
   int shownPixel(int px, int py) const;
 
  private:
-  struct Params { float x, y, heading, m; };
+  struct Params { float x, y, heading, m; int gr, gf; };   // gr, gf: the origin on the pixel grid (dither phase)
   void renderColumn(const HeightCache& hc, const Params& p, uint8_t* buf, int px);
   uint8_t* back() { return buf_[1 - front_]; }
   uint8_t* frontBuf() { return buf_[front_]; }

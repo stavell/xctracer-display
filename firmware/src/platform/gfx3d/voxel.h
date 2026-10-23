@@ -58,8 +58,8 @@ class VoxelView {
   static float focal();
 
  private:
-  void fillSpan(uint8_t* row, int y0, int y1, uint8_t pat) const;
-  void sky(uint8_t* row, int x, int hy, int ymin);
+  int skyRuns(int ns, int hy, int ymin);   // appends the sky bands above ymin to spans_, returns the new count
+  void compose(uint8_t* row, int stride, int n, int xm0) const;   // the kColStep rows of one ray from spans_[0..n)
 
   Stats stats_;
   int nSteps_ = 0;
@@ -69,9 +69,10 @@ class VoxelView {
   uint8_t fog_[kMaxSteps];     // 0..16
   float ka_[kMaxSteps], kb_[kMaxSteps];   // grey level = shade * ka + kb
   struct Span { int16_t y0, y1; uint8_t lvl; };
-  Span spans_[kMaxSteps + 1];  // the spans of the ray being drawn
+  Span spans_[kMaxSteps + 24]; // the runs of the ray being drawn, bottom to top: terrain spans, then the sky bands
   int16_t yb_[kW / kColStep][kYBins];   // highest terrain row after steps 0..2b+1 of each ray
   uint8_t pat_[17][8];         // dither byte per level and column phase
+  uint32_t pat32_[17][8];      // the same byte in all four bytes of a word
 };
 
 }  // namespace gfx3d
