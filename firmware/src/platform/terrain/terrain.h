@@ -18,6 +18,7 @@
 // each tile has its own CRC32 in the pack, verified every time a tile is read from flash (~5k cycles on
 // a ~420 B tile against ~60k for the decode). A full-file check (about 1.7 MB x 12 cycles = 0.3 s on the
 // M4 plus the flash reads) is available as verifyAll(), meant for after a transfer, not for boot.
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "platform/terrain/block_reader.h"
@@ -35,6 +36,10 @@ struct Window {
   float mPerPx = 100;                          // ground metres per pixel
   int16_t w = 240, h = 400;
   float headingDeg = 0;                        // direction shown at the top of the window, 0 = north up
+  // cos of the latitude that sets the east-west scale. NaN: the centre's (the vario's map page). The map app passes the pack's
+  // fixed cos0 (PackInfo), so windows centred anywhere share one projection and tiles rendered one by one join exactly.
+  float cosLat = NAN;
+  float eastCos() const { return isfinite(cosLat) ? cosLat : cosf((float)(lat * 0.017453292519943295)); }
 };
 
 // How heights become grey levels 0 (black) .. 16 (white) for the gfx dither. The light always comes from the

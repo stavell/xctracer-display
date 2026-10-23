@@ -48,6 +48,13 @@ sun-facing slopes, ridge lift, clouds, eight takeoffs, day settings (thermals, w
 long press = act; flying: tilt steers, short = pause menu, long = map / 3D. With the D-pad (when wired): left / right bank, up / down
 speed bar and brake, A = map / 3D, B = pause menu.
 
+**Map** (topo + GPS, needs the map pack). Hillshade, contours, main roads and towns of the pack, 25 to 400 m per pixel, north up or
+**Compass** (turned so the direction the box points is up; the compass sensors run only then). With the tracer connected it follows the
+GPS and shows the pilot arrow; without it, it is a plain map to browse (it opens over Sopot). Switch: short = zoom in (from the closest it
+wraps to the widest), long = North up / Compass. Six buttons: D-pad pans (the map stops following; a cross marks the centre), A / B zoom
+in / out, hold A = back to the GPS, hold B = North up / Compass. The picture is drawn in 64 px tiles, nearest the screen first, so a pan
+only waits for the strip it uncovers (a sparse dot grid marks a tile still being drawn).
+
 **Tetris.** Switch alone: short = pause menu / next, long = act. D-pad: arrows move and drop, A / B rotate, MAIN starts and pauses,
 long MAIN holds a piece.
 

@@ -12,9 +12,11 @@
 #include "apps/intro/intro_app.h"
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/launcher/launcher_app.h"
+#include "apps/map/map_app.h"
 #include "apps/settings/settings_app.h"
 #include "apps/vario/app/app.h"
 #include "apps/vario/app/terrain_kit.h"
+#include "apps/vario/app/tracer_fix.h"
 #include "apps/vario/app/vario_app.h"
 #include "apps/vario/app/vario_box.h"
 #include "apps/vario/core/flight_log.h"
@@ -91,7 +93,7 @@ static AppConfig appConfig() {
   return c;
 }
 // App indices in the host; the home screen lists all but itself.
-enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO
+enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO, APP_MAP
 #ifdef WITH_EXAMPLES
        , APP_LEVEL                              // the example app of docs/PLATFORM.md, index = the order of host.add()
 #endif
@@ -100,7 +102,7 @@ enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, 
 // The apps that are not the start-up app share ONE RAM block (see platform/lazy_app.h): each is built when it is opened
 // and destroyed when it is left. Statically they cost 93 + 44 kB of .bss and left the image with 2 kB of heap, too little
 // for FreeRTOS to start any task (no USB, blank screen). The block is as big as the biggest of them.
-static constexpr size_t kArenaBytes = maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(compass::CompassApp), sizeof(TetrisApp)))));
+static constexpr size_t kArenaBytes = maxSize(sizeof(mapapp::MapApp), maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(compass::CompassApp), sizeof(TetrisApp))))));
 static AppArenaStore<kArenaBytes> arena;
 
 // The map pack lives in the QSPI flash (platform/hw/pack_service.h). The vario is an arena app like the others: the App
@@ -216,6 +218,15 @@ static intro::IntroApp* makeIntro(void* mem, void*) {
   return i;
 }
 static LazyApp<intro::IntroApp> introApp(arena, "intro", makeIntro);
+// The map (apps/map): opens the pack itself (a 9-tile cache + its tile pool), the GPS from the tracer link (resumed while it runs, paused after,
+// as the vario does), the compass sensors only in its Compass mode.
+static TracerFix tracerFix(tracer);
+static mapapp::MapApp* makeMap(void* mem, void*) {
+  mapapp::MapApp* m = new (mem) mapapp::MapApp(pack.reader(), battery, compassHw, boxSettings, &tracerFix);
+  m->setClock(fastMicros);                    // the tile work spends a time budget per loop pass
+  return m;
+}
+static LazyApp<mapapp::MapApp> mapApp(arena, "map", makeMap);
 #ifdef WITH_EXAMPLES                            // env feather_sense_box_examples: the Level example app, same arena (it is far smaller than the sim)
 static examples::LevelApp* makeLevel(void* mem, void*) { return new (mem) examples::LevelApp(battery, compassHw, boxSettings); }
 static LazyApp<examples::LevelApp> levelApp(arena, "level", makeLevel);
@@ -316,6 +327,7 @@ void setup() {
   host.add(launcher);
   host.add(simApp);
   host.add(introApp);
+  host.add(mapApp);
 #ifdef WITH_EXAMPLES
   host.add(levelApp);
 #endif
@@ -328,6 +340,7 @@ void setup() {
   registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
   registry.add("Sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
   registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
+  registry.add("Map", "topo + GPS", "topo map: roads, towns, GPS", APP_MAP, ICON_MAP);
 #ifdef WITH_EXAMPLES
   registry.add("Level", "example", "bubble level from the tilt sensor", APP_LEVEL, ICON_GENERIC, false);
 #endif

@@ -24,6 +24,9 @@ right is worse than no data.
       sensors/   compass tilt + hard-iron, AHRS, heading smoother, mount table, motion.h (MotionService: mounting + calibration + compass +
                  gyro fusion behind start() / poll(now) / stop(): heading, quaternion, tilt, accel, gyro, trust; the vario, the compass app and the
                  calibration use it, a game can)
+      map/       MapView: the pack's relief + contours from a cache of 64 px tiles (one fixed projection, any pan, zoom, heading), roads and
+                 towns drawn live (map_draw.h: the road / town / label drawing the vario's map page uses too)
+      fix_source.h  IFixSource: "where am I" for apps that do not own the tracer (the box: apps/vario/app/tracer_fix.h)
       panel/     pure panel helpers: line diff, Sharp frame packing
       input/     button state machine, A+B combo hold, key debounce
       ui/        the system sheet (Back / Home / Sleep / Power off overlay the host draws over any app)
@@ -48,10 +51,11 @@ right is worse than no data.
     firmware/src/apps/settings/   the Settings app (compass calibration, mounting, start-up app, intro, time zone, power off, About)
     firmware/src/apps/games/tetris/   rules, 1-bit view, TetrisApp
     firmware/src/apps/games/sim/      the flight sim (SimApp, HUD, top-down view, tilt control; SimBox = the box's build of it) on platform/gfx3d
+    firmware/src/apps/map/            the Map app (MapApp: platform/map view, GPS through IFixSource, North up / Compass)
     firmware/src/apps/intro/          the start-up animation (IntroApp: uses platform/gfx3d)
     firmware/src/apps/examples/level/ Level: the example app of docs/PLATFORM.md (emulator only; the box builds it with -DWITH_EXAMPLES, env feather_sense_box_examples)
     firmware/src/main_vario.cpp   wiring only; one main_<image>.cpp per firmware image (main_vario: vario only,
-                                  main_box: home screen + vario + Tetris + compass + Settings + sim + intro (+ Level with -DWITH_EXAMPLES);
+                                  main_box: home screen + vario + Tetris + compass + Settings + sim + intro + map (+ Level with -DWITH_EXAMPLES);
                                   `-DSIM_BENCH` builds the box straight into the sim with a micro-benchmark, see NOTES)
     firmware/emu/        PC emulator: the same platform + apps with mock ports, tests, screen renders, the PC player
                          (play.cpp: `build.sh play tetris|box`), box.h = the whole box over mocks
@@ -78,7 +82,8 @@ right is worse than no data.
   6 s; while open, input goes to it only, the vario keeps ticking, game-mode apps are not stepped and Tetris / the sim pause
   (`IApp::onSheet`). Both input devices stay usable at the same time (switch AND six buttons); hints follow the one used last
   (`IAppNav::sixButtons()`). Leaving the vario stops the tracer scan and link and the compass sensors
-  (`App::end`, `ITracer::pause`); entering it again restarts them. Games never run unless chosen. The vario-only image
+  (`App::end`, `ITracer::pause`); entering it again restarts them. The Map app is the other tracer user: it resumes the link while it runs (`TracerFix`, only its GPS
+  position) and pauses it when left; it never opens the vario. Games never run unless chosen. The vario-only image
   (`feather_sense`) has no host sheet and none of this (its 3 s hold powers off, no Home row; calibration only by `ctl.py cal`):
   `AppHost::setSystemSheet` is called by `main_box.cpp` only. `scripts/check.sh` proves the vario draws the same frames in
   the box as alone (`box_vario_matches_alone`).

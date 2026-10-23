@@ -80,7 +80,7 @@ void originOffsetDeg(const PackInfo& I, const Window& win, float* dLat, float* d
 
 UnitBox MapVectors::boxForWindow(const Window& win) const {
   const float mpd = (float)info_.mPerDeg, u = (float)info_.unitM;
-  const float cosLat = cosf((float)win.lat * kD2Rf);
+  const float cosLat = isfinite(win.cosLat) ? win.cosLat : cosf((float)win.lat * kD2Rf);
   const float th = win.headingDeg * kD2Rf, ct = cosf(th), sn = sinf(th);
   float dLat, dLon;
   originOffsetDeg(info_, win, &dLat, &dLon);
@@ -104,7 +104,7 @@ UnitBox MapVectors::boxForWindow(const Window& win) const {
 
 VecXform MapVectors::makeXform(const Window& win) const {
   const float mpd = (float)info_.mPerDeg, u = (float)info_.unitM;
-  const float cosLat = cosf((float)win.lat * kD2Rf);
+  const float cosLat = isfinite(win.cosLat) ? win.cosLat : cosf((float)win.lat * kD2Rf);
   const float th = win.headingDeg * kD2Rf, ct = cosf(th), sn = sinf(th);
   float dLat, dLon;
   originOffsetDeg(info_, win, &dLat, &dLon);

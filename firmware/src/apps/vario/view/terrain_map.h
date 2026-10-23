@@ -142,7 +142,7 @@ class TerrainMap {
   terrain::VecXform jxf_;
   terrain::UnitBox jbox_;
   const terrain::MapVectors* jvec_ = nullptr;
-  int jw_ = 0, jh_ = 0, jsw_ = 0, jxs_ = 0, jy_ = 0, jdata_ = 0, jpass_ = 0, jlabels_ = 0;
+  int jw_ = 0, jh_ = 0, jsw_ = 0, jxs_ = 0, jy_ = 0, jdata_ = 0, jpass_ = 0;
   bool jActive_ = false;                                // road / town iterator started
   float jhdg_ = 0, jmPerPx_ = 0, jpilotY_ = 0, jsunAz_ = 0, jsunEl_ = 0;
   bool jsunOn_ = false;

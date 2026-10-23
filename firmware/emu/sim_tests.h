@@ -1410,7 +1410,7 @@ static void in_the_box() {
   auto run = [&](uint32_t ms) { for (uint32_t e = now + ms; now < e; now += 10) b.tick(now); };
   auto tap = [&](Key k) { b.r.input.setKey(k, true, now); run(30); b.r.input.setKey(k, false, now); run(30); };
   b.boot(0);
-  CHECK(b.registry.count() == 5 && strcmp(b.registry.at(2).title, "Sim") == 0);
+  CHECK(b.registry.count() == 6 && strcmp(b.registry.at(2).title, "Sim") == 0);
   b.host.start(Box::APP_LAUNCHER, now);
   run(300);
   simshots::dumpPanel(b.r.panel, "out", "sim_launcher");

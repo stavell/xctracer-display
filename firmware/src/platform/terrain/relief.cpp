@@ -73,7 +73,7 @@ bool Terrain::reliefSetup(const Window& win, int interval, ReliefCtx* c) const {
   split(2 * (int64_t)(clon - L.lon0_e7) - L.dx_e7, 2 * L.dx_e7, &c->c0, &c->fc0);
   const float scale = win.mPerPx;
   const float cellH = L.dy_e7 * 1e-7f * (float)info_.mPerDeg;
-  const float cellW = L.dx_e7 * 1e-7f * (float)info_.mPerDeg * cosf((float)(win.lat * 0.017453292519943295));
+  const float cellW = L.dx_e7 * 1e-7f * (float)info_.mPerDeg * win.eastCos();
   const float th = win.headingDeg * 0.017453292f;
   c->ct = cosf(th);
   c->sn = sinf(th);

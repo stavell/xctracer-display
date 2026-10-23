@@ -1589,3 +1589,23 @@ screens were byte-identical before and after the drawing-primitive changes.
   y - gf)`): a swap changes 1-10 of ~13000 compared pixels (was ~3500); test `sim_topdown` checks every frame of a 400-frame flight
   against the previous one moved by the same whole pixels as a ground point.
 
+
+## Map app (2026-10-23)
+
+`apps/map` over `platform/map/map_view`: the pack as a browsable map, north up or compass up, GPS from the tracer (`IFixSource`).
+
+- **One projection, tiles.** Global pixels = the pack's vector units scaled to the zoom (x east, y south of the pack origin, the fixed
+  cos0). `Window::cosLat` (new, NaN = the old behaviour) lets every relief window use that cos instead of its own centre's, so 64 x 64
+  tiles rendered one at a time join exactly and the roads (vector units) land on the relief. Test `map_view_tiles`: two views 37 / 23 px
+  apart, all tiles rendered separately, 0 pixels differ on the overlap at 25 and 100 m/px.
+- **Tile = 1 kB**: contours 1 bit (dotted, on the ground grid), hillshade 4 bit at half resolution (32 x 32). The grey is dithered at draw
+  time: north up on the ground's grid (the picture moves with the ground when panned, no crawl), turned on the screen's grid (a turned
+  Bayer pattern beats against itself). Pool of 52 slots: the screen needs at most ~40 turned 45 degrees; the rest prefetches 64 px ahead.
+  A finished tile in the margin draws no frame.
+- **Shading**: the vario's light style (darkest 10) was barely visible on its own. Compared exaggeration / knee / darkest
+  1.5 / 0.15 / 10, 2 / 0.10 / 6, 2.5 / 0.06 / 3, and flat 15 with darkest 3 at 100 and 50 m/px over Sopot: 2 / 0.10 / 6 shows the relief and keeps
+  contours, roads and names readable; darkest 3 turns north faces nearly black (the pilot arrow and labels vanish there).
+- **Roads and towns live**: decoded per frame (two road passes + towns) through the view's `Window`, so labels stay upright in compass mode
+  and are never cut at tile edges. Shared with the vario's map page through `platform/map/map_draw` (renders byte-identical before / after).
+- **RAM**: MapApp 83 kB on the PC, under VarioBox and SimBox: the arena is unchanged. (The arena is 99.1 kB since the 3D speed-up commit:
+  `SimBox` 99280 B; box .heap 71.8 kB.)

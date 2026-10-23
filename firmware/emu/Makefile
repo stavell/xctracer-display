@@ -16,13 +16,14 @@ M := ../src/apps/games/sim
 GFXHOST := out/Adafruit_GFX_host.cpp
 
 STORAGE := $P/storage/pack_header.cpp $P/storage/pack_proto.cpp $P/storage/pack_loader.cpp $P/storage/flash_log.cpp $P/storage/log_shell.cpp
-TERRAIN := $P/terrain/crc32.cpp $P/terrain/tile_codec.cpp $P/terrain/terrain.cpp $P/terrain/relief.cpp $P/terrain/map_vectors.cpp
+TERRAIN := $P/terrain/crc32.cpp $P/terrain/tile_codec.cpp $P/terrain/terrain.cpp $P/terrain/relief.cpp $P/terrain/map_vectors.cpp $P/map/map_draw.cpp $P/map/map_view.cpp
 TETRIS := $T/tetris.cpp $T/tetris_view.cpp $T/tetris_app.cpp
 G3D := $P/gfx3d/glider.cpp $P/gfx3d/height_cache.cpp $P/gfx3d/air.cpp $P/gfx3d/world.cpp $P/gfx3d/voxel.cpp $P/gfx3d/chase.cpp $P/gfx3d/sky3d.cpp
 SIM := $(G3D) $M/topdown.cpp $M/sim_hud.cpp $M/sim_app.cpp
 LAUNCHER := $L/launcher_app.cpp $L/launcher_view.cpp
 INTRO := ../src/apps/intro/intro_app.cpp
 LEVEL := ../src/apps/examples/level/level_app.cpp
+MAPAPP := ../src/apps/map/map_app.cpp
 COMPASS3D := ../src/apps/compass3d/compass3d.cpp ../src/apps/compass/compass_app.cpp
 SETTINGS := $S/settings_app.cpp $S/settings_view.cpp $P/settings/box_settings.cpp $P/settings/compass_cal.cpp $P/settings/cal_view.cpp
 GFX := $P/util/fastmem.cpp $P/gfx/bitmap1.cpp $P/gfx/gray.cpp $P/gfx/atlas.cpp $P/gfx/font.cpp $P/gfx/shapes.cpp $P/gfx/ui.cpp $P/gfx/widgets/compass_dial.cpp $P/gfx/icons.cpp $P/ui/system_sheet.cpp
@@ -50,8 +51,8 @@ define RULES
 $(foreach s,$(2),$(eval $(call RULE,$(1),$(s),$(3))))
 endef
 
-LIBSRC_SAN := $(VARIO) $(GFX) $(TETRIS) $(SIM) $(INTRO) $(COMPASS3D) $(LEVEL) $(LAUNCHER) $(SETTINGS) $(TERRAIN) $(STORAGE) $(GFXHOST)
-LIBSRC_O2 := $(SIM) $(INTRO) $(COMPASS3D) $(GFX) $(VARIO) $(SETTINGS) $(TETRIS) $(LAUNCHER) $(TERRAIN) $(GFXHOST)
+LIBSRC_SAN := $(VARIO) $(GFX) $(TETRIS) $(SIM) $(INTRO) $(MAPAPP) $(COMPASS3D) $(LEVEL) $(LAUNCHER) $(SETTINGS) $(TERRAIN) $(STORAGE) $(GFXHOST)
+LIBSRC_O2 := $(SIM) $(INTRO) $(MAPAPP) $(COMPASS3D) $(GFX) $(VARIO) $(SETTINGS) $(TETRIS) $(LAUNCHER) $(TERRAIN) $(GFXHOST)
 
 $(eval $(call RULES,san,$(LIBSRC_SAN) emu_main.cpp tests.cpp,SAN_F))
 $(eval $(call RULES,o2,$(LIBSRC_O2) sim_bench.cpp sim_tests_main.cpp sim_demo.cpp play.cpp voxel_digest.cpp,O2_F))

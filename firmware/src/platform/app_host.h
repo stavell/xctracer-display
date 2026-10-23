@@ -133,7 +133,7 @@ namespace ButtonFsmMs { const uint32_t kLong = 700, kHold = 3000; }   // ButtonF
 
 class AppHost : public IAppNav {
  public:
-  static const int MAX_APPS = 8;
+  static const int MAX_APPS = 10;
   // Simulation steps per game frame at most: the late frame's own step plus one extra. More would make a slow frame slower (every
   // extra step costs time the next frame does not have: measured on the device, 4 x a 16 ms step = 65 ms, 10 fps); a game that
   // cannot keep up runs in slow motion instead (the missed slots count as dropped).

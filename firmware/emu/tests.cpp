@@ -1658,6 +1658,7 @@ static void test_app_anim_cadence() {
 #include "map_tests.h"
 #include "sharp_frame_tests.h"
 #include "box_tests.h"
+#include "mapapp_tests.h"
 #include "sheet_tests.h"
 #include "terrain_tests.h"
 #include "storage_tests.h"
@@ -1771,6 +1772,8 @@ static void test_app_host() {
 struct TestEntry { const char* name; void (*fn)(); };
 static void run_gfx() { int ops = 0; gt::run(ops); printf("gfx: %d random canvas ops compared\n", ops); }
 static const TestEntry kTests[] = {
+  {"map_view_tiles", map_view_tiles},
+  {"map_app_box", map_app_box},
   {"test_app_host", test_app_host},
   {"gfx", run_gfx},
   {"test_spsc_ring", test_spsc_ring},

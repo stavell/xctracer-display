@@ -3,6 +3,7 @@
 #include <string.h>
 #include "platform/gfx/gray.h"
 #include "platform/gfx/shapes.h"
+#include "platform/map/map_draw.h"
 
 using namespace terrain;
 
@@ -23,30 +24,7 @@ float sunDelta(float az0, float el0, float az1, float el1) {
   return da > de ? da : de;
 }
 
-void thickLine(const Bitmap1& bm, int x0, int y0, int x1, int y1, int w, DrawMode m) {
-  if (w <= 1) { line(bm, x0, y0, x1, y1, m); return; }
-  for (int a = -(w - 1) / 2; a <= w / 2; a++)
-    for (int b = -(w - 1) / 2; b <= w / 2; b++) line(bm, x0 + a, y0 + b, x1 + a, y1 + b, m);
-}
-
-// Skip a segment whose bounding box misses the bitmap by a margin: the polylines come from 10 km blocks and
-// mostly lie off the window, and line() clips pixel by pixel.
-bool segVisible(int x0, int y0, int x1, int y1, int w, int h, int m) {
-  if ((x0 < -m && x1 < -m) || (x0 > w + m && x1 > w + m)) return false;
-  if ((y0 < -m && y1 < -m) || (y0 > h + m && y1 > h + m)) return false;
-  return true;
-}
-
-struct Rect { int x0, y0, x1, y1; };
-constexpr int kReserved = 5, kMaxLabels = 40;
-Rect gLabels[kReserved + kMaxLabels];                                // static: the loop task has 4 KB of stack
-
-// Float to int for pixel coordinates: a polyline vertex far outside the window must not overflow the int.
-int toPx(float v) {
-  if (!(v > -30000.0f)) return -30000;
-  if (v > 30000.0f) return 30000;
-  return (int)floorf(v);
-}
+mapdraw::Labels gLabels;                                             // static: the loop task has 4 KB of stack
 
 }  // namespace
 
@@ -114,7 +92,7 @@ void TerrainMap::startJob(const Window& win, const Params& q, uint32_t nowMs) {
   jmPerPx_ = q.mPerPx;
   jpilotY_ = jh_ * 0.5f + (isfinite(q.headingDeg) ? kAhead * jh_ : 0.0f);
   jStartMs_ = nowMs;
-  jxs_ = 0; jy_ = 0; jdata_ = 0; jpass_ = 0; jlabels_ = kReserved; jActive_ = false;
+  jxs_ = 0; jy_ = 0; jdata_ = 0; jpass_ = 0; jActive_ = false;
   jsw_ = 0;
   jsunOn_ = false;
   buildBitmap().fill(DRAW_SET);
@@ -251,17 +229,7 @@ bool TerrainMap::roadUnit(MapVectors& vec) {
     jActive_ = false;
     return ++jpass_ >= 2;
   }
-  if (r->cls > 3) return false;                                       // only motorway .. secondary roads, never anything else (rail)
-  static const int core[4] = {4, 3, 3, 2};                              // motorway, trunk, primary, secondary: always a solid line 2+ px wide
-  const Bitmap1 bm = buildBitmap();
-  const int cw = core[r->cls];
-  for (int i = 0; i + 1 < r->n; i++) {
-    const int x0 = toPx(jxf_.px(r->x[i], r->y[i])), y0 = toPx(jxf_.py(r->x[i], r->y[i]));
-    const int x1 = toPx(jxf_.px(r->x[i + 1], r->y[i + 1])), y1 = toPx(jxf_.py(r->x[i + 1], r->y[i + 1]));
-    if (!segVisible(x0, y0, x1, y1, jw_, jh_, 4)) continue;
-    if (jpass_ == 0) thickLine(bm, x0, y0, x1, y1, cw + 2, DRAW_SET);   // casings first, so crossings stay clean
-    else thickLine(bm, x0, y0, x1, y1, cw, DRAW_CLEAR);
-  }
+  mapdraw::roadPoly(buildBitmap(), jxf_, *r, jpass_, jw_, jh_);
   return false;
 }
 
@@ -272,13 +240,14 @@ bool TerrainMap::townUnit(MapVectors& vec, const Font1* font) {
   if (!jActive_) {
     // The screen draws the north marker, the wind arrow, the altitude box and the scale bar over the map (see
     // drawMapPage in screens.cpp): names stay clear of those corners.
-    gLabels[0] = Rect{0, 0, 50, 54};
-    gLabels[1] = Rect{W - 46, 0, W, 42};
-    gLabels[2] = Rect{0, H - 50, 116, H};
-    gLabels[3] = Rect{W - 112, H - 32, W, H};
+    gLabels.clear();
+    gLabels.reserve(mapdraw::Rect{0, 0, 50, 54});
+    gLabels.reserve(mapdraw::Rect{W - 46, 0, W, 42});
+    gLabels.reserve(mapdraw::Rect{0, H - 50, 116, H});
+    gLabels.reserve(mapdraw::Rect{W - 112, H - 32, W, H});
     const int pcx = W / 2, pcy = (int)jpilotY_;                      // where the pilot symbol will sit
-    gLabels[4] = Rect{pcx - 26, pcy - 26, pcx + 26, pcy + 26};
-    jlabels_ = kReserved;
+    gLabels.reserve(mapdraw::Rect{pcx - 26, pcy - 26, pcx + 26, pcy + 26});
+   
     towns_.begin(vec, jbox_);
     jActive_ = true;
   }
@@ -288,24 +257,11 @@ bool TerrainMap::townUnit(MapVectors& vec, const Font1* font) {
   const float px = jxf_.px((float)t.x, (float)t.y), py = jxf_.py((float)t.x, (float)t.y);
   if (!(px >= 4 && py >= 4 && px < W - 4 && py < H - 4)) return false;
   const int x = (int)px, y = (int)py;
-  fillDisc(bm, x, y, t.city ? 5 : 4, DRAW_SET);
-  fillDisc(bm, x, y, t.city ? 3 : 2, DRAW_CLEAR);
-  int& nl = jlabels_;
-  if (!font || !t.latin[0] || nl >= kReserved + kMaxLabels) return false;
-  const int tw = textWidth(t.latin, *font);
-  Rect r{x + 6, y - 14, x + 6 + tw, y + 2};
-  if (r.x1 >= W - 1) { r.x0 = x - 6 - tw; r.x1 = x - 6; }                // no room on the right: left of the dot
-  bool hit = r.x0 < 1;
-  for (int i = 0; i < nl && !hit; i++) {
-    const Rect& o = gLabels[i];
-    hit = !(r.x0 > o.x1 + 2 || r.x1 < o.x0 - 2 || r.y0 > o.y1 || r.y1 < o.y0);
-  }
-  if (hit) return false;
-  gLabels[nl++] = r;
-  for (int dx = -1; dx <= 1; dx++)
-    for (int dy = -1; dy <= 1; dy++)
-      if (dx || dy) drawText(bm, r.x0 + dx, r.y1 - 3 + dy, t.latin, *font, DRAW_SET);
-  drawText(bm, r.x0, r.y1 - 3, t.latin, *font, DRAW_CLEAR);
+  mapdraw::townDot(bm, x, y, t.city);
+  if (!font || !t.latin[0]) return false;
+  mapdraw::Rect r;
+  if (!gLabels.place(x, y, textWidth(t.latin, *font), W, &r)) return false;
+  mapdraw::haloText(bm, r.x0, r.y1 - 3, t.latin, *font);
   return false;
 }
 

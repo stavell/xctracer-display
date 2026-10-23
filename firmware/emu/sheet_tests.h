@@ -242,8 +242,8 @@ static void box() {
     b.host.start(Box::APP_LAUNCHER, 0);
     u.run(300);
     CHECK(!b.host.sixButtons());
-    for (int i = 0; i < 4; i++) u.shortp();
-    CHECK(b.launcher.selected() == 4);                                  // Vario, Compass, Sim, Tetris, Settings
+    for (int i = 0; i < 5; i++) u.shortp();
+    CHECK(b.launcher.selected() == 5);                                  // Vario, Compass, Sim, Tetris, Map, Settings
     u.longp();
     CHECK(b.host.active() == &b.settings);
     u.shortp();
@@ -262,8 +262,8 @@ static void box() {
     b.host.start(Box::APP_LAUNCHER, 0);
     u.run(300);
     auto tap = [&](Key k) { b.r.input.setKey(k, true, u.now); u.run(50); b.r.input.setKey(k, false, u.now); u.run(50); };
-    tap(KEY_DOWN); tap(KEY_DOWN);
-    CHECK(b.launcher.selected() == 4 && b.host.sixButtons());
+    tap(KEY_DOWN); tap(KEY_DOWN); tap(KEY_RIGHT);
+    CHECK(b.launcher.selected() == 5 && b.host.sixButtons());
     tap(KEY_ACTION);
     CHECK(b.host.active() == &b.settings);
     tap(KEY_DOWN);

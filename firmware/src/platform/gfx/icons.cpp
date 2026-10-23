@@ -72,6 +72,19 @@ void drawIcon(const Bitmap1& bm, IconId id, int x, int y, DrawMode ink) {
       }
       break;
     }
+    case ICON_MAP: {                                      // a folded map (three panels) with a position pin
+      static const int8_t px[4] = {2, 17, 31, 46}, top[4] = {8, 4, 8, 4};
+      for (int t = 0; t < 2; t++)
+        for (int i = 0; i < 3; i++) {
+          line(bm, x + px[i], y + top[i] + t, x + px[i + 1], y + top[i + 1] + t, ink);            // top edge
+          line(bm, x + px[i], y + top[i] + 36 - t, x + px[i + 1], y + top[i + 1] + 36 - t, ink);  // bottom edge
+        }
+      for (int i = 0; i < 4; i++) bm.vspan(x + px[i] - (i == 3), y + top[i], 37, ink);
+      fillDisc(bm, cx, y + 19, 8, ink);
+      for (int r = 0; r < 12; r++) bm.hspan(cx - 6 + r / 2, y + 23 + r, 13 - r, ink);
+      fillDisc(bm, cx, y + 19, 3, paper);
+      break;
+    }
     case ICON_GENERIC: {                                  // a plain rounded square with a dot
       bm.fillRect(x + 4, y + 4, 40, 40, ink);
       bm.fillRect(x + 7, y + 7, 34, 34, paper);

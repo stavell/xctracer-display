@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "platform/gfx/bitmap1.h"
 
-enum IconId : uint8_t { ICON_VARIO, ICON_TETRIS, ICON_COMPASS, ICON_SETTINGS, ICON_SIM, ICON_GENERIC };
+enum IconId : uint8_t { ICON_VARIO, ICON_TETRIS, ICON_COMPASS, ICON_SETTINGS, ICON_SIM, ICON_GENERIC, ICON_MAP };
 
 const int ICON_SIZE = 48;
 

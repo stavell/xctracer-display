@@ -240,8 +240,8 @@ static void box_flow() {
   CHECK(b.host.active() == &b.launcher);
   CHECK(!b.r.power.off);
   CHECK(b.launcher.selected() == 3);
-  // Select the vario again: next x2 (Settings, wraps to the Vario), long.
-  u.shortp(); u.shortp();
+  // Select the vario again: next x3 (Map, Settings, wraps to the Vario), long.
+  u.shortp(); u.shortp(); u.shortp();
   CHECK(b.launcher.selected() == 0);
   u.longp();
   CHECK(b.host.active() == &b.vario);
@@ -386,6 +386,8 @@ static void box_gestures() {
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_SIM);
     u.longp();
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_TETRIS);
+    u.longp();
+    CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_MAP);
     u.longp(); u.longp();                           // Settings is skipped: vario, then Compass
     CHECK(b.keys.v[SLOT_BOOT_APP] == Box::APP_COMPASS);
     u.longp(); u.longp();

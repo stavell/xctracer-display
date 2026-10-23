@@ -7,6 +7,8 @@
 #include "apps/games/tetris/tetris_app.h"
 #include "apps/intro/intro_app.h"
 #include "apps/launcher/launcher_app.h"
+#include "apps/map/map_app.h"
+#include "apps/vario/app/tracer_fix.h"
 #include "apps/settings/settings_app.h"
 #include "apps/compass/compass_app.h"
 #include "apps/vario/app/terrain_kit.h"
@@ -26,14 +28,14 @@ struct MockTilt : sim::ITilt {
 };
 
 struct Box {
-  enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO };
+  enum { APP_VARIO, APP_TETRIS, APP_COMPASS, APP_SETTINGS, APP_LAUNCHER, APP_SIM, APP_INTRO, APP_MAP };
 
   Rig r;                              // panel, switch, battery, tracer, laptop, key store + settings, compass, thermo, power
   MockKeyStore& keys = r.keys;
   WallClock clock;
   AppRegistry registry;
   // Like main_box.cpp: the vario (with its map kit), the compass app, Tetris and the sim share one arena and exist only while they are the active app.
-  static constexpr size_t kArenaBytes = maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(compass::CompassApp), sizeof(TetrisApp)))));
+  static constexpr size_t kArenaBytes = maxSize(sizeof(mapapp::MapApp), maxSize(sizeof(intro::IntroApp), maxSize(sizeof(sim::SimBox), maxSize(sizeof(VarioBox), maxSize(sizeof(compass::CompassApp), sizeof(TetrisApp))))));
   AppArenaStore<kArenaBytes> arena;
   uint32_t seed;
   LazyApp<VarioBox> vario;
@@ -41,6 +43,8 @@ struct Box {
   LazyApp<TetrisApp> tetris;
   LazyApp<sim::SimBox> flightSim;
   LazyApp<intro::IntroApp> introApp;
+  LazyApp<mapapp::MapApp> mapApp;
+  TracerFix tracerFix{r.tracer};      // the map's GPS: the vario's tracer link
   int introNext = APP_VARIO;         // the app the start-up animation hands over to (set by boot())
   LauncherApp launcher;
   SettingsApp settings;
@@ -95,12 +99,18 @@ struct Box {
     return i;
   }
 
+  // Like main_box.cpp: the map opens the pack by itself and takes the position from the tracer link.
+  static mapapp::MapApp* makeMap(void* mem, void* ctx) {
+    Box& b = *static_cast<Box*>(ctx);
+    return new (mem) mapapp::MapApp(b.kit ? b.kit->terrain.reader() : nullptr, b.r.battery, b.r.compass, b.r.settings, &b.tracerFix);
+  }
+
   static AppConfig cfg() { return AppConfig(); }
 
   explicit Box(uint32_t seed = 1)
       : seed(seed), vario(arena, "vario", makeVario, this),
         compassApp(arena, "compass", makeCompass, this), tetris(arena, "tetris", makeTetris, this),
-        flightSim(arena, "flightsim", makeSim, this), introApp(arena, "intro", makeIntro, this),
+        flightSim(arena, "flightsim", makeSim, this), introApp(arena, "intro", makeIntro, this), mapApp(arena, "map", makeMap, this),
         launcher(r.battery, r.power, registry, r.settings, clock), settings(r.battery, r.compass, r.keys, r.settings, registry, "0.1"),
         host(r.panel, r.input), scores(r.keys) {
     host.add(vario);
@@ -110,6 +120,7 @@ struct Box {
     host.add(launcher);
     host.add(flightSim);
     host.add(introApp);
+    host.add(mapApp);
     host.setLauncher(APP_LAUNCHER);
     host.setProbe(&probe);
     host.setLinkGate(&r.links);
@@ -118,6 +129,7 @@ struct Box {
     registry.add("Compass", "& weather", "compass and weather, no tracer", APP_COMPASS, ICON_COMPASS);
     registry.add("Sim", "game", "paraglider on real terrain", APP_SIM, ICON_SIM);
     registry.add("Tetris", "game", "falling blocks", APP_TETRIS, ICON_TETRIS);
+    registry.add("Map", "topo + GPS", "topo map: roads, towns, GPS", APP_MAP, ICON_MAP);
     registry.add("Settings", "setup", "compass, mounting, time", APP_SETTINGS, ICON_SETTINGS, false);
   }
 
