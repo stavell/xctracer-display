@@ -332,6 +332,9 @@ loop restarts the start-up app, with the intro (`PowerNrf::takeResumed()` -> `st
   twice a second), and an awake still screen (launcher, Settings, a vario page with nothing changing) flipped VCOM only when a
   frame changed. The timer is gone; `SharpPanel::keepVcom(now)` in both loops sends the 2-byte VCOM command after a second
   with no transfer (as the clock sleep does). The MI pad (pin 24) is free for a front key.
+  On the box (2026-10-23): the new VCOM path sends 2 bytes on a still screen (`send=83us`); after 9 s in the launcher (flash
+  idle past 5 s) the sim's map read the pack with `fail=0`, so the flash's wake works (that it really powered down is not
+  shown by any status line).
 - Vario-only image: `enableClockSleep()` is never called, `shutdown()` is System OFF exactly as before.
 - Emulator: `Box::tick()` turns `MockPower::requests` into the same state machine (`Box::sleep`); the PC player shows it
   (hold `off`, then hold the switch 1 s, or press R to restart).
@@ -1163,7 +1166,8 @@ aligned word-multiple RAM transfers: reads and page programs go through a 260-by
 address is not aligned (aligned ones go direct, up to 4 kB per call); programs are split at 256-byte pages and padded with 0xFF
 (programming 0xFF changes nothing). Reads: quad I/O (0xEB) once the QE bit (status register 2, bit 1) is set - the driver sets it if
 needed (WRSR 0x01 with both bytes, else 0x31) and checks that two reads (pack start, end of chip) give the same bytes in 4-wire mode
-as in single-wire mode, else falls back to plain fast read. SCK 16 MHz (32 MHz / 2); `QspiFlash::begin(div)` takes another
+as in single-wire mode, else falls back to plain fast read. SCK 32 MHz since 2026-10-23 (was 16; measured on the box: sequential
+6308 -> 11706 KB/s, random 400 B 104 -> 81 us, whole-pack CRC ok, quad check passed); `QspiFlash::begin(div)` takes another
 divisor. Writes use single-wire page program (0x02): the chip's own 0.4-3 ms program time dominates. Erase is started and polled
 (`startErase`, `busy()`), 64 kB blocks where they fit, else 4 kB sectors. WP#/HOLD# (IO2/IO3) are held high in custom instructions.
 

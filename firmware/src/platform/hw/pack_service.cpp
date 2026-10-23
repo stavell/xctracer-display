@@ -6,7 +6,7 @@
 using namespace storage;
 
 void PackService::begin() {
-  flashOk_ = flash_.begin(2);
+  flashOk_ = flash_.begin(1);
   hdrStatus_ = flashOk_ ? readHeader(packView_, &header_) : HDR_BAD;
   hasPack_ = hdrStatus_ == HDR_OK && packHeaderConsistent(packView_, header_.packLen);
   if (flashOk_ && flash_.capacity() >= 2 * kLogBytes) log_.attach(&flash_, flash_.capacity() - kLogBytes);
