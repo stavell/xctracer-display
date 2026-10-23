@@ -291,10 +291,12 @@ void setup() {
   Bluefruit.begin(1, 1);                      // one link to the laptop, one to the vario
   Bluefruit.setName(DISP_NAME);
   Bluefruit.setTxPower(0);
+  Bluefruit.autoConnLed(false);              // the library lights the blue LED while connected and blinks it while advertising (about 1 mA, and a timer every 0.5 s)
   tracer.begin();
   laptop.begin();
 
   pack.begin();
+  pack.flash().setIdleSleepMs(5000);          // deep power-down after 5 s without a read or write; the next access wakes it (a few ms)
   pack.setTimeSink(&pcTime);
   pack.setAppSink(&shellApps);
   boxTerrain.cacheStatus();

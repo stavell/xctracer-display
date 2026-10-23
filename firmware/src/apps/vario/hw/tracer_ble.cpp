@@ -20,6 +20,9 @@ void TracerBle::begin() {
   Bluefruit.Scanner.setRxCallback(onScan);
   Bluefruit.Scanner.restartOnDisconnect(false);
   Bluefruit.Scanner.useActiveScan(true);   // device names often live in the scan response
+  // The tracer sends about 3 lines a second: 50-75 ms between radio events is plenty (the default 20-30 ms is about
+  // 40 events a second, each one waking the radio). Supervision timeout stays 2 s.
+  Bluefruit.Central.setConnIntervalMS(50, 75);
   link_ = cfg_.hasSaved() ? ViewModel::LINK_SEARCHING : ViewModel::LINK_NONE;
   if (cfg_.hasSaved()) startScan(SCAN_LOW, 0);
 }

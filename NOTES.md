@@ -317,6 +317,13 @@ loop restarts the start-up app, with the intro (`PowerNrf::takeResumed()` -> `st
   GPIOTE PORT event -> PPI 15 (`sd_ppi_*`) -> EGU3 -> `SWI3_EGU3_IRQHandler` (the core's GPIOTE handler never clears PORT
   events, so it cannot be used); `attachInterrupt` stays as the fallback, and the `slp ring` line prints `port=1` when the
   SENSE path is active. None of the four is measured (no current meter): guesses from the datasheets and that PR.
+- Awake power, 2026-10-23 (the Arduino core's defaults, not measured): (5) Bluefruit drives the blue LED by itself
+  (`autoConnLed` on by default: blinking while advertising or scanning, from a 0.5 s timer, solid while a link is up), so it was
+  lit or blinking for the whole flight; now `Bluefruit.autoConnLed(false)` in both images. (6) The tracer link used Bluefruit's
+  default connection interval, 20-30 ms (about 40 radio events a second) for about 3 lines a second; now
+  `Central.setConnIntervalMS(50, 75)` in `TracerBle::begin` (the tracer may ask for other values; check `st ...` keeps 3 lines
+  a second). (7) The QSPI flash now powers down after 5 s without an access (`setIdleSleepMs(5000)`, both images): the launcher,
+  Settings and Tetris never read it; the vario's map page, the sim and the intro read it all the time and keep it awake.
 - Vario-only image: `enableClockSleep()` is never called, `shutdown()` is System OFF exactly as before.
 - Emulator: `Box::tick()` turns `MockPower::requests` into the same state machine (`Box::sleep`); the PC player shows it
   (hold `off`, then hold the switch 1 s, or press R to restart).
@@ -1152,10 +1159,10 @@ as in single-wire mode, else falls back to plain fast read. SCK 16 MHz (32 MHz /
 divisor. Writes use single-wire page program (0x02): the chip's own 0.4-3 ms program time dominates. Erase is started and polled
 (`startErase`, `busy()`), 64 kB blocks where they fit, else 4 kB sectors. WP#/HOLD# (IO2/IO3) are held high in custom instructions.
 
-**Deep power-down** is implemented (`powerDown()`, `wake()`, `setIdleSleepMs()` + `idle()` in `PackService::service`), but OFF by
-default: the wake path has to ignore the driver's start-up timeout (the status read of a chip in power-down is not answered) and the
+**Deep power-down** is implemented (`powerDown()`, `wake()`, `setIdleSleepMs()` + `idle()` in `PackService::service`); ON since
+2026-10-23 (5 s idle, see "Power review"; was OFF by default: the wake path has to ignore the driver's start-up timeout (the status read of a chip in power-down is not answered) and the
 effect (about 14 uA of chip standby, plus whatever the idle QSPI peripheral takes) is not measured. TODO(device): measure the battery
-current with and without, then enable it (a few ms to wake on the first map read after the idle time).
+current with and without; a few ms to wake on the first map read after the idle time).
 
 **Loader.** USB serial (the `Serial` CDC the status lines already use). `host/load_pack.py` sends frames `A5 5A | cmd | len | payload |
 crc32` (zlib CRC of cmd, len, payload); the box answers `pk ok ...` / `pk err ...` lines. Commands: HELLO ("LOADPACK": enters load mode; the
