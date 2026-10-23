@@ -62,6 +62,8 @@ void setup() {
   config.begin();                             // mounts the filesystem
   keys.begin();
   config.migrateTo(boxSettings);              // first start after the update: calibration, mounting, time zone move over
+  pinMode(PIN_NEOPIXEL, OUTPUT);              // unused NeoPixel: data held low, so it never lights and never feeds the LED through
+  digitalWrite(PIN_NEOPIXEL, LOW);            // its input once its 3.3 V is cut (the level stays in System OFF too)
   panel.begin();
   compassHw.begin();                          // starts Wire
   thermo.begin();                             // SHT30 on the same bus

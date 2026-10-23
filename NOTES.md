@@ -324,6 +324,10 @@ loop restarts the start-up app, with the intro (`PowerNrf::takeResumed()` -> `st
   `Central.setConnIntervalMS(50, 75)` in `TracerBle::begin` (the tracer may ask for other values; check `st ...` keeps 3 lines
   a second). (7) The QSPI flash now powers down after 5 s without an access (`setIdleSleepMs(5000)`, both images): the launcher,
   Settings and Tetris never read it; the vario's map page, the sim and the intro read it all the time and keep it awake.
+  (8) The board's NeoPixel has no power switch (the Sense variant has `PIN_NEOPIXEL` 8 but no power pin): its resting
+  current, typically 0.5-1 mA for this LED type (not checked for this part), is likely more than the whole rest of the clock
+  sleep. The user cuts its 3.3 V trace; the firmware holds its data pin low from boot (and so in System OFF), so it is not
+  powered through its input. The 3.3 V regulator (AP2112K on Feathers, about 55 uA quiescent) is the next fixed floor.
 - Vario-only image: `enableClockSleep()` is never called, `shutdown()` is System OFF exactly as before.
 - Emulator: `Box::tick()` turns `MockPower::requests` into the same state machine (`Box::sleep`); the PC player shows it
   (hold `off`, then hold the switch 1 s, or press R to restart).

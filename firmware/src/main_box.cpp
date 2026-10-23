@@ -281,6 +281,8 @@ void setup() {
   retention.boot(weather, wallClock, retention_hw::clockSurvived(), millis());   // the history and (after a reset) the clock come back
   retention_hw::keepRam(&retainedBlock, sizeof retainedBlock);                   // and stay powered in System OFF
   pwrlog_hw::begin(readResetReason(), millis());                                 // the event ring of the last run is printed first
+  pinMode(PIN_NEOPIXEL, OUTPUT);              // unused NeoPixel: data held low, so it never lights and never feeds the LED through
+  digitalWrite(PIN_NEOPIXEL, LOW);            // its input once its 3.3 V is cut (the level stays in System OFF too)
   panel.begin();
   compassHw.begin();                          // starts Wire
   thermo.begin();                             // SHT30 on the same bus
