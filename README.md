@@ -319,7 +319,7 @@ internal flash filesystem (28 kB) would hold only 3 minutes, which is why the QS
 | CS (active high) | RX | 1 | P0.24 |
 | EXTCOMIN | not wired (the MI pad is free) | | |
 | DISP, EXTMODE | not wired (breakout defaults) | | |
-| VIN, GND | 3V, GND | | |
+| VIN, GND | power pins (which supply: not recorded) | | |
 | User switch | on board | 7 (`PIN_BUTTON1`) | P1.02, active low |
 
 - Display: Adafruit SHARP Memory Display breakout, 2.7" 400x240 monochrome (product 4694), used in
